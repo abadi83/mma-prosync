@@ -60,22 +60,51 @@ const SkuContext = createContext<SkuContextType>({
 });
 
 export function SkuProvider({ children }: { children: React.ReactNode }) {
-  /* Selalu mulai dengan DEFAULT_SKU agar SSR & client hydration konsisten.
-     Data dari localStorage dimuat setelah mount (useEffect). */
   const [skus, setSkus] = useState<SkuItem[]>(DEFAULT_SKU);
   const [isHydrated, setIsHydrated] = useState(false);
 
+  // Load data: server API → localStorage → DEFAULT
   useEffect(() => {
-    const stored = loadFromStorage();
-    if (stored && stored.length > 0) {
-      setSkus(stored);
+    async function load() {
+      try {
+        // 1. Coba dari server API (shared data)
+        const res = await fetch('/api/data?key=mma_sku_data');
+        if (res.ok) {
+          const json = await res.json();
+          if (json.data && json.data.length > 0) {
+            setSkus(json.data);
+            // Update localStorage cache
+            try { localStorage.setItem(SKU_STORAGE, JSON.stringify(json.data)); } catch {}
+            setIsHydrated(true);
+            return;
+          }
+        }
+      } catch {}
+
+      // 2. Fallback ke localStorage
+      const stored = loadFromStorage();
+      if (stored && stored.length > 0) {
+        setSkus(stored);
+      }
+      setIsHydrated(true);
     }
-    setIsHydrated(true);
+    load();
   }, []);
 
+  // Save: localStorage (cache) + server API (shared)
   useEffect(() => {
-    if (!isHydrated) return; // jangan timpa localStorage sebelum data asli termuat
-    try { localStorage.setItem(SKU_STORAGE, JSON.stringify(skus.slice(0, 5000))); } catch {}
+    if (!isHydrated) return;
+    const data = skus.slice(0, 5000);
+    // Cache lokal
+    try { localStorage.setItem(SKU_STORAGE, JSON.stringify(data)); } catch {}
+    // Sync ke server (shared)
+    try {
+      fetch('/api/data', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'mma_sku_data', data }),
+      }).catch(() => {});
+    } catch {}
   }, [skus, isHydrated]);
 
   const getSku = useCallback((skuCode: string) => skus.find(s => s.sku === skuCode), [skus]);
