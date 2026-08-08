@@ -1,0 +1,1615 @@
+'use client';
+
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import { useSkus, type SkuItem } from '@/app/context/SkuContext';
+import { useAkuntansi } from '@/app/context/AkuntansiContext';
+import InvoiceExport, { type InvoicePOData, type InvoicePOItem, InvoicePreview } from '@/app/components/InvoicePO';
+import KoreksiPOTab from '@/app/pembelian/components/KoreksiPOTab';
+
+/* ================================================================ */
+/* Types                                                             */
+/* ================================================================ */
+
+interface SupplierItem { id: string; nama: string; kontak: string; alamat: string; }
+
+const SUPPLIER_STORAGE = 'mma_supplier_master';
+
+const DEFAULT_SUPPLIERS: SupplierItem[] = [
+  { id:'s-1',nama:'PT Sinar Jaya Steel',kontak:'021-5555-1234',alamat:'Jl. Industri Raya No. 45, Cikarang, Bekasi' },
+  { id:'s-2',nama:'UD Sumber Bangunan',kontak:'0813-9876-5432',alamat:'Jl. Raya Bogor KM 12, Cibinong' },
+  { id:'s-3',nama:'CV Teknik Makmur',kontak:'0811-2233-4455',alamat:'Jl. Pangeran Jayakarta No. 88, Jakarta Pusat' },
+  { id:'s-4',nama:'PT Plasma Pack Indonesia',kontak:'021-8888-7777',alamat:'Kawasan Industri Pulogadung Blok C-12, Jakarta Timur' },
+  { id:'s-5',nama:'Toko Listrik Jaya',kontak:'0856-1111-2222',alamat:'Jl. Kenari No. 25, Pasar Baru, Jakarta Pusat' },
+  { id:'s-6',nama:'PT Cat Maju Jaya',kontak:'021-6666-9999',alamat:'Jl. Daan Mogot KM 8, Jakarta Barat' },
+  { id:'s-7',nama:'UD Aluminium Sejahtera',kontak:'0815-4444-8888',alamat:'Jl. Raya Serpong No. 120, Tangerang Selatan' },
+  { id:'s-8',nama:'CV Baut Nusantara',kontak:'0812-7777-3333',alamat:'Jl. Kramat Jaya No. 56, Senen, Jakarta Pusat' },
+  { id:'s-9',nama:'Toko ATK & Packing',kontak:'0857-2222-1111',alamat:'Jl. Mangga Dua Raya No. 30, Jakarta Utara' },
+  { id:'s-10',nama:'PT Sanitary Utama',kontak:'021-3333-5555',alamat:'Jl. Taman Sari No. 15, Jakarta Barat' },
+];
+
+function loadSuppliers(): SupplierItem[] {
+  if (typeof window === 'undefined') return DEFAULT_SUPPLIERS;
+  try { const raw = localStorage.getItem(SUPPLIER_STORAGE); return raw ? JSON.parse(raw) : DEFAULT_SUPPLIERS; }
+  catch { return DEFAULT_SUPPLIERS; }
+}
+
+/* ── Payment Method ── */
+type MetodeBayar = 'cash' | 'transfer' | 'dp' | 'kontrabon';
+const METODE_OPTIONS: { value: MetodeBayar; label: string; icon: string }[] = [
+  { value: 'cash', label: 'Cash / Tunai', icon: '💵' },
+  { value: 'transfer', label: 'Transfer', icon: '🏦' },
+  { value: 'dp', label: 'DP (Down Payment)', icon: '📋' },
+  { value: 'kontrabon', label: 'Kontrabon / Bon', icon: '📄' },
+];
+
+/* ── HPP SKU Purchase Record ── */
+interface HppPurchase {
+  id: string;
+  noPO: string;
+  sku: string;
+  namaSku: string;
+  supplierId: string;
+  supplierNama: string;
+  qty: number;
+  hargaBeli: number;
+  total: number;
+  metodeBayar: MetodeBayar;
+  dibayar: number;       // jumlah yang sudah dibayar (untuk DP: nominal DP; Cash/Transfer: full)
+  sisaTagihan: number;   // total - dibayar (0 = lunas)
+  tanggal: string;
+  jatuhTempo: string;    // untuk kontrabon
+  lunas: boolean;
+  petugasLogistik?: string;  // Nama petugas yang menjemput PO (cash: yg talangi dulu)
+  pickupStatus?: 'belum' | 'sedang' | 'sampai'; // status penjemputan oleh logistik
+  fotoBase64?: string;   // foto nota/invoice (compressed)
+  namaFileFoto?: string;
+}
+
+const HPP_STORAGE = 'mma_hpp_purchases';
+
+/* ── Kompresi gambar sebelum simpan ke localStorage ── */
+function compressImage(file: File): Promise<{ base64: string; nama: string }> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const maxW = 800; const maxH = 600;
+        let w = img.width; let h = img.height;
+        if (w > maxW) { h = (h * maxW) / w; w = maxW; }
+        if (h > maxH) { w = (w * maxH) / h; h = maxH; }
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        const ctx = canvas.getContext('2d')!;
+        ctx.drawImage(img, 0, 0, w, h);
+        resolve({ base64: canvas.toDataURL('image/jpeg', 0.6), nama: file.name });
+      };
+      img.onerror = () => reject(new Error('Gagal memuat gambar.'));
+      img.src = reader.result as string;
+    };
+    reader.onerror = () => reject(new Error('Gagal membaca file.'));
+    reader.readAsDataURL(file);
+  });
+}
+
+/* Auto-generate No PO */
+function generateNoPO(existing: HppPurchase[]): string {
+  const now = new Date();
+  const yymmdd = `${String(now.getFullYear()).slice(2)}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}`;
+  const todayCount = existing.filter(p => p.noPO.startsWith(`PO-${yymmdd}`)).length + 1;
+  return `PO-${yymmdd}-${String(todayCount).padStart(3,'0')}`;
+}
+
+/* ── OPEX Purchase Record ── */
+interface OpexPurchase {
+  id: string;
+  namaItem: string;
+  kategori: string;
+  qty: number;
+  satuan: string;
+  hargaSatuan: number;
+  total: number;
+  supplierNama: string;
+  tanggal: string;
+}
+
+const OPEX_STORAGE = 'mma_opex_purchases';
+
+/* ── Biaya Operasional Record ── */
+interface BiayaOp {
+  id: string;
+  deskripsi: string;
+  kategori: string;
+  jumlah: number;
+  tanggal: string;
+}
+
+const BIAYA_STORAGE = 'mma_biaya_operasional';
+
+/* ================================================================ */
+/* Tab type                                                          */
+/* ================================================================ */
+type Tab = 'dashboard' | 'hpp' | 'opex' | 'biaya' | 'arsip' | 'koreksi';
+
+const TABS: { key: Tab; label: string; icon: string }[] = [
+  { key: 'dashboard', label: 'Dashboard', icon: '📊' },
+  { key: 'hpp', label: 'Pembelian HPP SKU', icon: '📦' },
+  { key: 'opex', label: 'Pembelian OPEX', icon: '📋' },
+  { key: 'biaya', label: 'Biaya Operasional', icon: '💸' },
+  { key: 'arsip', label: 'Arsip Invoice', icon: '🗄️' },
+  { key: 'koreksi', label: 'Koreksi PO', icon: '⚠️' },
+];
+
+/* ── Kategori OPEX ── */
+const OPEX_KATEGORI = ['Packing & Kemasan', 'ATK & Kantor', 'Kebersihan', 'Peralatan', 'Lainnya'];
+const OPEX_SATUAN = ['pcs', 'roll', 'pack', 'kg', 'liter', 'set', 'box'];
+
+/* ── Kategori Biaya Operasional ── */
+const BIAYA_KATEGORI = ['Listrik & Air', 'Internet & Pulsa', 'Transport & BBM', 'Sewa Tempat', 'Gaji & Upah', 'Marketing & Iklan', 'Maintenance', 'Lainnya'];
+
+/* ================================================================ */
+/* Main Page                                                         */
+/* ================================================================ */
+export default function PembelianPage() {
+  const [tab, setTab] = useState<Tab>('dashboard');
+
+  return (
+    <main className="mx-auto flex min-h-screen max-w-6xl flex-col gap-5 px-4 py-6 sm:px-6 lg:px-8">
+      {/* Header */}
+      <header className="rounded-3xl bg-gradient-to-br from-emerald-700 via-emerald-500 to-emerald-300 p-5 text-white shadow-lg sm:p-7">
+        <p className="text-xs font-semibold uppercase tracking-[0.25em] text-emerald-100 sm:text-sm">Purchasing</p>
+        <h1 className="mt-2 text-2xl font-bold sm:text-3xl">Pembelian & Biaya</h1>
+        <p className="mt-1 text-sm text-emerald-100 sm:text-base">Catat pembelian HPP SKU, OPEX packing & ATK, dan biaya operasional harian.</p>
+      </header>
+
+      {/* Tab Navigation */}
+      <nav className="flex gap-1 overflow-x-auto rounded-2xl bg-white p-1 shadow-sm" role="tablist">
+        {TABS.map(t => (
+          <button
+            key={t.key}
+            role="tab"
+            aria-selected={tab === t.key}
+            onClick={() => setTab(t.key)}
+            className={`flex shrink-0 items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold transition sm:px-5 sm:text-sm ${
+              tab === t.key
+                ? 'bg-emerald-500 text-white shadow'
+                : 'text-slate-600 hover:bg-emerald-50 hover:text-emerald-700'
+            }`}
+          >
+            <span className="text-base sm:text-lg">{t.icon}</span>
+            <span className="hidden sm:inline">{t.label}</span>
+          </button>
+        ))}
+      </nav>
+
+      {/* Tab Content */}
+      <section className="card-blue">
+        {tab === 'dashboard' && <DashboardTab />}
+        {tab === 'hpp' && <HppSkuTab />}
+        {tab === 'opex' && <OpexTab />}
+        {tab === 'biaya' && <BiayaOpTab />}
+        {tab === 'arsip' && <ArsipTab />}
+        {tab === 'koreksi' && <KoreksiPOTab />}
+      </section>
+    </main>
+  );
+}
+
+/* ================================================================ */
+/* TAB 0: Dashboard — grafik & analitik pembelian                    */
+/* ================================================================ */
+function DashboardTab() {
+  const [hppData] = useLocalStorage<HppPurchase[]>(HPP_STORAGE, []);
+  const [opexData] = useLocalStorage<OpexPurchase[]>(OPEX_STORAGE, []);
+  const [biayaData] = useLocalStorage<BiayaOp[]>(BIAYA_STORAGE, []);
+  const [suppliers] = useState<SupplierItem[]>(() => loadSuppliers());
+
+  /* ── Periode ── */
+  const [periode, setPeriode] = useState<'7hari' | '30hari' | 'bulanini' | 'semua'>('bulanini');
+
+  const rangeStart = useMemo(() => {
+    const now = new Date(); now.setHours(23, 59, 59, 999);
+    if (periode === '7hari') { const d = new Date(now); d.setDate(d.getDate() - 6); d.setHours(0, 0, 0, 0); return d.toISOString().slice(0, 10); }
+    if (periode === '30hari') { const d = new Date(now); d.setDate(d.getDate() - 29); d.setHours(0, 0, 0, 0); return d.toISOString().slice(0, 10); }
+    if (periode === 'bulanini') return `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`;
+    return '2000-01-01';
+  }, [periode]);
+
+  const hppFiltered = useMemo(() => hppData.filter(p => p.tanggal >= rangeStart), [hppData, rangeStart]);
+  const opexFiltered = useMemo(() => opexData.filter(p => p.tanggal >= rangeStart), [opexData, rangeStart]);
+  const biayaFiltered = useMemo(() => biayaData.filter(p => p.tanggal >= rangeStart), [biayaData, rangeStart]);
+
+  /* ── KPI Cards ── */
+  const totalHpp = hppFiltered.reduce((s, p) => s + p.total, 0);
+  const totalOpex = opexFiltered.reduce((s, p) => s + p.total, 0);
+  const totalBiaya = biayaFiltered.reduce((s, p) => s + p.jumlah, 0);
+  const totalUtang = hppFiltered.filter(p => !p.lunas).reduce((s, p) => s + p.sisaTagihan, 0);
+  // Hitung PO unik (satu PO bisa multi SKU)
+  const uniquePOs = new Set(hppFiltered.map(p => p.noPO));
+  const totalPo = uniquePOs.size;
+  const poLunasSet = new Set(hppFiltered.filter(p => p.lunas).map(p => p.noPO));
+  // PO lunas = semua line item dalam PO itu lunas
+  const poLunas = Array.from(uniquePOs).filter(noPO => {
+    const lines = hppFiltered.filter(p => p.noPO === noPO);
+    return lines.every(p => p.lunas);
+  }).length;
+
+  /* ── Top SKU by Qty ── */
+  const topSku = useMemo(() => {
+    const map: Record<string, { sku: string; nama: string; qty: number; total: number }> = {};
+    hppFiltered.forEach(p => {
+      if (!map[p.sku]) map[p.sku] = { sku: p.sku, nama: p.namaSku, qty: 0, total: 0 };
+      map[p.sku].qty += p.qty;
+      map[p.sku].total += p.total;
+    });
+    return Object.values(map).sort((a, b) => b.qty - a.qty).slice(0, 6);
+  }, [hppFiltered]);
+  const maxSkuQty = Math.max(...topSku.map(s => s.qty), 1);
+
+  /* ── Top Supplier by Total ── */
+  const topSupplier = useMemo(() => {
+    const map: Record<string, { id: string; nama: string; total: number; count: number }> = {};
+    hppFiltered.forEach(p => {
+      if (!map[p.supplierId]) map[p.supplierId] = { id: p.supplierId, nama: p.supplierNama, total: 0, count: 0 };
+      map[p.supplierId].total += p.total;
+      map[p.supplierId].count += 1;
+    });
+    return Object.values(map).sort((a, b) => b.total - a.total).slice(0, 6);
+  }, [hppFiltered]);
+  const maxSuppTotal = Math.max(...topSupplier.map(s => s.total), 1);
+
+  /* ── Chart: Tren harian (7/30 hari) ── */
+  const dailyTrend = useMemo(() => {
+    const days: { tgl: string; hpp: number; opex: number; biaya: number }[] = [];
+    const count = periode === '7hari' ? 7 : periode === 'semua' ? 30 : 30;
+    for (let i = count - 1; i >= 0; i--) {
+      const d = new Date(); d.setDate(d.getDate() - i);
+      const tgl = d.toISOString().slice(0, 10);
+      days.push({
+        tgl: tgl.slice(5),
+        hpp: hppData.filter(p => p.tanggal === tgl).reduce((s, p) => s + p.total, 0),
+        opex: opexData.filter(p => p.tanggal === tgl).reduce((s, p) => s + p.total, 0),
+        biaya: biayaData.filter(p => p.tanggal === tgl).reduce((s, p) => s + p.jumlah, 0),
+      });
+    }
+    return days;
+  }, [hppData, opexData, biayaData, periode]);
+  const maxDaily = Math.max(...dailyTrend.map(d => d.hpp + d.opex + d.biaya), 1);
+
+  /* ── OPEX by Kategori ── */
+  const opexByKategori = useMemo(() => {
+    const map: Record<string, number> = {};
+    opexFiltered.forEach(p => { map[p.kategori] = (map[p.kategori] || 0) + p.total; });
+    return Object.entries(map).sort((a, b) => b[1] - a[1]);
+  }, [opexFiltered]);
+  const maxOpexKat = Math.max(...opexByKategori.map(k => k[1]), 1);
+
+  /* ── Biaya by Kategori ── */
+  const biayaByKategori = useMemo(() => {
+    const map: Record<string, number> = {};
+    biayaFiltered.forEach(b => { map[b.kategori] = (map[b.kategori] || 0) + b.jumlah; });
+    return Object.entries(map).sort((a, b) => b[1] - a[1]);
+  }, [biayaFiltered]);
+  const maxBiayaKat = Math.max(...biayaByKategori.map(k => k[1]), 1);
+
+  /* ── Metode Bayar breakdown ── */
+  const metodeBreakdown = useMemo(() => {
+    const map: Record<string, { count: number; total: number }> = {};
+    hppFiltered.forEach(p => {
+      const m = METODE_OPTIONS.find(o => o.value === p.metodeBayar)?.label ?? p.metodeBayar;
+      if (!map[m]) map[m] = { count: 0, total: 0 };
+      map[m].count += 1;
+      map[m].total += p.total;
+    });
+    return Object.entries(map);
+  }, [hppFiltered]);
+
+  /* ── Format Rupiah pendek ── */
+  const fmtRp = (n: number) => {
+    if (n >= 1000000) return `Rp ${(n/1000000).toFixed(1)}jt`;
+    if (n >= 1000) return `Rp ${(n/1000).toFixed(0)}rb`;
+    return `Rp ${n}`;
+  };
+
+  const barColors = ['bg-emerald-400', 'bg-blue-400', 'bg-amber-400', 'bg-purple-400', 'bg-rose-400', 'bg-cyan-400'];
+
+  return (
+    <div>
+      <div className="mb-1 h-1 w-16 rounded-full bg-gradient-to-r from-emerald-500 to-emerald-300" />
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-bold text-slate-800 sm:text-xl">Dashboard Purchasing</h2>
+          <p className="mt-1 text-sm text-slate-500">Analitik pembelian HPP, OPEX, biaya operasional & utang PO.</p>
+        </div>
+        <div className="flex gap-1 rounded-xl bg-slate-100 p-1">
+          {(['7hari','30hari','bulanini','semua'] as const).map(p => (
+            <button key={p} onClick={() => setPeriode(p)}
+              className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${periode === p ? 'bg-white text-emerald-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+              {p === '7hari' ? '7 Hari' : p === '30hari' ? '30 Hari' : p === 'bulanini' ? 'Bulan Ini' : 'Semua'}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* ══════ KPI Cards ══════ */}
+      <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        {[
+          { label: 'Total HPP', value: fmtRp(totalHpp), color: 'bg-emerald-50 border-emerald-200', text: 'text-emerald-700', sub: `${totalPo} PO` },
+          { label: 'Total OPEX', value: fmtRp(totalOpex), color: 'bg-blue-50 border-blue-200', text: 'text-blue-700', sub: `${opexFiltered.length} item` },
+          { label: 'Biaya Ops', value: fmtRp(totalBiaya), color: 'bg-amber-50 border-amber-200', text: 'text-amber-700', sub: `${biayaFiltered.length} catatan` },
+          { label: 'Utang PO', value: fmtRp(totalUtang), color: totalUtang > 0 ? 'bg-red-50 border-red-200' : 'bg-emerald-50 border-emerald-200', text: totalUtang > 0 ? 'text-red-700' : 'text-emerald-700', sub: `${hppFiltered.filter(p=>!p.lunas).length} belum lunas` },
+          { label: 'PO Lunas', value: `${poLunas}`, color: 'bg-green-50 border-green-200', text: 'text-green-700', sub: `dari ${totalPo} PO` },
+          { label: 'Grand Total', value: fmtRp(totalHpp+totalOpex+totalBiaya), color: 'bg-slate-100 border-slate-300', text: 'text-slate-800', sub: 'semua pengeluaran' },
+        ].map((kpi, i) => (
+          <div key={i} className={`rounded-2xl border ${kpi.color} p-3`}>
+            <p className="text-xs text-slate-500">{kpi.label}</p>
+            <p className={`mt-1 text-lg font-bold ${kpi.text}`}>{kpi.value}</p>
+            <p className="text-[10px] text-slate-400">{kpi.sub}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* ══════ Row 1: Tren Harian + Top SKU ══════ */}
+      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+        {/* Tren Harian */}
+        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-3">📈 Tren Pengeluaran Harian</p>
+          <div className="flex items-end gap-[2px] h-32">
+            {dailyTrend.map((d, i) => {
+              const hHpp = (d.hpp / maxDaily) * 100;
+              const hOpex = (d.opex / maxDaily) * 100;
+              const hBiaya = (d.biaya / maxDaily) * 100;
+              return (
+                <div key={i} className="flex-1 flex flex-col items-center gap-1 min-w-[14px]">
+                  <div className="w-full flex flex-col-reverse rounded-t-sm overflow-hidden" style={{ height: '100px' }}>
+                    {d.biaya > 0 && <div className="bg-amber-400 w-full transition-all" style={{ height: `${Math.max(hBiaya, 1)}%` }} title={`Biaya: ${fmtRp(d.biaya)}`} />}
+                    {d.opex > 0 && <div className="bg-blue-400 w-full transition-all" style={{ height: `${Math.max(hOpex, 1)}%` }} title={`OPEX: ${fmtRp(d.opex)}`} />}
+                    {d.hpp > 0 && <div className="bg-emerald-400 w-full transition-all" style={{ height: `${Math.max(hHpp, 1)}%` }} title={`HPP: ${fmtRp(d.hpp)}`} />}
+                  </div>
+                  {(periode === '7hari' || i % 5 === 0 || i === dailyTrend.length - 1) && (
+                    <span className="text-[9px] text-slate-400 whitespace-nowrap">{d.tgl}</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <div className="mt-3 flex items-center gap-4 text-[10px] text-slate-500">
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm bg-emerald-400" /> HPP</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm bg-blue-400" /> OPEX</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm bg-amber-400" /> Biaya</span>
+          </div>
+        </div>
+
+        {/* Top SKU */}
+        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-3">🏆 Top SKU — Qty Dibeli</p>
+          {topSku.length === 0 ? (
+            <p className="text-sm text-slate-400 py-8 text-center">Belum ada data pembelian.</p>
+          ) : (
+            <div className="space-y-2">
+              {topSku.map((s, i) => (
+                <div key={s.sku} className="flex items-center gap-2">
+                  <span className="w-5 text-xs font-bold text-slate-400">#{i+1}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex justify-between text-xs mb-0.5">
+                      <span className="font-mono text-emerald-700 truncate">{s.sku}</span>
+                      <span className="font-semibold text-slate-600 ml-2 shrink-0">{s.qty} pcs</span>
+                    </div>
+                    <div className="h-2 w-full rounded-full bg-slate-100 overflow-hidden">
+                      <div className={`h-full rounded-full ${barColors[i]} transition-all duration-700`} style={{ width: `${(s.qty / maxSkuQty) * 100}%` }} />
+                    </div>
+                    <p className="text-[10px] text-slate-400 truncate mt-0.5">{s.nama}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ══════ Row 2: Top Supplier + Metode Bayar ══════ */}
+      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+        {/* Top Supplier */}
+        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-3">🏭 Top Supplier — Total Pembelian</p>
+          {topSupplier.length === 0 ? (
+            <p className="text-sm text-slate-400 py-8 text-center">Belum ada data pembelian.</p>
+          ) : (
+            <div className="space-y-2">
+              {topSupplier.map((s, i) => (
+                <div key={s.id} className="flex items-center gap-2">
+                  <span className="w-5 text-xs font-bold text-slate-400">#{i+1}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex justify-between text-xs mb-0.5">
+                      <span className="font-medium text-slate-700 truncate">{s.nama}</span>
+                      <span className="font-semibold text-slate-600 ml-2 shrink-0">{fmtRp(s.total)}</span>
+                    </div>
+                    <div className="h-2 w-full rounded-full bg-slate-100 overflow-hidden">
+                      <div className={`h-full rounded-full ${barColors[i]} transition-all duration-700`} style={{ width: `${(s.total / maxSuppTotal) * 100}%` }} />
+                    </div>
+                    <p className="text-[10px] text-slate-400 mt-0.5">{s.count} PO</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Metode Bayar */}
+        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-3">💳 Metode Pembayaran</p>
+          {metodeBreakdown.length === 0 ? (
+            <p className="text-sm text-slate-400 py-8 text-center">Belum ada data pembelian.</p>
+          ) : (
+            <div className="space-y-2">
+              {metodeBreakdown.map(([nama, data], i) => {
+                const maxM = Math.max(...metodeBreakdown.map(m => m[1].total), 1);
+                return (
+                  <div key={nama} className="flex items-center gap-2">
+                    <span className="text-sm">{METODE_OPTIONS.find(o => o.label === nama)?.icon ?? '💳'}</span>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex justify-between text-xs mb-0.5">
+                        <span className="font-medium text-slate-700">{nama}</span>
+                        <span className="font-semibold text-slate-600 ml-2 shrink-0">{fmtRp(data.total)} ({data.count} PO)</span>
+                      </div>
+                      <div className="h-2 w-full rounded-full bg-slate-100 overflow-hidden">
+                        <div className={`h-full rounded-full ${barColors[i]} transition-all duration-700`} style={{ width: `${(data.total / maxM) * 100}%` }} />
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ══════ Row 3: OPEX + Biaya per Kategori ══════ */}
+      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+        {/* OPEX per Kategori */}
+        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-3">📦 OPEX per Kategori</p>
+          {opexByKategori.length === 0 ? (
+            <p className="text-sm text-slate-400 py-8 text-center">Belum ada pembelian OPEX.</p>
+          ) : (
+            <div className="space-y-2">
+              {opexByKategori.map(([kat, tot], i) => (
+                <div key={kat} className="flex items-center gap-2">
+                  <span className="text-sm shrink-0">{['📦','📋','🧹','🔧','📌'][i] ?? '📌'}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex justify-between text-xs mb-0.5">
+                      <span className="font-medium text-slate-700">{kat}</span>
+                      <span className="font-semibold text-blue-600 ml-2 shrink-0">{fmtRp(tot)}</span>
+                    </div>
+                    <div className="h-2 w-full rounded-full bg-slate-100 overflow-hidden">
+                      <div className={`h-full rounded-full ${barColors[i % barColors.length]} transition-all duration-700`} style={{ width: `${(tot / maxOpexKat) * 100}%` }} />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Biaya per Kategori */}
+        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-3">💸 Biaya Operasional per Kategori</p>
+          {biayaByKategori.length === 0 ? (
+            <p className="text-sm text-slate-400 py-8 text-center">Belum ada biaya operasional.</p>
+          ) : (
+            <div className="space-y-2">
+              {biayaByKategori.map(([kat, tot], i) => (
+                <div key={kat} className="flex items-center gap-2">
+                  <span className="text-sm shrink-0">{['⚡','📶','🚗','🏠','👥','📢','🔧','📌'][i] ?? '📌'}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex justify-between text-xs mb-0.5">
+                      <span className="font-medium text-slate-700">{kat}</span>
+                      <span className="font-semibold text-amber-600 ml-2 shrink-0">{fmtRp(tot)}</span>
+                    </div>
+                    <div className="h-2 w-full rounded-full bg-slate-100 overflow-hidden">
+                      <div className={`h-full rounded-full ${barColors[i % barColors.length]} transition-all duration-700`} style={{ width: `${(tot / maxBiayaKat) * 100}%` }} />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ══════ Row 4: Outstanding Utang PO ══════ */}
+      <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4">
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">⚠️ Outstanding Utang PO</p>
+          <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${totalUtang > 0 ? 'bg-red-100 text-red-600' : 'bg-emerald-100 text-emerald-600'}`}>
+            {totalUtang > 0 ? `${hppFiltered.filter(p=>!p.lunas).length} PO belum lunas` : 'Semua lunas ✅'}
+          </span>
+        </div>
+        {hppFiltered.filter(p => !p.lunas).length === 0 ? (
+          <p className="text-sm text-slate-400 py-4 text-center">Tidak ada utang PO. Semua pembelian sudah lunas.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead>
+                <tr className="text-xs uppercase text-red-500 border-b border-red-100">
+                  <th className="pb-2 pr-2 font-semibold">No PO</th>
+                  <th className="pb-2 pr-2 font-semibold">Supplier</th>
+                  <th className="pb-2 pr-2 font-semibold">Total</th>
+                  <th className="pb-2 pr-2 font-semibold">Dibayar</th>
+                  <th className="pb-2 pr-2 font-semibold">Sisa</th>
+                  <th className="pb-2 pr-2 font-semibold">Metode</th>
+                  <th className="pb-2 font-semibold">Jatuh Tempo</th>
+                </tr>
+              </thead>
+              <tbody>
+                {hppFiltered.filter(p => !p.lunas).slice(0, 10).map(p => (
+                  <tr key={p.id} className="border-b border-red-50">
+                    <td className="py-1.5 pr-2 font-mono text-xs text-red-700">{p.noPO}</td>
+                    <td className="py-1.5 pr-2 text-xs text-slate-700">{p.supplierNama}</td>
+                    <td className="py-1.5 pr-2 text-xs">Rp {p.total.toLocaleString('id-ID')}</td>
+                    <td className="py-1.5 pr-2 text-xs text-emerald-600">Rp {p.dibayar.toLocaleString('id-ID')}</td>
+                    <td className="py-1.5 pr-2 text-xs font-bold text-red-600">Rp {p.sisaTagihan.toLocaleString('id-ID')}</td>
+                    <td className="py-1.5 pr-2 text-xs">{p.metodeBayar === 'dp' ? 'DP' : 'Kontrabon'}</td>
+                    <td className="py-1.5 text-xs text-red-500">{p.jatuhTempo || '-'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ================================================================ */
+/* HELPER: load / save localStorage                                  */
+/* ================================================================ */
+
+function useLocalStorage<T>(key: string, fallback: T): [T, React.Dispatch<React.SetStateAction<T>>] {
+  const [val, setVal] = useState<T>(fallback);
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => {
+    try { const raw = localStorage.getItem(key); if (raw) setVal(JSON.parse(raw)); } catch {}
+    setHydrated(true);
+  }, [key]);
+  useEffect(() => {
+    if (!hydrated) return;
+    try { localStorage.setItem(key, JSON.stringify(val)); } catch {}
+  }, [val, key, hydrated]);
+  return [val, setVal];
+}
+
+/* ================================================================ */
+/* TAB 1: Pembelian HPP SKU                                         */
+/* ================================================================ */
+function HppSkuTab() {
+  const { skus, updateStok, setSkus } = useSkus();
+  const [purchases, setPurchases] = useLocalStorage<HppPurchase[]>(HPP_STORAGE, []);
+  const [suppliers] = useState<SupplierItem[]>(() => loadSuppliers());
+  const { addJurnal } = useAkuntansi();  // <-- Auto-jurnal
+
+  /* Form state — single line input, multi-line cart */
+  interface CartItem { sku: string; namaSku: string; qty: number; hargaBeli: number; subtotal: number; }
+  const [cart, setCart] = useState<CartItem[]>([]);
+  const [selectedSku, setSelectedSku] = useState('');
+  const [selectedSupplier, setSelectedSupplier] = useState('');
+  const [qty, setQty] = useState('');
+  const [hargaBeli, setHargaBeli] = useState('');
+  const [tanggal, setTanggal] = useState(() => new Date().toISOString().slice(0, 10));
+  const [metodeBayar, setMetodeBayar] = useState<MetodeBayar>('cash');
+  const [dpAmount, setDpAmount] = useState('');
+  const [jatuhTempo, setJatuhTempo] = useState(() => { const d = new Date(); d.setDate(d.getDate() + 30); return d.toISOString().slice(0, 10); });
+  const [ferr, setFerr] = useState('');
+  const [searchSku, setSearchSku] = useState('');
+  const [showSkuDropdown, setShowSkuDropdown] = useState(false);
+  const [noPO, setNoPO] = useState('');
+
+  /* ── Invoice Export Modal ── */
+  const [exportPoData, setExportPoData] = useState<InvoicePOData | null>(null);
+
+  /* ── Foto Nota / Invoice ── */
+  const [fotoBase64, setFotoBase64] = useState('');
+  const [fotoNama, setFotoNama] = useState('');
+  const [fotoLoading, setFotoLoading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFilePicked = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { setFerr('Hanya file gambar yang didukung (JPG, PNG).'); return; }
+    setFotoLoading(true); setFerr('');
+    try {
+      const { base64, nama } = await compressImage(file);
+      setFotoBase64(base64); setFotoNama(nama);
+    } catch { setFerr('Gagal mengompresi gambar.'); }
+    setFotoLoading(false);
+    // Reset input agar bisa upload ulang file yang sama
+    e.target.value = '';
+  };
+
+  const hapusFoto = () => { setFotoBase64(''); setFotoNama(''); };
+
+  /* Filtered SKU list */
+  const filteredSkus = useMemo(() => {
+    if (!searchSku.trim()) return skus.slice(0, 15);
+    const q = searchSku.toLowerCase();
+    return skus.filter(s => s.sku.toLowerCase().includes(q) || s.nama.toLowerCase().includes(q)).slice(0, 10);
+  }, [searchSku, skus]);
+
+  const selectedSkuData = useMemo(() => skus.find(s => s.sku === selectedSku), [selectedSku, skus]);
+  const selectedSupplierData = useMemo(() => suppliers.find(s => s.id === selectedSupplier), [selectedSupplier, suppliers]);
+
+  // Auto-fill harga beli: dari history pembelian terakhir, fallback ke hargaBaru SKU
+  const handleSkuSelected = (sku: string) => {
+    setSelectedSku(sku);
+    setSearchSku('');
+    setShowSkuDropdown(false);
+    const s = skus.find(x => x.sku === sku);
+    if (!s) return;
+    // Cari harga beli terakhir dari history pembelian untuk SKU ini
+    const history = purchases.filter(p => p.sku === sku).sort((a,b) => b.tanggal.localeCompare(a.tanggal));
+    if (history.length > 0) {
+      setHargaBeli(String(history[0].hargaBeli));
+    } else {
+      // Fallback ke harga modal terbaru dari Master Data
+      setHargaBeli(String(s.hargaBaru || s.hargaModalLama || 0));
+    }
+  };
+
+  /* ── Harga Modal History ── */
+  const [hargaHistory, setHargaHistory] = useLocalStorage<any[]>('mma_harga_modal_history', []);
+  const [showHistory, setShowHistory] = useState(false);
+
+  const total = useMemo(() => cart.reduce((s, item) => s + item.subtotal, 0), [cart]);
+  const dibayar = metodeBayar === 'cash' || metodeBayar === 'transfer' ? total : metodeBayar === 'dp' ? (+dpAmount || 0) : 0;
+  const sisa = total - dibayar;
+
+  // Add current SKU line to cart
+  const addToCart = () => {
+    setFerr('');
+    if (!selectedSku) { setFerr('Pilih SKU terlebih dahulu.'); return; }
+    if (!qty || +qty <= 0) { setFerr('Jumlah (Qty) harus lebih dari 0.'); return; }
+    if (!hargaBeli || +hargaBeli <= 0) { setFerr('Harga beli harus lebih dari 0.'); return; }
+    const s = skus.find(x => x.sku === selectedSku);
+    if (!s) return;
+    const item: CartItem = { sku: selectedSku, namaSku: s.nama, qty: +qty, hargaBeli: +hargaBeli, subtotal: (+qty) * (+hargaBeli) };
+    // Cek duplikat SKU — replace jika sudah ada
+    setCart(prev => { const existing = prev.findIndex(i => i.sku === selectedSku); if (existing >= 0) { const copy = [...prev]; copy[existing] = item; return copy; } return [...prev, item]; });
+    // Reset line input
+    setSelectedSku(''); setQty(''); setHargaBeli(''); setSearchSku('');
+  };
+
+  const removeFromCart = (sku: string) => setCart(prev => prev.filter(i => i.sku !== sku));
+
+  const handleSubmit = () => {
+    setFerr('');
+    if (cart.length === 0) { setFerr('Tambahkan minimal 1 SKU ke keranjang.'); return; }
+    if (!selectedSupplier) { setFerr('Pilih Supplier terlebih dahulu.'); return; }
+    if (metodeBayar === 'dp' && (!dpAmount || +dpAmount <= 0)) { setFerr('Isi jumlah DP.'); return; }
+    if (metodeBayar === 'dp' && +dpAmount >= total) { setFerr('Jumlah DP tidak boleh ≥ total. Gunakan Cash/Transfer jika lunas.'); return; }
+
+    const poNumber = noPO || generateNoPO(purchases);
+    const now = new Date().toISOString();
+
+    for (const item of cart) {
+      const purchase: HppPurchase = {
+        id: `hpp-${Date.now()}-${item.sku}`,
+        noPO: poNumber,
+        sku: item.sku,
+        namaSku: item.namaSku,
+        supplierId: selectedSupplier,
+        supplierNama: selectedSupplierData?.nama ?? '',
+        qty: item.qty,
+        hargaBeli: item.hargaBeli,
+        total: item.subtotal,
+        metodeBayar,
+        dibayar: 0,
+        sisaTagihan: item.subtotal,
+        tanggal: tanggal || new Date().toISOString().slice(0, 10),
+        jatuhTempo: metodeBayar === 'kontrabon' ? jatuhTempo : '',
+        lunas: false,
+        pickupStatus: 'belum',  // menunggu penjemputan oleh logistik
+        ...(fotoBase64 ? { fotoBase64, namaFileFoto: fotoNama } : {}),
+      };
+      setPurchases(prev => [purchase, ...prev]);
+      updateStok(item.sku, item.qty);
+
+      // Update harga modal
+      const selectedSkuData = skus.find(s => s.sku === item.sku);
+      const oldHarga = selectedSkuData?.hargaBaru || selectedSkuData?.hargaModalLama || 0;
+      if (selectedSkuData && item.hargaBeli !== oldHarga && oldHarga > 0) {
+        const persen = (((item.hargaBeli - oldHarga) / oldHarga) * 100).toFixed(2);
+        const perubahan = `${persen.startsWith('-') ? '' : '+'}${persen}%`;
+        setHargaHistory((prev: any[]) => [{ id: `hist-${Date.now()}`, sku: item.sku, nama: item.namaSku, hargaLama: oldHarga, hargaBaru: item.hargaBeli, persen, supplier: selectedSupplierData?.nama || '', noPO: poNumber, tanggal: purchase.tanggal }, ...prev].slice(0, 100));
+        setSkus((prev: SkuItem[]) => prev.map(s => s.sku === item.sku ? { ...s, hargaModalLama: oldHarga, hargaBaru: item.hargaBeli, perubahanHargaBeli: perubahan } : s));
+      }
+    }
+
+    // Auto-jurnal
+    const totalHpp = cart.reduce((s,i) => s + i.subtotal, 0);
+    const dp = metodeBayar === 'dp' ? (+dpAmount || 0) : 0;
+    const cashBayar = metodeBayar === 'cash' || metodeBayar === 'transfer' ? totalHpp : dp;
+    if (cashBayar > 0) {
+      addJurnal({ tanggal: tanggal, akunDebitId: '1-1200', akunKreditId: '1-1000', nominal: cashBayar, keterangan: `Pembelian ${poNumber} - ${selectedSupplierData?.nama || ''} (dibayar)`, referensi: poNumber });
+    }
+    if (totalHpp - cashBayar > 0) {
+      addJurnal({ tanggal: tanggal, akunDebitId: '1-1200', akunKreditId: '2-1000', nominal: totalHpp - cashBayar, keterangan: `Pembelian ${poNumber} - ${selectedSupplierData?.nama || ''} (utang)`, referensi: poNumber });
+    }
+
+    // Reset
+    setCart([]); setSelectedSupplier(''); setNoPO('');
+    setTanggal(new Date().toISOString().slice(0, 10));
+    setMetodeBayar('cash'); setDpAmount(''); setFotoBase64(''); setFotoNama('');
+    const d = new Date(); d.setDate(d.getDate() + 30); setJatuhTempo(d.toISOString().slice(0, 10));
+  };
+
+  /* Summary */
+  const totalBulanIni = useMemo(() => {
+    const now = new Date(); const bulan = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+    return purchases.filter(p => p.tanggal.startsWith(bulan)).reduce((s, p) => s + p.total, 0);
+  }, [purchases]);
+
+  const totalUtang = useMemo(() => purchases.filter(p => !p.lunas).reduce((s, p) => s + p.sisaTagihan, 0), [purchases]);
+
+  /* ── Group by No PO (satu PO bisa multi SKU) ── */
+  const poGroups = useMemo(() => {
+    const map = new Map<string, { noPO: string; supplierId: string; supplierNama: string; total: number; dibayar: number; sisa: number; lunas: boolean; jatuhTempo: string; metodeBayar: MetodeBayar; tanggal: string; items: HppPurchase[] }>();
+    for (const p of purchases) {
+      const g = map.get(p.noPO) || { noPO: p.noPO, supplierId: p.supplierId, supplierNama: p.supplierNama, total: 0, dibayar: 0, sisa: 0, lunas: true, jatuhTempo: '', metodeBayar: p.metodeBayar, tanggal: p.tanggal, items: [] };
+      g.items.push(p);
+      g.total += p.total;
+      g.dibayar += p.dibayar;
+      g.sisa += p.sisaTagihan;
+      if (!p.lunas) g.lunas = false;
+      if (p.jatuhTempo && (!g.jatuhTempo || p.jatuhTempo < g.jatuhTempo)) g.jatuhTempo = p.jatuhTempo;
+      map.set(p.noPO, g);
+    }
+    return Array.from(map.values()).sort((a,b) => b.noPO.localeCompare(a.noPO));
+  }, [purchases]);
+
+  const utangPoGroups = useMemo(() => poGroups.filter(g => !g.lunas), [poGroups]);
+
+  /* Badge warna metode bayar */
+  const metodeBadge = (m: MetodeBayar) => {
+    const map: Record<MetodeBayar, string> = { cash: 'bg-green-100 text-green-700', transfer: 'bg-blue-100 text-blue-700', dp: 'bg-amber-100 text-amber-700', kontrabon: 'bg-red-100 text-red-700' };
+    const label: Record<MetodeBayar, string> = { cash: 'Cash', transfer: 'Transfer', dp: 'DP', kontrabon: 'Kontrabon' };
+    return <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${map[m]}`}>{label[m]}</span>;
+  };
+
+  return (
+    <div>
+      <div className="mb-1 h-1 w-16 rounded-full bg-gradient-to-r from-emerald-500 to-emerald-300" />
+      <h2 className="text-lg font-bold text-slate-800 sm:text-xl">Pembelian HPP SKU</h2>
+      <p className="mt-1 text-sm text-slate-500">Catat pembelian barang dagang (SKU) dengan No PO, metode bayar & tracking utang.</p>
+
+      {/* Form */}
+      <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400">🛒 Form Pembelian Baru — Multi SKU</p>
+
+        {/* No PO + Supplier */}
+        <div className="grid gap-3 sm:grid-cols-2 mb-3">
+          <div><label className="block text-xs font-semibold text-slate-600 mb-1">No PO</label><input type="text" value={noPO} onChange={e => setNoPO(e.target.value)} placeholder="Auto-generate jika kosong" className="w-full rounded-xl border px-3 py-2 text-sm font-mono focus:border-emerald-500 focus:outline-none" /></div>
+          <div><label className="block text-xs font-semibold text-slate-600 mb-1">Supplier *</label><select value={selectedSupplier} onChange={e => setSelectedSupplier(e.target.value)} className="w-full rounded-xl border bg-slate-50 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"><option value="">-- Pilih Supplier --</option>{suppliers.map(s => <option key={s.id} value={s.id}>{s.nama}</option>)}</select></div>
+        </div>
+
+        {/* SKU line input */}
+        <div className="grid gap-3 sm:grid-cols-4">
+          <div className="relative"><label className="block text-xs font-semibold text-slate-600 mb-1">Cari SKU</label><input type="text" value={selectedSkuData ? `${selectedSku} — ${selectedSkuData.nama.slice(0,25)}` : searchSku} onChange={e => { setSearchSku(e.target.value); setSelectedSku(''); setShowSkuDropdown(true); }} onFocus={() => { if (!selectedSku) setShowSkuDropdown(true); }} placeholder="Ketik SKU..." className="w-full rounded-xl border bg-slate-50 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none" />
+            {showSkuDropdown && !selectedSku && searchSku && (<div className="absolute z-20 mt-1 w-full rounded-xl border bg-white shadow-lg max-h-48 overflow-y-auto">{filteredSkus.length===0?<p className="px-3 py-2 text-sm text-slate-400">Tidak ditemukan</p>:filteredSkus.map(s=>(<button key={s.sku} onClick={()=>handleSkuSelected(s.sku)} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-emerald-50"><span className="font-mono text-xs text-emerald-600 w-20 shrink-0">{s.sku}</span><span className="truncate">{s.nama}</span></button>))}</div>)}
+          </div>
+          <div><label className="block text-xs font-semibold text-slate-600 mb-1">Qty</label><input type="number" value={qty} onChange={e=>setQty(e.target.value)} placeholder="0" className="w-full rounded-xl border bg-slate-50 px-3 py-2 text-sm text-center font-bold focus:border-emerald-500 focus:outline-none" /></div>
+          <div><label className="block text-xs font-semibold text-slate-600 mb-1">Harga Beli/Unit</label><input type="number" value={hargaBeli} onChange={e=>setHargaBeli(e.target.value)} placeholder="0" className="w-full rounded-xl border bg-slate-50 px-3 py-2 text-sm text-center font-bold focus:border-emerald-500 focus:outline-none" /></div>
+          <div className="flex items-end"><button onClick={addToCart} className="w-full rounded-xl bg-emerald-500 px-4 py-2 text-sm font-bold text-white hover:bg-emerald-700 transition">➕ Tambah ke Keranjang</button></div>
+        </div>
+
+        {/* Cart */}
+        {cart.length > 0 && (
+          <div className="mt-3 rounded-xl border-2 border-emerald-200 bg-emerald-50/30 p-3">
+            <p className="text-xs font-bold text-emerald-700 mb-2">🛒 Keranjang ({cart.length} SKU)</p>
+            {cart.map(item => (<div key={item.sku} className="flex items-center justify-between py-1.5 border-b border-emerald-100 last:border-0 text-xs"><div className="flex items-center gap-2 flex-1"><span className="font-mono text-emerald-600 w-20">{item.sku}</span><span className="text-slate-600 truncate max-w-[150px]">{item.namaSku}</span></div><span className="mx-2">×{item.qty}</span><span className="font-semibold w-24 text-right">Rp {item.subtotal.toLocaleString('id-ID')}</span><button onClick={()=>removeFromCart(item.sku)} className="ml-2 text-red-400 hover:text-red-600">✕</button></div>))}
+            <div className="mt-2 text-right text-sm font-bold text-emerald-700">Total: Rp {total.toLocaleString('id-ID')}</div>
+          </div>
+        )}
+
+        {/* Payment */}
+        <div className="mt-3 grid gap-3 sm:grid-cols-3">
+          <div><label className="block text-xs font-semibold text-slate-600 mb-1">Tanggal</label><input type="date" value={tanggal} onChange={e=>setTanggal(e.target.value)} className="w-full rounded-xl border bg-slate-50 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none" /></div>
+          <div><label className="block text-xs font-semibold text-slate-600 mb-1">Metode Bayar</label><select value={metodeBayar} onChange={e=>{setMetodeBayar(e.target.value as MetodeBayar);setDpAmount('');}} className="w-full rounded-xl border bg-slate-50 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none">{METODE_OPTIONS.map(o=><option key={o.value} value={o.value}>{o.icon} {o.label}</option>)}</select></div>
+          {metodeBayar==='dp'&&<div><label className="block text-xs font-semibold text-slate-600 mb-1">Jumlah DP</label><input type="number" value={dpAmount} onChange={e=>setDpAmount(e.target.value)} placeholder="0" className="w-full rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-center font-bold focus:border-amber-500 focus:outline-none" /></div>}
+          {metodeBayar==='kontrabon'&&<div><label className="block text-xs font-semibold text-slate-600 mb-1">Jatuh Tempo</label><input type="date" value={jatuhTempo} onChange={e=>setJatuhTempo(e.target.value)} className="w-full rounded-xl border border-red-300 bg-red-50 px-3 py-2 text-sm focus:border-red-500 focus:outline-none" /></div>}
+        </div>
+
+        {/* Foto */}
+        <div className="mt-3 border-t pt-3"><p className="text-xs font-semibold text-slate-400 mb-2">📸 Foto Nota (opsional)</p><div className="flex gap-2"><input ref={cameraInputRef} type="file" accept="image/*" capture="environment" onChange={handleFilePicked} className="hidden" /><button onClick={()=>cameraInputRef.current?.click()} className="rounded-xl bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-200">📷 Kamera</button><input ref={fileInputRef} type="file" accept="image/*" onChange={handleFilePicked} className="hidden" /><button onClick={()=>fileInputRef.current?.click()} className="rounded-xl bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-200">📁 Upload</button>{fotoLoading&&<span className="text-xs text-slate-400">Mengompresi...</span>}</div>{fotoBase64&&<div className="mt-2 relative inline-block"><img src={fotoBase64} className="h-24 rounded-xl border object-cover" /><button onClick={hapusFoto} className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-red-500 text-xs text-white">✕</button></div>}</div>
+
+        {total>0&&(<div className="mt-3 rounded-xl bg-slate-50 p-3 text-sm"><div className="flex flex-wrap gap-x-6"><span>Total: <strong>Rp {total.toLocaleString('id-ID')}</strong></span><span>Dibayar: <strong className="text-emerald-600">Rp {dibayar.toLocaleString('id-ID')}</strong></span>{sisa>0&&<span>Sisa: <strong className="text-red-600">Rp {sisa.toLocaleString('id-ID')}</strong></span>}</div></div>)}
+        {ferr&&<p className="mt-2 text-sm text-red-500">{ferr}</p>}
+        <button onClick={handleSubmit} disabled={cart.length===0||!selectedSupplier} className="mt-4 w-full rounded-xl bg-emerald-500 px-4 py-2.5 text-sm font-bold text-white hover:bg-emerald-700 disabled:bg-slate-300 transition">➕ Catat Pembelian ({cart.length} SKU)</button>
+      </div>
+
+      {/* Ringkasan */}
+      <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="rounded-xl bg-emerald-50 p-3 text-center"><p className="text-2xl font-bold text-emerald-700">{poGroups.length}</p><p className="text-xs text-emerald-500">Total PO</p></div>
+        <div className="rounded-xl bg-blue-50 p-3 text-center"><p className="text-2xl font-bold text-blue-600">Rp {totalBulanIni.toLocaleString('id-ID')}</p><p className="text-xs text-blue-500">Total Bulan Ini</p></div>
+        <div className="rounded-xl bg-slate-50 p-3 text-center"><p className="text-2xl font-bold text-slate-600">{purchases.reduce((s, p) => s + p.qty, 0)}</p><p className="text-xs text-slate-400">Total Qty</p></div>
+        <div className={`rounded-xl p-3 text-center ${totalUtang > 0 ? 'bg-red-50' : 'bg-emerald-50'}`}><p className={`text-2xl font-bold ${totalUtang > 0 ? 'text-red-600' : 'text-emerald-600'}`}>Rp {totalUtang.toLocaleString('id-ID')}</p><p className={`text-xs ${totalUtang > 0 ? 'text-red-500' : 'text-emerald-500'}`}>Utang Usaha</p></div>
+      </div>
+
+      {/* SECTION: Utang Usaha — grouped by PO */}
+      {utangPoGroups.length > 0 && (
+        <div className="mt-4 rounded-2xl border-2 border-red-200 bg-red-50/50 p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-lg">⚠️</span>
+            <h3 className="text-base font-bold text-red-700">Utang Usaha / Outstanding</h3>
+            <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-bold text-red-600">{utangPoGroups.length} PO</span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead>
+                <tr className="text-xs uppercase text-red-500 border-b border-red-200">
+                  <th className="pb-2 pr-2 font-semibold whitespace-nowrap">No PO</th>
+                  <th className="pb-2 pr-2 font-semibold whitespace-nowrap">Supplier</th>
+                  <th className="pb-2 pr-2 font-semibold whitespace-nowrap">Total</th>
+                  <th className="pb-2 pr-2 font-semibold whitespace-nowrap">Dibayar</th>
+                  <th className="pb-2 pr-2 font-semibold whitespace-nowrap">Sisa</th>
+                  <th className="pb-2 pr-2 font-semibold whitespace-nowrap">Metode</th>
+                  <th className="pb-2 pr-2 font-semibold whitespace-nowrap">Jatuh Tempo</th>
+                </tr>
+              </thead>
+              <tbody>
+                {utangPoGroups.map(g => (
+                  <tr key={g.noPO} className="border-b border-red-100">
+                    <td className="py-2 pr-2 font-mono text-xs text-red-700">
+                      <details>
+                        <summary className="cursor-pointer">{g.noPO} ({g.items.length} SKU)</summary>
+                        <div className="mt-1 pl-2 border-l-2 border-red-200 text-[10px]">
+                          {g.items.map(item => (
+                            <div key={item.id} className="py-0.5">
+                              <span className="font-mono text-red-400">{item.sku}</span> <span className="text-slate-500">{item.namaSku}</span> <span className="text-slate-400">×{item.qty}</span> <span className="text-slate-500">Rp {item.total.toLocaleString('id-ID')}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </details>
+                    </td>
+                    <td className="py-2 pr-2 text-xs text-slate-700">{g.supplierNama}</td>
+                    <td className="py-2 pr-2 text-xs text-slate-600">Rp {g.total.toLocaleString('id-ID')}</td>
+                    <td className="py-2 pr-2 text-xs text-emerald-600">Rp {g.dibayar.toLocaleString('id-ID')}</td>
+                    <td className="py-2 pr-2 text-xs font-bold text-red-600">Rp {g.sisa.toLocaleString('id-ID')}</td>
+                    <td className="py-2 pr-2">{metodeBadge(g.metodeBayar)}</td>
+                    <td className="py-2 pr-2 text-xs text-slate-500">{g.jatuhTempo || '-'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Tabel Riwayat PO */}
+      <div className="mt-4 overflow-x-auto rounded-xl border border-slate-100">
+        <table className="w-full text-left text-sm">
+          <thead>
+            <tr className="bg-emerald-50 text-xs uppercase text-emerald-600">
+              <th className="px-3 py-3 font-semibold whitespace-nowrap">No PO</th>
+              <th className="px-3 py-3 font-semibold whitespace-nowrap">Tanggal</th>
+              <th className="px-3 py-3 font-semibold whitespace-nowrap">SKU</th>
+              <th className="px-3 py-3 font-semibold whitespace-nowrap hidden sm:table-cell">Supplier</th>
+              <th className="px-3 py-3 text-center font-semibold">Qty</th>
+              <th className="px-3 py-3 text-right font-semibold whitespace-nowrap">Total</th>
+              <th className="px-3 py-3 text-center font-semibold whitespace-nowrap">Bayar</th>
+              <th className="px-3 py-3 text-center font-semibold">Status</th>
+              <th className="px-3 py-3 text-center font-semibold">Pickup</th>
+              <th className="px-3 py-3 text-center font-semibold">Ekspor</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-50 bg-white">
+            {poGroups.length === 0 ? (
+              <tr><td colSpan={10} className="px-3 py-8 text-center text-sm text-slate-400">Belum ada data pembelian.</td></tr>
+            ) : poGroups.map(g => {
+              const invoiceData: InvoicePOData = {
+                noPO: g.noPO,
+                supplierNama: g.supplierNama,
+                tanggal: g.tanggal,
+                metodeBayar: METODE_OPTIONS.find(m => m.value === g.metodeBayar)?.label ?? g.metodeBayar,
+                items: g.items.map(x => ({ sku: x.sku, namaSku: x.namaSku, qty: x.qty, hargaBeli: x.hargaBeli, subtotal: x.total })),
+                total: g.total,
+                dibayar: g.dibayar,
+                sisa: g.sisa,
+                lunas: g.lunas,
+                jatuhTempo: g.jatuhTempo || undefined,
+              };
+              const urgent = !g.lunas && g.jatuhTempo && g.jatuhTempo <= new Date().toISOString().slice(0,10);
+              return (
+              <tr key={g.noPO} className={`hover:bg-slate-50 transition ${!g.lunas ? 'bg-red-50/30' : ''} ${urgent ? 'bg-red-100/50' : ''}`}>
+                <td className="px-3 py-2.5 font-mono text-xs font-bold text-emerald-700">
+                  <details>
+                    <summary className="cursor-pointer">{g.noPO} <span className="text-[10px] text-slate-400 font-normal">({g.items.length} SKU)</span></summary>
+                    <div className="mt-1 pl-2 border-l-2 border-emerald-200">
+                      {g.items.map(item => (
+                        <div key={item.id} className="text-[10px] py-0.5">
+                          <span className="font-mono text-emerald-500">{item.sku}</span>{' '}
+                          <span className="text-slate-500">{item.namaSku}</span>{' '}
+                          <span className="text-slate-400">×{item.qty}</span>{' '}
+                          <span className="text-slate-500">Rp {item.total.toLocaleString('id-ID')}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                </td>
+                <td className="px-3 py-2.5 text-xs text-slate-500">{g.tanggal}</td>
+                <td className="px-3 py-2.5 max-w-[140px] truncate text-xs text-slate-700">
+                  {g.items.length === 1 ? g.items[0].sku : `${g.items.length} SKU`}
+                </td>
+                <td className="px-3 py-2.5 text-xs text-slate-500 hidden sm:table-cell">{g.supplierNama}</td>
+                <td className="px-3 py-2.5 text-center font-semibold text-slate-700">{g.items.reduce((s, i) => s + i.qty, 0)}</td>
+                <td className="px-3 py-2.5 text-right font-semibold text-slate-700 whitespace-nowrap">Rp {g.total.toLocaleString('id-ID')}</td>
+                <td className="px-3 py-2.5 text-center">{metodeBadge(g.metodeBayar)}</td>
+                <td className="px-3 py-2.5 text-center">
+                  {g.lunas
+                    ? <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700">✅ Lunas</span>
+                    : <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-600">⚠ Rp {g.sisa.toLocaleString('id-ID')}</span>}
+                </td>
+                <td className="px-3 py-2.5 text-center">
+                  {g.items[0]?.pickupStatus === 'sampai'
+                    ? <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700">✅ Sampai</span>
+                    : g.items[0]?.pickupStatus === 'sedang'
+                    ? <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700">🚛 Dipickup</span>
+                    : <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-500">🕐 Belum</span>}
+                </td>
+                <td className="px-3 py-2.5 text-center">
+                  <button
+                    onClick={() => setExportPoData(invoiceData)}
+                    className="rounded-lg bg-indigo-100 px-2 py-1 text-xs font-semibold text-indigo-600 hover:bg-indigo-200 transition"
+                    title="Ekspor invoice ke WhatsApp / CSV / Gambar"
+                  >
+                    📤 Kirim
+                  </button>
+                </td>
+              </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* History Harga Modal */}
+      {hargaHistory.length > 0 && (
+        <details className="mt-5" open={showHistory}>
+          <summary className="cursor-pointer text-sm font-bold text-slate-700 hover:text-emerald-700" onClick={() => setShowHistory(!showHistory)}>
+            📈 History Harga Modal ({hargaHistory.length} perubahan)
+          </summary>
+          <div className="mt-3 overflow-x-auto rounded-xl border border-slate-100">
+            <table className="w-full text-left text-xs">
+              <thead><tr className="bg-amber-50 text-xs uppercase text-amber-600">
+                {['Tanggal','No PO','SKU','Nama','Harga Lama','Harga Baru','Perubahan','Supplier'].map(c => <th key={c} className="px-3 py-2 font-semibold whitespace-nowrap">{c}</th>)}
+              </tr></thead>
+              <tbody className="divide-y divide-slate-50 bg-white">
+                {hargaHistory.map((h: any) => {
+                  const isNaik = !h.persen.startsWith('-');
+                  return (<tr key={h.id} className="hover:bg-amber-50/30"><td className="px-3 py-2 text-slate-500">{h.tanggal}</td><td className="px-3 py-2 font-mono text-[10px] text-slate-500">{h.noPO}</td><td className="px-3 py-2 font-mono text-xs text-emerald-600">{h.sku}</td><td className="px-3 py-2 text-slate-700 max-w-[150px] truncate">{h.nama}</td><td className="px-3 py-2 text-right text-slate-500">Rp {h.hargaLama.toLocaleString('id-ID')}</td><td className="px-3 py-2 text-right font-bold text-slate-700">Rp {h.hargaBaru.toLocaleString('id-ID')}</td><td className={`px-3 py-2 text-center font-bold ${isNaik?'text-red-500':'text-emerald-500'}`}>{h.persen}%</td><td className="px-3 py-2 text-slate-500 text-[10px]">{h.supplier}</td></tr>);
+                })}
+              </tbody>
+            </table>
+          </div>
+        </details>
+      )}
+
+      {/* Modal Invoice Export */}
+      {exportPoData && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setExportPoData(null)}>
+          <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl bg-white shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="sticky top-0 bg-white border-b border-slate-200 px-5 py-3 rounded-t-2xl flex items-center justify-between">
+              <div>
+                <p className="text-sm font-bold text-indigo-700">📤 Ekspor Invoice</p>
+                <p className="text-xs text-slate-500 font-mono">{exportPoData.noPO} — {exportPoData.supplierNama}</p>
+              </div>
+              <button onClick={() => setExportPoData(null)} className="rounded-full bg-slate-100 p-1.5 text-slate-500 hover:bg-slate-200">✕</button>
+            </div>
+            <div className="p-5">
+              <InvoiceExport
+                data={exportPoData}
+                tokoNama="MMA ProSync"
+                isLunas={exportPoData.lunas}
+                onClose={() => setExportPoData(null)}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ================================================================ */
+/* TAB 2: Pembelian OPEX (Packing, ATK, dll)                        */
+/* ================================================================ */
+function OpexTab() {
+  const [purchases, setPurchases] = useLocalStorage<OpexPurchase[]>(OPEX_STORAGE, []);
+
+  const [namaItem, setNamaItem] = useState('');
+  const [kategori, setKategori] = useState(OPEX_KATEGORI[0]);
+  const [qty, setQty] = useState('');
+  const [satuan, setSatuan] = useState('pcs');
+  const [hargaSatuan, setHargaSatuan] = useState('');
+  const [supplierNama, setSupplierNama] = useState('');
+  const [tanggal, setTanggal] = useState(() => new Date().toISOString().slice(0, 10));
+  const [ferr, setFerr] = useState('');
+
+  const total = useMemo(() => (+qty || 0) * (+hargaSatuan || 0), [qty, hargaSatuan]);
+
+  const handleSubmit = () => {
+    setFerr('');
+    if (!namaItem.trim()) { setFerr('Nama item wajib diisi.'); return; }
+    if (!qty || +qty <= 0) { setFerr('Jumlah harus lebih dari 0.'); return; }
+    if (!hargaSatuan || +hargaSatuan <= 0) { setFerr('Harga satuan harus lebih dari 0.'); return; }
+
+    const purchase: OpexPurchase = {
+      id: `opex-${Date.now()}`,
+      namaItem: namaItem.trim(),
+      kategori,
+      qty: +qty,
+      satuan,
+      hargaSatuan: +hargaSatuan,
+      total: +qty * +hargaSatuan,
+      supplierNama: supplierNama.trim() || '-',
+      tanggal: tanggal || new Date().toISOString().slice(0, 10),
+    };
+
+    setPurchases(prev => [purchase, ...prev]);
+    setNamaItem(''); setQty(''); setHargaSatuan(''); setSupplierNama('');
+    setTanggal(new Date().toISOString().slice(0, 10));
+    setKategori(OPEX_KATEGORI[0]); setSatuan('pcs');
+  };
+
+  const totalBulanIni = useMemo(() => {
+    const now = new Date(); const bulan = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+    return purchases.filter(p => p.tanggal.startsWith(bulan)).reduce((s, p) => s + p.total, 0);
+  }, [purchases]);
+
+  /* Group by kategori untuk summary */
+  const byKategori = useMemo(() => {
+    const map: Record<string, number> = {};
+    purchases.forEach(p => { map[p.kategori] = (map[p.kategori] || 0) + p.total; });
+    return Object.entries(map).sort((a, b) => b[1] - a[1]);
+  }, [purchases]);
+
+  return (
+    <div>
+      <div className="mb-1 h-1 w-16 rounded-full bg-gradient-to-r from-emerald-500 to-emerald-300" />
+      <h2 className="text-lg font-bold text-slate-800 sm:text-xl">Pembelian OPEX</h2>
+      <p className="mt-1 text-sm text-slate-500">Catat pembelian bahan packing, ATK, kebersihan, dan perlengkapan operasional (non-SKU).</p>
+
+      {/* Form */}
+      <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400">📋 Form Pembelian OPEX</p>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="sm:col-span-2">
+            <label className="block text-xs font-semibold text-slate-600 mb-1">Nama Item *</label>
+            <input type="text" value={namaItem} onChange={e => setNamaItem(e.target.value)} placeholder="Contoh: Bubble Wrap 50cm, Lakban Coklat, Kertas A4…" className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-100" />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">Kategori</label>
+            <select value={kategori} onChange={e => setKategori(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-100">
+              {OPEX_KATEGORI.map(k => <option key={k} value={k}>{k}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">Jumlah (Qty) *</label>
+            <input type="number" value={qty} onChange={e => setQty(e.target.value)} placeholder="0" className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-center font-bold focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-100" />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">Satuan</label>
+            <select value={satuan} onChange={e => setSatuan(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-100">
+              {OPEX_SATUAN.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">Harga Satuan *</label>
+            <input type="number" value={hargaSatuan} onChange={e => setHargaSatuan(e.target.value)} placeholder="0" className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-center font-bold focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-100" />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">Total</label>
+            <div className="w-full rounded-xl border border-slate-200 bg-slate-100 px-3 py-2 text-sm text-center font-bold text-slate-700">
+              Rp {total.toLocaleString('id-ID')}
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">Supplier (opsional)</label>
+            <input type="text" value={supplierNama} onChange={e => setSupplierNama(e.target.value)} placeholder="Nama toko / supplier…" className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-100" />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">Tanggal</label>
+            <input type="date" value={tanggal} onChange={e => setTanggal(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-100" />
+          </div>
+        </div>
+        {ferr && <p className="mt-2 text-sm text-red-500">{ferr}</p>}
+        <button onClick={handleSubmit} className="mt-4 w-full rounded-xl bg-emerald-500 px-4 py-2.5 text-sm font-bold text-white hover:bg-emerald-700 transition sm:w-auto sm:px-8">
+          ➕ Catat OPEX
+        </button>
+      </div>
+
+      {/* Ringkasan per Kategori */}
+      {byKategori.length > 0 && (
+        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+          {byKategori.map(([kat, tot]) => (
+            <div key={kat} className="rounded-xl bg-slate-50 p-2 text-center">
+              <p className="text-xs text-slate-400">{kat}</p>
+              <p className="text-sm font-bold text-slate-700">Rp {tot.toLocaleString('id-ID')}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Tabel */}
+      <div className="mt-4 overflow-x-auto rounded-xl border border-slate-100">
+        <table className="w-full text-left text-sm">
+          <thead>
+            <tr className="bg-emerald-50 text-xs uppercase text-emerald-600">
+              <th className="px-3 py-3 font-semibold whitespace-nowrap">Tanggal</th>
+              <th className="px-3 py-3 font-semibold whitespace-nowrap">Nama Item</th>
+              <th className="px-3 py-3 font-semibold whitespace-nowrap hidden sm:table-cell">Kategori</th>
+              <th className="px-3 py-3 text-center font-semibold">Qty</th>
+              <th className="px-3 py-3 text-right font-semibold whitespace-nowrap">Harga</th>
+              <th className="px-3 py-3 text-right font-semibold whitespace-nowrap">Total</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-50 bg-white">
+            {purchases.length === 0 ? (
+              <tr><td colSpan={6} className="px-3 py-8 text-center text-sm text-slate-400">Belum ada data pembelian OPEX.</td></tr>
+            ) : purchases.map(p => (
+              <tr key={p.id} className="hover:bg-slate-50 transition">
+                <td className="px-3 py-2.5 text-xs text-slate-500">{p.tanggal}</td>
+                <td className="px-3 py-2.5 max-w-[200px] truncate font-medium text-slate-800" title={p.namaItem}>{p.namaItem}</td>
+                <td className="px-3 py-2.5 text-xs text-slate-500 hidden sm:table-cell"><span className="rounded-full bg-slate-100 px-2 py-0.5">{p.kategori}</span></td>
+                <td className="px-3 py-2.5 text-center text-slate-700">{p.qty} {p.satuan}</td>
+                <td className="px-3 py-2.5 text-right text-slate-600">Rp {p.hargaSatuan.toLocaleString('id-ID')}</td>
+                <td className="px-3 py-2.5 text-right font-bold text-slate-800">Rp {p.total.toLocaleString('id-ID')}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/* ================================================================ */
+/* TAB 3: Biaya Operasional (Variable Cost / Daily Expense)         */
+/* ================================================================ */
+function BiayaOpTab() {
+  const [biayaList, setBiayaList] = useLocalStorage<BiayaOp[]>(BIAYA_STORAGE, []);
+
+  const [deskripsi, setDeskripsi] = useState('');
+  const [kategori, setKategori] = useState(BIAYA_KATEGORI[0]);
+  const [jumlah, setJumlah] = useState('');
+  const [tanggal, setTanggal] = useState(() => new Date().toISOString().slice(0, 10));
+  const [ferr, setFerr] = useState('');
+
+  const handleSubmit = () => {
+    setFerr('');
+    if (!deskripsi.trim()) { setFerr('Deskripsi wajib diisi.'); return; }
+    if (!jumlah || +jumlah <= 0) { setFerr('Jumlah harus lebih dari 0.'); return; }
+
+    const biaya: BiayaOp = {
+      id: `biaya-${Date.now()}`,
+      deskripsi: deskripsi.trim(),
+      kategori,
+      jumlah: +jumlah,
+      tanggal: tanggal || new Date().toISOString().slice(0, 10),
+    };
+
+    setBiayaList(prev => [biaya, ...prev]);
+    setDeskripsi(''); setJumlah('');
+    setTanggal(new Date().toISOString().slice(0, 10));
+    setKategori(BIAYA_KATEGORI[0]);
+  };
+
+  /* Summary */
+  const totalBulanIni = useMemo(() => {
+    const now = new Date(); const bulan = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+    return biayaList.filter(b => b.tanggal.startsWith(bulan)).reduce((s, b) => s + b.jumlah, 0);
+  }, [biayaList]);
+
+  const totalHariIni = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    return biayaList.filter(b => b.tanggal === today).reduce((s, b) => s + b.jumlah, 0);
+  }, [biayaList]);
+
+  /* Per kategori bulan ini */
+  const byKategori = useMemo(() => {
+    const now = new Date(); const bulan = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+    const map: Record<string, number> = {};
+    biayaList.filter(b => b.tanggal.startsWith(bulan)).forEach(b => { map[b.kategori] = (map[b.kategori] || 0) + b.jumlah; });
+    return Object.entries(map).sort((a, b) => b[1] - a[1]);
+  }, [biayaList]);
+
+  /* 7 hari terakhir */
+  const last7Days = useMemo(() => {
+    const days: { tgl: string; total: number }[] = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(); d.setDate(d.getDate() - i);
+      const tgl = d.toISOString().slice(0, 10);
+      const total = biayaList.filter(b => b.tanggal === tgl).reduce((s, b) => s + b.jumlah, 0);
+      days.push({ tgl: tgl.slice(5), total });
+    }
+    return days;
+  }, [biayaList]);
+
+  return (
+    <div>
+      <div className="mb-1 h-1 w-16 rounded-full bg-gradient-to-r from-emerald-500 to-emerald-300" />
+      <h2 className="text-lg font-bold text-slate-800 sm:text-xl">Biaya Operasional</h2>
+      <p className="mt-1 text-sm text-slate-500">Catat pengeluaran harian: listrik, internet, transport, sewa, gaji, marketing, dll.</p>
+
+      {/* Quick Form */}
+      <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400">💸 Catat Biaya Harian</p>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="sm:col-span-2 lg:col-span-1">
+            <label className="block text-xs font-semibold text-slate-600 mb-1">Deskripsi *</label>
+            <input type="text" value={deskripsi} onChange={e => setDeskripsi(e.target.value)} placeholder="Contoh: Bayar listrik, Bensin…" className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-100" />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">Kategori</label>
+            <select value={kategori} onChange={e => setKategori(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-100">
+              {BIAYA_KATEGORI.map(k => <option key={k} value={k}>{k}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">Jumlah (Rp) *</label>
+            <input type="number" value={jumlah} onChange={e => setJumlah(e.target.value)} placeholder="0" className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-center font-bold focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-100" />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">Tanggal</label>
+            <input type="date" value={tanggal} onChange={e => setTanggal(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-100" />
+          </div>
+        </div>
+        {ferr && <p className="mt-2 text-sm text-red-500">{ferr}</p>}
+        <button onClick={handleSubmit} className="mt-3 w-full rounded-xl bg-emerald-500 px-4 py-2.5 text-sm font-bold text-white hover:bg-emerald-700 transition sm:w-auto sm:px-8">
+          ➕ Catat Biaya
+        </button>
+      </div>
+
+      {/* Ringkasan */}
+      <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="rounded-xl bg-red-50 p-3 text-center">
+          <p className="text-2xl font-bold text-red-600">Rp {totalHariIni.toLocaleString('id-ID')}</p>
+          <p className="text-xs text-red-500">Pengeluaran Hari Ini</p>
+        </div>
+        <div className="rounded-xl bg-amber-50 p-3 text-center">
+          <p className="text-2xl font-bold text-amber-600">Rp {totalBulanIni.toLocaleString('id-ID')}</p>
+          <p className="text-xs text-amber-500">Total Bulan Ini</p>
+        </div>
+        <div className="rounded-xl bg-slate-50 p-3 text-center">
+          <p className="text-2xl font-bold text-slate-600">{biayaList.length}</p>
+          <p className="text-xs text-slate-400">Total Catatan</p>
+        </div>
+        <div className="rounded-xl bg-emerald-50 p-3 text-center">
+          <p className="text-2xl font-bold text-emerald-600">{byKategori.length}</p>
+          <p className="text-xs text-emerald-500">Kategori Terpakai</p>
+        </div>
+      </div>
+
+      {/* Mini Chart: 7 hari terakhir */}
+      <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4">
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-3">📊 7 Hari Terakhir</p>
+        <div className="flex items-end gap-1 h-24">
+          {last7Days.map(d => {
+            const maxVal = Math.max(...last7Days.map(x => x.total), 1);
+            const h = (d.total / maxVal) * 100;
+            return (
+              <div key={d.tgl} className="flex-1 flex flex-col items-center gap-1">
+                <span className="text-[10px] font-semibold text-slate-600">{d.total > 0 ? 'Rp ' + (d.total >= 1000 ? (d.total/1000).toFixed(0)+'k' : d.total) : ''}</span>
+                <div className={`w-full rounded-t-md transition-all ${d.total > 0 ? 'bg-red-400' : 'bg-slate-200'}`} style={{ height: `${Math.max(h, d.total > 0 ? 8 : 4)}%` }} />
+                <span className="text-[10px] text-slate-400">{d.tgl}</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Per Kategori */}
+      {byKategori.length > 0 && (
+        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+          {byKategori.map(([kat, tot]) => (
+            <div key={kat} className="rounded-xl bg-slate-50 p-2 text-center">
+              <p className="text-xs text-slate-400">{kat}</p>
+              <p className="text-sm font-bold text-slate-700">Rp {tot.toLocaleString('id-ID')}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Tabel */}
+      <div className="mt-4 overflow-x-auto rounded-xl border border-slate-100">
+        <table className="w-full text-left text-sm">
+          <thead>
+            <tr className="bg-emerald-50 text-xs uppercase text-emerald-600">
+              <th className="px-3 py-3 font-semibold whitespace-nowrap">Tanggal</th>
+              <th className="px-3 py-3 font-semibold whitespace-nowrap">Deskripsi</th>
+              <th className="px-3 py-3 font-semibold whitespace-nowrap hidden sm:table-cell">Kategori</th>
+              <th className="px-3 py-3 text-right font-semibold whitespace-nowrap">Jumlah</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-50 bg-white">
+            {biayaList.length === 0 ? (
+              <tr><td colSpan={4} className="px-3 py-8 text-center text-sm text-slate-400">Belum ada catatan biaya operasional.</td></tr>
+            ) : biayaList.map(b => (
+              <tr key={b.id} className="hover:bg-slate-50 transition">
+                <td className="px-3 py-2.5 text-xs text-slate-500">{b.tanggal}</td>
+                <td className="px-3 py-2.5 max-w-[220px] truncate font-medium text-slate-800" title={b.deskripsi}>{b.deskripsi}</td>
+                <td className="px-3 py-2.5 text-xs text-slate-500 hidden sm:table-cell"><span className="rounded-full bg-slate-100 px-2 py-0.5">{b.kategori}</span></td>
+                <td className="px-3 py-2.5 text-right font-bold text-red-600">-Rp {b.jumlah.toLocaleString('id-ID')}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/* ================================================================ */
+/* TAB 4: Arsip Invoice — semua PO dengan filter & ekspor           */
+/* ================================================================ */
+function ArsipTab() {
+  const [purchases] = useLocalStorage<HppPurchase[]>(HPP_STORAGE, []);
+  const [suppliers] = useState<SupplierItem[]>(() => loadSuppliers());
+
+  const [filterTglDari, setFilterTglDari] = useState('');
+  const [filterTglSampai, setFilterTglSampai] = useState('');
+  const [filterSupplier, setFilterSupplier] = useState('');
+  const [filterStatus, setFilterStatus] = useState<'semua' | 'lunas' | 'belum'>('semua');
+  const [searchPO, setSearchPO] = useState('');
+  const [lightbox, setLightbox] = useState<HppPurchase | null>(null);
+  const [exportPoData, setExportPoData] = useState<InvoicePOData | null>(null);
+  const [detailPoData, setDetailPoData] = useState<InvoicePOData | null>(null);
+
+  // Group purchases by noPO
+  interface PoGroupArchived {
+    noPO: string;
+    supplierId: string;
+    supplierNama: string;
+    tanggal: string;
+    metodeBayar: string;
+    items: HppPurchase[];
+    total: number;
+    dibayar: number;
+    sisa: number;
+    lunas: boolean;
+    jatuhTempo: string;
+    hasFoto: boolean;
+    fotoBase64?: string;
+  }
+
+  const poGroups = useMemo(() => {
+    const map = new Map<string, PoGroupArchived>();
+    for (const p of purchases) {
+      const g = map.get(p.noPO) || {
+        noPO: p.noPO,
+        supplierId: p.supplierId,
+        supplierNama: p.supplierNama,
+        tanggal: p.tanggal,
+        metodeBayar: METODE_OPTIONS.find(m => m.value === p.metodeBayar)?.label ?? p.metodeBayar,
+        items: [],
+        total: 0,
+        dibayar: 0,
+        sisa: 0,
+        lunas: true,
+        jatuhTempo: p.jatuhTempo || '',
+        hasFoto: false,
+        fotoBase64: undefined,
+      };
+      g.items.push(p);
+      g.total += p.total;
+      g.dibayar += p.dibayar;
+      g.sisa += p.sisaTagihan;
+      if (!p.lunas) g.lunas = false;
+      if (p.jatuhTempo && (!g.jatuhTempo || p.jatuhTempo < g.jatuhTempo)) g.jatuhTempo = p.jatuhTempo;
+      if (p.fotoBase64 && !g.hasFoto) { g.hasFoto = true; g.fotoBase64 = p.fotoBase64; }
+      if (p.tanggal < g.tanggal) g.tanggal = p.tanggal;
+      map.set(p.noPO, g);
+    }
+    return Array.from(map.values()).sort((a, b) => b.noPO.localeCompare(a.noPO));
+  }, [purchases]);
+
+  const filtered = useMemo(() => {
+    return poGroups.filter(g => {
+      if (filterTglDari && g.tanggal < filterTglDari) return false;
+      if (filterTglSampai && g.tanggal > filterTglSampai) return false;
+      if (filterSupplier && g.supplierId !== filterSupplier) return false;
+      if (filterStatus === 'lunas' && !g.lunas) return false;
+      if (filterStatus === 'belum' && g.lunas) return false;
+      if (searchPO && !g.noPO.toLowerCase().includes(searchPO.toLowerCase()) && !g.supplierNama.toLowerCase().includes(searchPO.toLowerCase())) return false;
+      return true;
+    });
+  }, [poGroups, filterTglDari, filterTglSampai, filterSupplier, filterStatus, searchPO]);
+
+  const supplierOptions = useMemo(() => {
+    const ids = new Set(purchases.map(p => p.supplierId));
+    return suppliers.filter(s => ids.has(s.id));
+  }, [purchases, suppliers]);
+
+  const totalLunas = poGroups.filter(g => g.lunas).length;
+  const totalBelum = poGroups.filter(g => !g.lunas).length;
+  const totalDenganFoto = poGroups.filter(g => g.hasFoto).length;
+
+  // Build InvoicePOData for export
+  const buildInvoiceData = (g: PoGroupArchived): InvoicePOData => ({
+    noPO: g.noPO,
+    supplierNama: g.supplierNama,
+    tanggal: g.tanggal,
+    metodeBayar: g.metodeBayar,
+    items: g.items.map(x => ({ sku: x.sku, namaSku: x.namaSku, qty: x.qty, hargaBeli: x.hargaBeli, subtotal: x.total })),
+    total: g.total,
+    dibayar: g.dibayar,
+    sisa: g.sisa,
+    lunas: g.lunas,
+    jatuhTempo: g.jatuhTempo || undefined,
+  });
+
+  return (
+    <div>
+      <div className="mb-1 h-1 w-16 rounded-full bg-gradient-to-r from-emerald-500 to-emerald-300" />
+      <h2 className="text-lg font-bold text-slate-800 sm:text-xl">Arsip Invoice</h2>
+      <p className="mt-1 text-sm text-slate-500">Semua Purchase Order (PO). Invoice lunas otomatis tersimpan di sini. Klik <strong>📤 Kirim</strong> untuk ekspor ke WhatsApp/CSV/Gambar.</p>
+
+      {/* KPI */}
+      <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="rounded-xl bg-emerald-50 p-3 text-center"><p className="text-2xl font-bold text-emerald-700">{poGroups.length}</p><p className="text-xs text-emerald-500">Total PO</p></div>
+        <div className="rounded-xl bg-green-50 p-3 text-center"><p className="text-2xl font-bold text-green-600">{totalLunas}</p><p className="text-xs text-green-500">Lunas ✅</p></div>
+        <div className="rounded-xl bg-red-50 p-3 text-center"><p className="text-2xl font-bold text-red-600">{totalBelum}</p><p className="text-xs text-red-500">Belum Lunas</p></div>
+        <div className="rounded-xl bg-indigo-50 p-3 text-center"><p className="text-2xl font-bold text-indigo-600">{totalDenganFoto}</p><p className="text-xs text-indigo-500">Dengan Foto 📸</p></div>
+      </div>
+
+      {/* Filter */}
+      <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400">🔍 Filter Arsip</p>
+        <div className="flex flex-wrap items-end gap-3">
+          <div><label className="block text-xs text-slate-500 mb-1">Dari Tgl</label><input type="date" value={filterTglDari} onChange={e => setFilterTglDari(e.target.value)} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none" /></div>
+          <div><label className="block text-xs text-slate-500 mb-1">Sampai Tgl</label><input type="date" value={filterTglSampai} onChange={e => setFilterTglSampai(e.target.value)} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none" /></div>
+          <div><label className="block text-xs text-slate-500 mb-1">Supplier</label><select value={filterSupplier} onChange={e => setFilterSupplier(e.target.value)} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"><option value="">Semua Supplier</option>{supplierOptions.map(s => <option key={s.id} value={s.id}>{s.nama}</option>)}</select></div>
+          <div><label className="block text-xs text-slate-500 mb-1">Status</label><select value={filterStatus} onChange={e => setFilterStatus(e.target.value as typeof filterStatus)} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"><option value="semua">Semua Status</option><option value="lunas">✅ Lunas</option><option value="belum">⚠️ Belum Lunas</option></select></div>
+          <div className="flex-1 min-w-[160px]"><label className="block text-xs text-slate-500 mb-1">Cari PO / Supplier</label><input type="text" value={searchPO} onChange={e => setSearchPO(e.target.value)} placeholder="Ketik No PO atau supplier…" className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none" /></div>
+          <button onClick={() => { setFilterTglDari(''); setFilterTglSampai(''); setFilterSupplier(''); setFilterStatus('semua'); setSearchPO(''); }} className="rounded-xl bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-200 transition">🔄 Reset</button>
+        </div>
+      </div>
+
+      {filtered.length === 0 ? (
+        <div className="mt-6 rounded-2xl border border-dashed border-slate-300 bg-slate-50 py-12 text-center">
+          <p className="text-4xl">🗄️</p>
+          <p className="mt-2 text-sm font-semibold text-slate-500">Belum ada PO</p>
+          <p className="mt-1 text-xs text-slate-400">Buat Purchase Order di tab Pembelian HPP SKU.</p>
+        </div>
+      ) : (
+        /* ── Grid Cards ── */
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {filtered.map(g => (
+            <div key={g.noPO} className="group rounded-2xl border border-slate-200 bg-white p-3 shadow-sm hover:shadow-md hover:border-emerald-300 transition">
+              {/* Thumbnail foto jika ada */}
+              {g.hasFoto && g.fotoBase64 ? (
+                <div className="relative cursor-pointer overflow-hidden rounded-xl bg-slate-100 aspect-[4/3] mb-2" onClick={() => setLightbox(g.items[0])}>
+                  <img src={g.fotoBase64} alt={"Nota " + g.noPO} className="h-full w-full object-cover group-hover:scale-105 transition duration-300" />
+                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition flex items-center justify-center"><span className="opacity-0 group-hover:opacity-100 text-white text-2xl transition">🔍</span></div>
+                </div>
+              ) : (
+                <div className="flex items-center justify-center rounded-xl bg-slate-100 aspect-[4/3] mb-2">
+                  <span className="text-3xl text-slate-300">📄</span>
+                </div>
+              )}
+
+              {/* Info */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="font-mono text-xs font-bold text-emerald-700">{g.noPO}</span>
+                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${g.lunas ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-600'}`}>
+                    {g.lunas ? '✅ Lunas' : '⚠️ ' + g.metodeBayar}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-600 truncate">{g.supplierNama}</p>
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-slate-400">{g.tanggal}</span>
+                  <span className="font-semibold text-slate-700">Rp {g.total.toLocaleString('id-ID')}</span>
+                </div>
+                <div className="flex items-center gap-1 text-[10px] text-slate-400">
+                  <span>{g.items.length} SKU</span>
+                  {g.hasFoto && <span>· 📸 Foto</span>}
+                  {g.lunas && <span>· 🗄️ Diarsipkan</span>}
+                </div>
+
+                {/* Actions */}
+                <div className="flex gap-1 pt-1 border-t border-slate-100">
+                  <button
+                    onClick={() => { setDetailPoData(buildInvoiceData(g)); }}
+                    className="flex-1 rounded-lg bg-slate-100 py-1 text-xs font-medium text-slate-600 hover:bg-slate-200"
+                  >
+                    🔍 Detail
+                  </button>
+                  <button
+                    onClick={() => setExportPoData(buildInvoiceData(g))}
+                    className="flex-1 rounded-lg bg-indigo-100 py-1 text-xs font-semibold text-indigo-600 hover:bg-indigo-200"
+                  >
+                    📤 Kirim
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Lightbox Foto */}
+      {lightbox && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={() => setLightbox(null)}>
+          <div className="relative max-h-[90vh] max-w-[90vw] overflow-auto rounded-2xl bg-white shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-5 py-3">
+              <div><p className="font-mono text-sm font-bold text-emerald-700">{lightbox.noPO}</p><p className="text-xs text-slate-500">{lightbox.supplierNama} · {lightbox.tanggal}</p></div>
+              <button onClick={() => setLightbox(null)} className="rounded-xl bg-slate-100 px-3 py-1.5 text-sm font-semibold text-slate-600 hover:bg-slate-200 transition">✕ Tutup</button>
+            </div>
+            <div className="p-2"><img src={lightbox.fotoBase64} alt={"Nota " + lightbox.noPO} className="max-h-[70vh] rounded-xl object-contain" /></div>
+            <div className="border-t border-slate-200 bg-slate-50 px-5 py-3">
+              <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm sm:grid-cols-4">
+                <div><span className="text-xs text-slate-400">Total</span><p className="font-bold text-slate-800">Rp {lightbox.total.toLocaleString('id-ID')}</p></div>
+                <div><span className="text-xs text-slate-400">Dibayar</span><p className="font-semibold text-emerald-600">Rp {lightbox.dibayar.toLocaleString('id-ID')}</p></div>
+                <div><span className="text-xs text-slate-400">Sisa</span><p className={"font-semibold " + (lightbox.sisaTagihan > 0 ? 'text-red-600' : 'text-emerald-600')}>Rp {lightbox.sisaTagihan.toLocaleString('id-ID')}</p></div>
+                <div><span className="text-xs text-slate-400">Metode</span><p className="font-semibold text-slate-700">{METODE_OPTIONS.find(m => m.value === lightbox.metodeBayar)?.label ?? lightbox.metodeBayar}</p></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Invoice Export */}
+      {exportPoData && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setExportPoData(null)}>
+          <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl bg-white shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="sticky top-0 bg-white border-b border-slate-200 px-5 py-3 rounded-t-2xl flex items-center justify-between">
+              <div>
+                <p className="text-sm font-bold text-indigo-700">📤 Ekspor Invoice</p>
+                <p className="text-xs text-slate-500 font-mono">{exportPoData.noPO} — {exportPoData.supplierNama}</p>
+              </div>
+              <button onClick={() => setExportPoData(null)} className="rounded-full bg-slate-100 p-1.5 text-slate-500 hover:bg-slate-200">✕</button>
+            </div>
+            <div className="p-5">
+              <InvoiceExport data={exportPoData} tokoNama="MMA ProSync" isLunas={exportPoData.lunas} onClose={() => setExportPoData(null)} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Detail + PDF */}
+      {detailPoData && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setDetailPoData(null)}>
+          <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="sticky top-0 z-10 bg-white border-b border-slate-200 px-5 py-3 rounded-t-2xl flex items-center justify-between">
+              <div>
+                <p className="text-sm font-bold text-slate-800">📋 Detail Invoice</p>
+                <p className="text-xs text-slate-500 font-mono">{detailPoData.noPO} — {detailPoData.supplierNama}</p>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => {
+                    const prevTitle = document.title;
+                    document.title = `Invoice_${detailPoData.noPO}_${detailPoData.supplierNama.replace(/[^a-zA-Z0-9]/g, '_')}`;
+                    window.print();
+                    setTimeout(() => { document.title = prevTitle; }, 500);
+                  }}
+                  className="rounded-lg bg-red-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-600">
+                  📄 PDF
+                </button>
+                <button onClick={() => setDetailPoData(null)} className="rounded-full bg-slate-100 p-1.5 text-slate-500 hover:bg-slate-200">✕</button>
+              </div>
+            </div>
+            <div className="p-4">
+              <InvoicePreview data={detailPoData} tokoNama="MMA ProSync" />
+            </div>
+            <div className="border-t border-slate-200 px-5 py-3 text-center">
+              <p className="text-xs text-slate-400">💡 Klik <strong>📄 PDF</strong> lalu pilih <strong>Save as PDF</strong> di dialog print.</p>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

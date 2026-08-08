@@ -1,0 +1,591 @@
+'use client';
+
+import React, { useState, useRef, useEffect } from 'react';
+import * as XLSX from 'xlsx';
+import { useAgregasi, type AgregasiRow } from '@/app/context/AgregasiContext';
+
+type Tab = 'shopee' | 'operasional' | 'keuangan' | 'riwayat';
+
+const TABS: { key: Tab; label: string; icon: string }[] = [
+  { key: 'shopee', label: 'Pesanan Marketplace', icon: '🛒' },
+  { key: 'operasional', label: 'Input Operasional', icon: '📋' },
+  { key: 'keuangan', label: 'Input Keuangan', icon: '💰' },
+  { key: 'riwayat', label: 'Riwayat Entry', icon: '📜' },
+];
+
+/* ── Data Marketplace dari Data Master ── */
+const MARKETPLACE_TOKO = [
+  { id: 'mp-1', nama: 'Shopee — MITRA MULIA ABADI', marketplace: 'Shopee', persenFee: 10 },
+  { id: 'mp-2', nama: 'Lazada — MITRA MULIA ABADI', marketplace: 'Lazada', persenFee: 8 },
+  { id: 'mp-3', nama: 'Tokopedia — Berkah Abadi Official', marketplace: 'Tokopedia', persenFee: 6 },
+  { id: 'mp-4', nama: 'TikTok Shop — MITRA MULIA ABADI', marketplace: 'TikTok Shop', persenFee: 5 },
+];
+
+/* ── Types ── */
+interface OpsEntry { id: string; tanggal: string; jamBuka: string; jamTutup: string; jumlahKaryawan: number; catatan: string; }
+interface KeuEntry { id: string; tanggal: string; marketplaceId: string; marketplaceNama: string; pendapatanKotor: number; feeMarketplace: number; biayaIklan: number; biayaPengemasan: number; biayaPengiriman: number; pendapatanBersih: number; catatan: string; }
+interface ShopeeOrder {
+  id: string;
+  noPesanan: string;          // [0] No. Pesanan
+  sku: string;                // [13] Nomor Referensi SKU
+  hargaAwal: number;          // [15] Harga Awal
+  kurir: string;              // [4] Opsi Pengiriman
+  waktuDibuat: string;        // [8] Waktu Pesanan Dibuat
+  noResi: string;             // [3] No. Resi
+  namaProduk: string;         // [12] Nama Produk
+  jumlah: number;             // [17] Jumlah
+  statusPesanan: string;      // [1] Status Pesanan
+  sla: string;                // [6] Pesanan Harus Dikirimkan Sebelum
+  username: string;           // [41] Username Pembeli
+  totalPembayaran: number;    // [37] Total Pembayaran
+}
+
+export default function DataEntryPage() {
+  const [tab, setTab] = useState<Tab>('shopee');
+
+  return (
+    <main className="mx-auto flex min-h-screen max-w-6xl flex-col gap-5 px-4 py-6 sm:px-6 lg:px-8">
+      <header className="rounded-3xl bg-gradient-to-br from-brand-700 via-brand-500 to-brand-300 p-5 text-white shadow-lg sm:p-7">
+        <p className="text-xs font-semibold uppercase tracking-[0.25em] text-brand-100 sm:text-sm">Data Entry</p>
+        <h1 className="mt-2 text-2xl font-bold sm:text-3xl">Input Data</h1>
+        <p className="mt-1 text-sm text-brand-100 sm:text-base">Catat data operasional harian & keuangan per marketplace secara terstruktur.</p>
+      </header>
+
+      <nav className="flex gap-1 overflow-x-auto rounded-2xl bg-white p-1 shadow-sm" role="tablist">
+        {TABS.map(t => (
+          <button key={t.key} role="tab" aria-selected={tab===t.key} onClick={()=>setTab(t.key)}
+            className={`flex shrink-0 items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold transition sm:px-5 sm:text-sm ${tab===t.key?'bg-brand-500 text-white shadow':'text-slate-600 hover:bg-brand-50 hover:text-brand-700'}`}>
+            <span className="text-base sm:text-lg">{t.icon}</span>
+            <span className="hidden sm:inline">{t.label}</span>
+          </button>
+        ))}
+      </nav>
+
+      <section className="card-blue">
+        {tab==='shopee' && <PesananShopee />}
+        {tab==='operasional' && <InputOperasional />}
+        {tab==='keuangan' && <InputKeuangan />}
+        {tab==='riwayat' && <RiwayatEntry />}
+      </section>
+    </main>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════ */
+/* INPUT PESANAN SHOPEE — Multi‑SKU + Format Indonesia              */
+/* ═══════════════════════════════════════════════════════════════════ */
+
+/* ── Parse number: "8.250"→8250, "1.500.000"→1500000, "36455.00"→36455 ── */
+function parseRp(val: string): number {
+  const s=String(val??'').trim();
+  if(!s)return 0;
+  // "36455.00" → dot diikuti tepat 2 digit di akhir = desimal
+  if(/\.\d{2}$/.test(s)&&!s.includes(','))return +s.replace(/\.\d{2}$/,'')||0;
+  // Pakai koma sebagai desimal (format Indonesia)
+  if(s.includes(',')&&!s.includes('.'))return +s.replace(/\./g,'').replace(',','.')||0;
+  if(s.includes(',')&&s.includes('.')){
+    return +s.replace(/\./g,'').replace(',','.')||0;
+  }
+  // Hanya titik → titik adalah pemisah ribuan (Shopee: "8.250" = Rp 8.250)
+  return +s.replace(/\./g,'')||0;
+}
+
+/* ── Grouped order (multi‑SKU per No. Pesanan + Resi) ── */
+interface GroupedOrder {
+  noPesanan: string;
+  noResi: string;
+  statusPesanan: string;
+  sla: string;
+  kurir: string;
+  waktuDibuat: string;
+  username: string;
+  items: { sku: string; namaProduk: string; jumlah: number; hargaAwal: number; }[];
+  totalPendapatan: number;
+}
+
+function groupOrders(orders: ShopeeOrder[]): GroupedOrder[] {
+  const map=new Map<string,GroupedOrder>();
+  for(const o of orders){
+    const key=`${o.noPesanan}||${o.noResi}`;
+    if(!map.has(key)){
+      map.set(key,{
+        noPesanan:o.noPesanan,noResi:o.noResi,statusPesanan:o.statusPesanan,
+        sla:o.sla,kurir:o.kurir,waktuDibuat:o.waktuDibuat,username:o.username,
+        items:[],totalPendapatan:0,
+      });
+    }
+    const g=map.get(key)!;
+    g.items.push({sku:o.sku,namaProduk:o.namaProduk,jumlah:o.jumlah,hargaAwal:o.hargaAwal});
+    g.totalPendapatan+=o.totalPembayaran||(o.hargaAwal*o.jumlah);
+  }
+  return Array.from(map.values());
+}
+interface UploadHistory { id: string; waktu: string; marketplace: string; namaToko: string; jumlah: number; fileName: string; }
+
+function PesananShopee() {
+  const { addRows } = useAgregasi();
+  const [orders, setOrders] = useState<ShopeeOrder[]>([]);
+  const [staged, setStaged] = useState<ShopeeOrder[]|null>(null); // data sebelum konfirmasi
+  const [stagedFile, setStagedFile] = useState(''); // nama file yang di-upload
+  const [uploading, setUploading] = useState(false);
+  const [err, setErr] = useState('');
+  const [filter, setFilter] = useState('semua');
+  const [selectedToko, setSelectedToko] = useState(MARKETPLACE_TOKO[0].id);
+  const [history, setHistory] = useState<UploadHistory[]>([]);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const toko = MARKETPLACE_TOKO.find(t=>t.id===selectedToko)!;
+
+  /* ── Grouped data (dari orders yang sudah dikonfirmasi) ── */
+  const grouped = groupOrders(orders);
+  const uniqueOrders = new Set(orders.map(o=>o.noPesanan)).size;
+  const statuses = Array.from(new Set(grouped.map(g => g.statusPesanan)));
+  const filtered = filter==='semua'?grouped:grouped.filter(g=>g.statusPesanan===filter);
+
+  /* ── Stats ── */
+  const totalItems = orders.reduce((s,o)=>s+o.jumlah,0);
+  const perluDikirim = grouped.filter(g=>g.statusPesanan==='Perlu Dikirim').length;
+  const totalPendapatan = grouped.reduce((s,g)=>s+g.totalPendapatan,0);
+
+  /* ── SLA warning ── */
+  const now = new Date();
+  const slaWarning = grouped.filter(g=>{
+    if(g.statusPesanan!=='Perlu Dikirim')return false;
+    const sla=new Date(g.sla);if(isNaN(sla.getTime()))return false;
+    return (sla.getTime()-now.getTime())<24*60*60*1000;
+  }).length;
+
+  /* ── Expand state ── */
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const toggleExpand = (key:string) => setExpanded(prev=>{
+    const next=new Set(prev);
+    next.has(key)?next.delete(key):next.add(key);
+    return next;
+  });
+
+  /* ── Upload Excel — dynamic column mapping by header name ── */
+  const uploadFile=(e:React.ChangeEvent<HTMLInputElement>)=>{
+    const file=e.target.files?.[0];if(!file)return;
+    setUploading(true);setErr('');
+    const r=new FileReader();
+    r.onload=ev=>{
+      try{
+        const data=new Uint8Array(ev.target?.result as ArrayBuffer);
+        const wb=XLSX.read(data,{type:'array'});
+        const sheet=wb.Sheets[wb.SheetNames[0]];
+        const rows=XLSX.utils.sheet_to_json<string[]>(sheet,{header:1});
+        if(rows.length<2){setErr('File Excel kosong atau hanya header.');setUploading(false);return;}
+
+        // Build header→index map (case-insensitive, partial match)
+        const header=rows[0].map((h:string)=>String(h).toLowerCase().trim());
+        const idx=(...keywords:string[])=>header.findIndex(h=>keywords.some(k=>h.includes(k)));
+
+        const iNoPesanan    = idx('no. pesanan','no pesanan','order id','ordernumber','order_number','order number','order_no');
+        const iSku          = idx('nomor referensi sku','sku referensi','sku ref','seller sku','sellersku');
+        const iHargaAwal    = idx('harga awal','sku unit original price','original price','unitprice');
+        const iKurir        = idx('opsi pengiriman','shipping provider','shippingproviderfm','logistics provider','courier','logistic');
+        const iWaktuDibuat  = idx('waktu pesanan dibuat','created time','createtime');
+        // Lazada: trackingCode spesifik (hindari cdTrackingCode)
+        const lazTracking=header.findIndex(h=>h==='trackingcode');
+        const iNoResi       = lazTracking>=0?lazTracking:idx('trackingcodefm','tracking id','no. resi','no resi','trackingcode','tracking_number','tracking number','tracking_code','tracking code');
+        const iNamaProduk   = idx('nama produk','nama item','product name','itemname');
+        const iJumlah       = idx('jumlah','kuantity','quantity');
+        const iStatus       = idx('status pesanan','order status','status');
+        const iSla          = idx('harus dikirimkan sebelum','sla','rts time','ttssla','rtssla');
+        const iUsername     = idx('username','buyer username','customername');
+        const iTotalBayar   = idx('total pembayaran','order amount','paidprice');
+
+        if(iNoPesanan<0||iNamaProduk<0){setErr('Kolom Order ID/No. Pesanan dan Nama Produk wajib ada.');setUploading(false);return;}
+
+        // Deteksi baris deskripsi (TikTok: row is description, not data)
+        const isDataRow=(r:string[])=>r&&r[iNoPesanan]&&!/^platform unique|^current order|^the filed|^platform sku|^seller sku input|^platform product|^platform sku variation|^sku sold|^sku returned|^1 sku original|^it equals|^total platform|^total seller|^the order|^shipping fee/i.test(String(r[iNoPesanan]));
+
+        const items:ShopeeOrder[]=[];
+        for(let i=1;i<rows.length;i++){
+          const r=rows[i];if(!r||!isDataRow(r))continue;
+          items.push({
+            id:`shp-${Date.now()}-${i}`,
+            noPesanan: String(r[iNoPesanan]??'').trim(),
+            sku: iSku>=0?String(r[iSku]??'').trim():'',
+            hargaAwal: iHargaAwal>=0?parseRp(r[iHargaAwal]):0,
+            kurir: iKurir>=0?String(r[iKurir]??'').trim():'',
+            waktuDibuat: iWaktuDibuat>=0?String(r[iWaktuDibuat]??'').trim():'',
+            noResi: iNoResi>=0?String(r[iNoResi]??'').trim():'',
+            namaProduk: String(r[iNamaProduk]??'').trim(),
+            jumlah: iJumlah>=0?(+String(r[iJumlah]??'0').replace(/[^0-9.-]/g,'')||0):1, // Lazada: tidak ada kolom qty → default 1
+            statusPesanan: iStatus>=0?String(r[iStatus]??'').trim():'',
+            sla: iSla>=0?String(r[iSla]??'').trim():'',
+            username: iUsername>=0?String(r[iUsername]??'').trim():'',
+            totalPembayaran: iTotalBayar>=0?parseRp(r[iTotalBayar]):0,
+          });
+        }
+        if(items.length===0){setErr('Tidak ada data pesanan valid.');setUploading(false);return;}
+        // Stage dulu — jangan langsung kirim ke context
+        setStaged(items);setStagedFile(file.name);setErr('');
+        setUploading(false);
+      }catch{setErr('Gagal membaca file Excel.');}
+      setUploading(false);
+    };
+    r.onerror=()=>{setErr('Gagal membaca file.');setUploading(false);};
+    r.readAsArrayBuffer(file);
+  };
+
+  /* ── Konfirmasi: kirim staged → context + history ── */
+  const confirmUpload = () => {
+    if (!staged || staged.length === 0) return;
+    setOrders(prev => {
+      const combined = [...staged, ...prev];
+      const map = new Map<string, ShopeeOrder>();
+      for (const o of combined) map.set(`${o.noPesanan}||${o.noResi}||${o.sku}`, o);
+      return Array.from(map.values());
+    });
+
+    const ctxRows: AgregasiRow[] = staged.map(o => ({
+      id: o.id, marketplace: toko.marketplace, namaToko: toko.nama.split('—')[1]?.trim() || toko.nama,
+      noPesanan: o.noPesanan, noResi: o.noResi, sku: o.sku, namaProduk: o.namaProduk,
+      hargaJual: o.hargaAwal, kuantity: o.jumlah, kurir: o.kurir,
+      statusPesanan: o.statusPesanan, dibuat: o.waktuDibuat, sla: o.sla,
+    }));
+    addRows(ctxRows);
+
+    setHistory(prev => [{
+      id: `h-${Date.now()}`, waktu: new Date().toLocaleString('id-ID'),
+      marketplace: toko.marketplace, namaToko: toko.nama.split('—')[1]?.trim() || toko.nama,
+      jumlah: staged.length, fileName: stagedFile,
+    }, ...prev]);
+
+    setStaged(null); setStagedFile('');
+    alert(`✅ ${staged.length} pesanan dikonfirmasi & dikirim ke Operasional Gudang.`);
+  };
+
+  const cancelUpload = () => { setStaged(null); setStagedFile(''); setErr(''); };
+
+  return (
+    <div>
+      <div className="mb-1 h-1 w-16 rounded-full bg-gradient-to-r from-brand-500 to-brand-300" />
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-bold text-slate-800 sm:text-xl">🛒 Pesanan Marketplace</h2>
+          <p className="mt-1 text-sm text-slate-500">Shopee, TikTok & Lazada — pilih toko → upload Excel → mapping otomatis.</p>
+        </div>
+        <div className="flex gap-2">
+          {/* Pilih Toko dari Data Master */}
+          <select value={selectedToko} onChange={e=>{setSelectedToko(e.target.value);setOrders([]);}} className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 focus:border-brand-500 focus:outline-none">
+            {MARKETPLACE_TOKO.map(m=>(
+              <option key={m.id} value={m.id}>{m.marketplace} — {m.nama.split('—')[1]?.trim()||m.nama}</option>
+            ))}
+          </select>
+          <label className={`cursor-pointer rounded-xl px-4 py-2 text-sm font-semibold text-white transition ${uploading?'bg-slate-400':'bg-orange-500 hover:bg-orange-600'}`}>
+            {uploading?'⏳ Memproses...':'📥 Upload Excel'}
+            <input ref={fileRef} type="file" accept=".xlsx,.xls" onChange={uploadFile} className="hidden" disabled={uploading} />
+          </label>
+        </div>
+      </div>
+      {err&&<p className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{err}</p>}
+
+      {/* ── Staged Upload Panel ── */}
+      {staged&&(
+        <div className="mt-3 rounded-2xl border-2 border-amber-300 bg-amber-50 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-bold text-amber-800">📋 Data Siap Dikonfirmasi</p>
+              <p className="text-xs text-amber-600">{staged.length} baris dari <strong>{stagedFile}</strong> • {toko.marketplace} — {toko.nama}</p>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={cancelUpload} className="rounded-xl bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-200">✕ Batal</button>
+              <button onClick={confirmUpload} className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-600">✅ Konfirmasi Kirim ke Operasional</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Upload History ── */}
+      {history.length>0&&(
+        <details className="mt-3 rounded-xl border border-slate-200 bg-white">
+          <summary className="cursor-pointer px-4 py-2 text-xs font-semibold text-slate-500 hover:text-slate-700">📜 Riwayat Upload ({history.length})</summary>
+          <div className="px-4 pb-3 divide-y divide-slate-50">
+            {history.slice(0, 15).map(h=>(
+              <div key={h.id} className="flex items-center justify-between py-1.5 text-xs">
+                <div><span className="font-semibold text-slate-700">{h.marketplace}</span><span className="text-slate-400 mx-1">•</span><span className="text-slate-500">{h.namaToko}</span></div>
+                <div className="flex items-center gap-3"><span className="text-slate-400">{h.fileName}</span><span className="text-slate-400">{h.jumlah} baris</span><span className="text-slate-300">{h.waktu}</span></div>
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
+
+      {/* Toko aktif + info */}
+      {orders.length>0&&(
+        <div className="mt-2 flex items-center gap-2 rounded-xl bg-brand-50 px-3 py-1.5 text-xs text-brand-600">
+          <span className="font-bold">{toko.marketplace}</span>
+          <span className="text-slate-400">|</span>
+          <span>{toko.nama}</span>
+          <span className="text-slate-400">|</span>
+          <span>Fee {toko.persenFee}%</span>
+        </div>
+      )}
+
+      {/* Stats Cards */}
+      {orders.length>0&&(
+        <div className="mt-4 grid grid-cols-2 sm:grid-cols-5 gap-3">
+          <div className="rounded-xl bg-brand-50 p-3 text-center"><p className="text-2xl font-bold text-brand-700">{uniqueOrders}</p><p className="text-xs text-brand-500">Pesanan</p></div>
+          <div className="rounded-xl bg-purple-50 p-3 text-center"><p className="text-2xl font-bold text-purple-600">{totalItems}</p><p className="text-xs text-purple-500">Item</p></div>
+          <div className="rounded-xl bg-amber-50 p-3 text-center"><p className="text-2xl font-bold text-amber-600">{perluDikirim}</p><p className="text-xs text-amber-500">Perlu Dikirim</p></div>
+          <div className={`rounded-xl p-3 text-center ${slaWarning>0?'bg-red-50':'bg-emerald-50'}`}><p className={`text-2xl font-bold ${slaWarning>0?'text-red-600':'text-emerald-600'}`}>{slaWarning}</p><p className="text-xs text-slate-500">⚠ Deadline {'<'}24j</p></div>
+          <div className="rounded-xl bg-blue-50 p-3 text-center"><p className="text-2xl font-bold text-blue-600">Rp {(totalPendapatan/1000).toFixed(0)}k</p><p className="text-xs text-blue-500">Pendapatan</p></div>
+        </div>
+      )}
+
+      {/* Filter status */}
+      {orders.length>0&&(
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button onClick={()=>setFilter('semua')} className={`rounded-full px-3 py-1 text-xs font-semibold transition ${filter==='semua'?'bg-brand-500 text-white':'bg-slate-100 text-slate-600 hover:bg-brand-100'}`}>Semua ({grouped.length})</button>
+          {statuses.map(s=>(
+            <button key={s} onClick={()=>setFilter(s)} className={`rounded-full px-3 py-1 text-xs font-semibold transition ${filter===s?'bg-brand-500 text-white':s==='Perlu Dikirim'?'bg-amber-100 text-amber-700 hover:bg-amber-200':s.includes('Diterima')||s==='Selesai'?'bg-emerald-100 text-emerald-700 hover:bg-emerald-200':s==='Dikirim'||s.includes('Dikirim')?'bg-blue-100 text-blue-700 hover:bg-blue-200':s.includes('Dibatalkan')?'bg-red-100 text-red-700 hover:bg-red-200':'bg-slate-100 text-slate-600 hover:bg-brand-100'}`}>
+              {s} ({grouped.filter(g=>g.statusPesanan===s).length})
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Tabel Pesanan — Grouped by No. Pesanan + Resi */}
+      {orders.length>0&&(
+        <div className="mt-3 overflow-x-auto rounded-xl border border-slate-100">
+          <table className="w-full text-left text-xs">
+            <thead><tr className="bg-brand-50 text-xs uppercase text-brand-500">
+              {['No. Pesanan','No. Resi','Item','Total','Kurir','Dibuat','SLA','Status'].map(c=><th key={c} className="px-2 py-3 font-semibold whitespace-nowrap">{c}</th>)}
+            </tr></thead>
+            <tbody className="divide-y divide-slate-50 bg-white">
+              {filtered.map(g=>{
+                const key=`${g.noPesanan}||${g.noResi}`;
+                const isUrgent=g.statusPesanan==='Perlu Dikirim'&&(()=>{const d=new Date(g.sla);return!isNaN(d.getTime())&&(d.getTime()-Date.now())<24*60*60*1000;})();
+                const isExpanded=expanded.has(key);
+                const itemCount=g.items.length;
+                return(
+                  <React.Fragment key={key}>
+                    <tr className={`cursor-pointer transition ${isUrgent?'bg-red-50/40':'hover:bg-brand-50/30'}`} onClick={()=>toggleExpand(key)}>
+                      <td className="px-2 py-2.5 font-mono text-[11px] text-slate-700 max-w-[100px] truncate" title={g.noPesanan}>{g.noPesanan}</td>
+                      <td className="px-2 py-2.5 font-mono text-[10px] text-slate-500 max-w-[100px] truncate" title={g.noResi}>{g.noResi||'-'}</td>
+                      <td className="px-2 py-2.5">
+                        <span className="font-semibold text-brand-700">{itemCount} SKU</span>
+                        <span className="text-slate-400 ml-1">{isExpanded?'▲':'▼'}</span>
+                      </td>
+                      <td className="px-2 py-2.5 font-semibold whitespace-nowrap">Rp {g.totalPendapatan.toLocaleString('id-ID')}</td>
+                      <td className="px-2 py-2.5 text-slate-500 max-w-[100px] truncate text-[10px]" title={g.kurir}>{g.kurir.split('-')[0]?.trim()||g.kurir}</td>
+                      <td className="px-2 py-2.5 text-[10px] whitespace-nowrap">{g.waktuDibuat?.replace(' ',' ')}</td>
+                      <td className={`px-2 py-2.5 text-[10px] whitespace-nowrap font-semibold ${isUrgent?'text-red-600':g.statusPesanan.includes('Diterima')||g.statusPesanan==='Selesai'?'text-slate-400':'text-amber-600'}`}>{g.sla||'-'}</td>
+                      <td className="px-2 py-2.5"><span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold whitespace-nowrap ${g.statusPesanan==='Perlu Dikirim'?'bg-amber-100 text-amber-700':g.statusPesanan.includes('Diterima')||g.statusPesanan==='Selesai'?'bg-emerald-100 text-emerald-700':g.statusPesanan.includes('Dikirim')?'bg-blue-100 text-blue-700':g.statusPesanan.includes('Dibatalkan')?'bg-red-100 text-red-700':'bg-slate-100 text-slate-600'}`}>{g.statusPesanan}</span></td>
+                    </tr>
+                    {/* Expanded: SKU items */}
+                    {isExpanded&&g.items.map((item,i)=>(
+                      <tr key={`${key}-${i}`} className="bg-slate-50/50 border-b border-slate-100">
+                        <td colSpan={2} className="px-2 py-1.5"></td>
+                        <td className="px-2 py-1.5 text-[11px] max-w-[180px] truncate" title={item.namaProduk}>
+                          <span className="text-slate-400 mr-1">└</span>
+                          <span className="font-mono text-[10px] text-brand-600 mr-1">{item.sku||'-'}</span>
+                          {item.namaProduk}
+                        </td>
+                        <td className="px-2 py-1.5 text-[11px] whitespace-nowrap">Rp {item.hargaAwal.toLocaleString('id-ID')} × {item.jumlah}</td>
+                        <td colSpan={4} className="px-2 py-1.5"></td>
+                      </tr>
+                    ))}
+                  </React.Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Empty state */}
+      {orders.length===0&&(
+        <div className="mt-8 text-center py-12 text-slate-400">
+          <p className="text-5xl mb-3">🛒</p>
+          <p className="font-semibold">Belum ada data pesanan.</p>
+          <p className="text-sm mt-1">Pilih toko di atas, lalu upload file Excel Order dari Shopee.</p>
+          <div className="mt-4 rounded-xl bg-slate-50 p-4 text-left text-xs text-slate-500 inline-block">
+            <p className="font-semibold text-slate-600 mb-1">📋 Mapping otomatis (Shopee, TikTok & Lazada):</p>
+            <p>Shopee: No. Pesanan / TikTok: Order ID / Lazada: orderNumber → SKU → Produk → Qty → Harga → Kurir → Resi → Status → SLA</p>
+            <p className="mt-1 text-slate-400">Lazada: tanpa kolom Qty — setiap baris = 1 item. Multi-SKU via No. Pesanan + Resi yang sama.</p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════ */
+/* INPUT DATA OPERASIONAL                                            */
+/* ═══════════════════════════════════════════════════════════════════ */
+function InputOperasional() {
+  const [entries, setEntries] = useState<OpsEntry[]>([]);
+  const [form, setForm] = useState({ tanggal: new Date().toISOString().slice(0, 10), jamBuka: '08:00', jamTutup: '17:00', jumlahKaryawan: '', catatan: '' });
+  const [err, setErr] = useState('');
+  const [success, setSuccess] = useState(false);
+
+  const save = () => {
+    if (!form.jumlahKaryawan || +form.jumlahKaryawan <= 0) { setErr('Jumlah karyawan wajib diisi.'); return; }
+    setEntries(p => [{ id: `ops-${Date.now()}`, ...form, jumlahKaryawan: +form.jumlahKaryawan }, ...p]);
+    setForm({ tanggal: new Date().toISOString().slice(0, 10), jamBuka: '08:00', jamTutup: '17:00', jumlahKaryawan: '', catatan: '' });
+    setErr(''); setSuccess(true);
+    setTimeout(() => setSuccess(false), 3000);
+  };
+
+  return (
+    <div>
+      <div className="mb-1 h-1 w-16 rounded-full bg-gradient-to-r from-brand-500 to-brand-300" />
+      <h2 className="text-lg font-bold text-slate-800 sm:text-xl">📋 Input Data Operasional</h2>
+      <p className="mt-1 text-sm text-slate-500">Jam operasional toko, jumlah staf, dan catatan harian.</p>
+
+      {err && <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{err}</p>}
+      {success && <p className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-600">✅ Data operasional tersimpan.</p>}
+
+      <div className="mt-4 rounded-2xl border border-brand-100 bg-white p-5 shadow-sm">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <label className="flex flex-col gap-1"><span className="text-xs font-semibold text-slate-600">Tanggal</span><input type="date" value={form.tanggal} onChange={e => setForm({ ...form, tanggal: e.target.value })} className="rounded-xl border px-3 py-2 text-sm focus:border-brand-500 focus:outline-none" /></label>
+          <label className="flex flex-col gap-1"><span className="text-xs font-semibold text-slate-600">Jam Buka</span><input type="time" value={form.jamBuka} onChange={e => setForm({ ...form, jamBuka: e.target.value })} className="rounded-xl border px-3 py-2 text-sm focus:border-brand-500 focus:outline-none" /></label>
+          <label className="flex flex-col gap-1"><span className="text-xs font-semibold text-slate-600">Jam Tutup</span><input type="time" value={form.jamTutup} onChange={e => setForm({ ...form, jamTutup: e.target.value })} className="rounded-xl border px-3 py-2 text-sm focus:border-brand-500 focus:outline-none" /></label>
+          <label className="flex flex-col gap-1"><span className="text-xs font-semibold text-slate-600">Jumlah Karyawan *</span><input type="number" value={form.jumlahKaryawan} onChange={e => setForm({ ...form, jumlahKaryawan: e.target.value })} placeholder="cth: 5" className="rounded-xl border px-3 py-2 text-sm focus:border-brand-500 focus:outline-none" /></label>
+          <label className="flex flex-col gap-1 sm:col-span-2 lg:col-span-2"><span className="text-xs font-semibold text-slate-600">Catatan</span><input type="text" value={form.catatan} onChange={e => setForm({ ...form, catatan: e.target.value })} placeholder="Kejadian khusus, masalah, dll" className="rounded-xl border px-3 py-2 text-sm focus:border-brand-500 focus:outline-none" /></label>
+        </div>
+        <button onClick={save} className="mt-4 rounded-xl bg-brand-500 px-6 py-2.5 text-sm font-semibold text-white hover:bg-brand-700">💾 Simpan</button>
+      </div>
+
+      {/* Tabel riwayat */}
+      {entries.length > 0 && (
+        <div className="mt-5">
+          <p className="text-sm font-bold text-slate-700">📋 Riwayat Hari Ini</p>
+          <div className="mt-2 overflow-x-auto rounded-xl border border-slate-100">
+            <table className="w-full text-left text-sm">
+              <thead><tr className="bg-brand-50 text-xs uppercase text-brand-500">{['Tanggal','Buka','Tutup','Karyawan','Catatan'].map(c => <th key={c} className="px-3 py-2 font-semibold">{c}</th>)}</tr></thead>
+              <tbody className="divide-y divide-slate-50 bg-white">{entries.map(e => (
+                <tr key={e.id}><td className="px-3 py-2">{e.tanggal}</td><td className="px-3 py-2">{e.jamBuka}</td><td className="px-3 py-2">{e.jamTutup}</td><td className="px-3 py-2 font-semibold text-brand-700">{e.jumlahKaryawan}</td><td className="px-3 py-2 text-slate-500 max-w-[200px] truncate">{e.catatan || '-'}</td></tr>
+              ))}</tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════ */
+/* INPUT DATA KEUANGAN PER MARKETPLACE                               */
+/* ═══════════════════════════════════════════════════════════════════ */
+function InputKeuangan() {
+  const [entries, setEntries] = useState<KeuEntry[]>([]);
+  const [selectedMp, setSelectedMp] = useState(MARKETPLACE_TOKO[0].id);
+  const [form, setForm] = useState({ tanggal: new Date().toISOString().slice(0, 10), pendapatanKotor: '', biayaIklan: '', biayaPengemasan: '', biayaPengiriman: '', catatan: '' });
+  const [err, setErr] = useState('');
+  const [success, setSuccess] = useState(false);
+
+  const mp = MARKETPLACE_TOKO.find(m => m.id === selectedMp)!;
+  const pk = +form.pendapatanKotor || 0;
+  const fee = Math.round(pk * mp.persenFee / 100);
+  const biayaLain = (+form.biayaIklan || 0) + (+form.biayaPengemasan || 0) + (+form.biayaPengiriman || 0);
+  const bersih = pk - fee - biayaLain;
+
+  const save = () => {
+    if (pk <= 0) { setErr('Pendapatan kotor wajib diisi.'); return; }
+    setEntries(p => [{ id: `keu-${Date.now()}`, tanggal: form.tanggal, marketplaceId: mp.id, marketplaceNama: mp.nama, pendapatanKotor: pk, feeMarketplace: fee, biayaIklan: +form.biayaIklan || 0, biayaPengemasan: +form.biayaPengemasan || 0, biayaPengiriman: +form.biayaPengiriman || 0, pendapatanBersih: bersih, catatan: form.catatan }, ...p]);
+    setForm({ tanggal: new Date().toISOString().slice(0, 10), pendapatanKotor: '', biayaIklan: '', biayaPengemasan: '', biayaPengiriman: '', catatan: '' });
+    setErr(''); setSuccess(true);
+    setTimeout(() => setSuccess(false), 3000);
+  };
+
+  const totalBersih = entries.reduce((s, e) => s + e.pendapatanBersih, 0);
+
+  return (
+    <div>
+      <div className="mb-1 h-1 w-16 rounded-full bg-gradient-to-r from-brand-500 to-brand-300" />
+      <h2 className="text-lg font-bold text-slate-800 sm:text-xl">💰 Input Data Keuangan</h2>
+      <p className="mt-1 text-sm text-slate-500">Catat pendapatan & biaya per marketplace. Fee marketplace dihitung otomatis.</p>
+
+      {err && <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{err}</p>}
+      {success && <p className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-600">✅ Data keuangan tersimpan.</p>}
+
+      {/* Pilih Marketplace */}
+      <div className="mt-4 flex flex-wrap gap-2">
+        {MARKETPLACE_TOKO.map(m => (
+          <button key={m.id} onClick={() => setSelectedMp(m.id)}
+            className={`rounded-xl px-3 py-2 text-xs font-semibold transition border-2 ${selectedMp===m.id?'border-brand-500 bg-brand-50 text-brand-700':'border-slate-200 bg-white text-slate-500 hover:border-brand-300'}`}>
+            {m.marketplace} <span className="text-slate-400">(fee {m.persenFee}%)</span>
+          </button>
+        ))}
+      </div>
+
+      {/* Form */}
+      <div className="mt-4 rounded-2xl border border-brand-100 bg-white p-5 shadow-sm">
+        <p className="text-sm font-bold text-slate-700">{mp.marketplace} — {mp.nama.split('—')[1]?.trim() || mp.nama}</p>
+        <p className="text-xs text-slate-400">Fee marketplace: {mp.persenFee}% • Auto-hitung</p>
+
+        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <label className="flex flex-col gap-1"><span className="text-xs font-semibold text-slate-600">Tanggal</span><input type="date" value={form.tanggal} onChange={e => setForm({ ...form, tanggal: e.target.value })} className="rounded-xl border px-3 py-2 text-sm focus:border-brand-500 focus:outline-none" /></label>
+          <label className="flex flex-col gap-1"><span className="text-xs font-semibold text-slate-600">Pendapatan Kotor *</span><input type="number" value={form.pendapatanKotor} onChange={e => setForm({ ...form, pendapatanKotor: e.target.value })} placeholder="Rp" className="rounded-xl border px-3 py-2 text-sm focus:border-brand-500 focus:outline-none" /></label>
+          <label className="flex flex-col gap-1"><span className="text-xs font-semibold text-slate-600">Biaya Iklan</span><input type="number" value={form.biayaIklan} onChange={e => setForm({ ...form, biayaIklan: e.target.value })} placeholder="Rp" className="rounded-xl border px-3 py-2 text-sm focus:border-brand-500 focus:outline-none" /></label>
+          <label className="flex flex-col gap-1"><span className="text-xs font-semibold text-slate-600">Biaya Pengemasan</span><input type="number" value={form.biayaPengemasan} onChange={e => setForm({ ...form, biayaPengemasan: e.target.value })} placeholder="Rp" className="rounded-xl border px-3 py-2 text-sm focus:border-brand-500 focus:outline-none" /></label>
+          <label className="flex flex-col gap-1"><span className="text-xs font-semibold text-slate-600">Biaya Pengiriman</span><input type="number" value={form.biayaPengiriman} onChange={e => setForm({ ...form, biayaPengiriman: e.target.value })} placeholder="Rp" className="rounded-xl border px-3 py-2 text-sm focus:border-brand-500 focus:outline-none" /></label>
+          <label className="flex flex-col gap-1"><span className="text-xs font-semibold text-slate-600">Catatan</span><input type="text" value={form.catatan} onChange={e => setForm({ ...form, catatan: e.target.value })} placeholder="Nomor invoice, dll" className="rounded-xl border px-3 py-2 text-sm focus:border-brand-500 focus:outline-none" /></label>
+        </div>
+
+        {/* Ringkasan kalkulasi */}
+        {pk > 0 && (
+          <div className="mt-4 rounded-xl bg-slate-50 p-4 grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+            <div><span className="text-slate-400">Pendapatan Kotor</span><p className="font-bold text-slate-800">Rp {pk.toLocaleString('id-ID')}</p></div>
+            <div><span className="text-slate-400">Fee {mp.persenFee}%</span><p className="font-bold text-red-500">− Rp {fee.toLocaleString('id-ID')}</p></div>
+            <div><span className="text-slate-400">Biaya Lain</span><p className="font-bold text-red-500">− Rp {biayaLain.toLocaleString('id-ID')}</p></div>
+            <div><span className="text-slate-400">Pendapatan Bersih</span><p className="font-bold text-emerald-600">Rp {bersih.toLocaleString('id-ID')}</p></div>
+          </div>
+        )}
+
+        <button onClick={save} className="mt-4 rounded-xl bg-brand-500 px-6 py-2.5 text-sm font-semibold text-white hover:bg-brand-700">💾 Simpan</button>
+      </div>
+
+      {/* Tabel riwayat keuangan */}
+      {entries.length > 0 && (
+        <div className="mt-5">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-bold text-slate-700">💰 Riwayat Input Keuangan</p>
+            <p className="text-sm text-slate-500">Total Bersih: <strong className="text-emerald-600">Rp {totalBersih.toLocaleString('id-ID')}</strong></p>
+          </div>
+          <div className="mt-2 overflow-x-auto rounded-xl border border-slate-100">
+            <table className="w-full text-left text-sm">
+              <thead><tr className="bg-brand-50 text-xs uppercase text-brand-500">{['Tgl','Marketplace','Kotor','Fee','Iklan','Kemas','Kirim','Bersih','Catatan'].map(c => <th key={c} className="px-2 py-2 font-semibold whitespace-nowrap">{c}</th>)}</tr></thead>
+              <tbody className="divide-y divide-slate-50 bg-white">{entries.map(e => (
+                <tr key={e.id}>
+                  <td className="px-2 py-2 text-xs">{e.tanggal}</td>
+                  <td className="px-2 py-2 text-xs font-medium max-w-[120px] truncate">{e.marketplaceNama.split('—')[0]?.trim()}</td>
+                  <td className="px-2 py-2">Rp {e.pendapatanKotor.toLocaleString('id-ID')}</td>
+                  <td className="px-2 py-2 text-red-500">−{e.feeMarketplace.toLocaleString('id-ID')}</td>
+                  <td className="px-2 py-2">{e.biayaIklan>0?`Rp ${e.biayaIklan.toLocaleString('id-ID')}`:'-'}</td>
+                  <td className="px-2 py-2">{e.biayaPengemasan>0?`Rp ${e.biayaPengemasan.toLocaleString('id-ID')}`:'-'}</td>
+                  <td className="px-2 py-2">{e.biayaPengiriman>0?`Rp ${e.biayaPengiriman.toLocaleString('id-ID')}`:'-'}</td>
+                  <td className="px-2 py-2 font-bold text-emerald-600">Rp {e.pendapatanBersih.toLocaleString('id-ID')}</td>
+                  <td className="px-2 py-2 text-xs text-slate-400 max-w-[80px] truncate">{e.catatan||'-'}</td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════ */
+/* RIWAYAT ENTRY (gabungan)                                          */
+/* ═══════════════════════════════════════════════════════════════════ */
+function RiwayatEntry() {
+  return (
+    <div>
+      <div className="mb-1 h-1 w-16 rounded-full bg-gradient-to-r from-brand-500 to-brand-300" />
+      <h2 className="text-lg font-bold text-slate-800 sm:text-xl">📜 Riwayat Entry</h2>
+      <p className="mt-1 text-sm text-slate-500">Semua data yang sudah diinput akan muncul di sini setelah disimpan. Riwayat akan terintegrasi antar sesi.</p>
+      <div className="mt-6 text-center py-10 text-slate-400">
+        <p className="text-4xl mb-2">📜</p>
+        <p className="text-sm">Riwayat entry akan ditampilkan di sini.</p>
+        <p className="text-xs mt-1">Gunakan tab Input Operasional & Input Keuangan untuk mencatat data baru.</p>
+      </div>
+    </div>
+  );
+}

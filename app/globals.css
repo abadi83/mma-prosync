@@ -1,0 +1,23 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  @apply min-h-screen text-slate-800;
+  font-family: Arial, sans-serif;
+  background: linear-gradient(180deg, #E3F2FD 0%, #FFFFFF 30%);
+  background-attachment: fixed;
+}
+
+@layer utilities {
+  .card-blue {
+    @apply rounded-3xl border border-brand-100 bg-white p-5 shadow-md;
+  }
+  .card-blue-inner {
+    @apply rounded-2xl border border-brand-50 bg-brand-50/60 p-3 transition hover:border-brand-300 hover:bg-brand-50;
+  }
+}
