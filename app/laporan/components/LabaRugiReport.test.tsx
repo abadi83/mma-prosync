@@ -7,6 +7,8 @@ const mockData = {
   hargaPokok: 5200000,
   biayaOperasional: 1200000,
   biayaLain: 350000,
+  labaKotor: 3250000,
+  labaBersih: 1700000,
 };
 
 describe('LabaRugiReport', () => {
@@ -18,8 +20,8 @@ describe('LabaRugiReport', () => {
 
   it('displays pendapatan and laba bersih', () => {
     render(<LabaRugiReport data={mockData} periode="Bulan Ini" />);
-    expect(screen.getByText('Pendapatan')).toBeInTheDocument();
-    expect(screen.getByText('Laba Bersih')).toBeInTheDocument();
+    expect(screen.getByText('Pendapatan Kotor')).toBeInTheDocument();
+    expect(screen.getByText(/Laba Bersih/)).toBeInTheDocument();
   });
 
   it('shows margin percentages', () => {

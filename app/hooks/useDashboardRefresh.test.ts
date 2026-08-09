@@ -16,7 +16,7 @@ describe('useDashboardRefresh', () => {
 
     expect(result.current.data.stockSummary.totalItems).toBe(24);
     expect(result.current.data.salesSummary.transactions).toBeGreaterThan(0);
-    expect(result.current.data.shortcuts).toHaveLength(7);
+    expect(result.current.data.shortcuts).toHaveLength(11);
   });
 
   it('refreshes data when refresh() is called manually', () => {

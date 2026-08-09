@@ -1,5 +1,7 @@
 import { apiSuccess, apiBadRequest, apiNotFound, apiServerError } from '@/app/lib/apiResponse';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * API untuk menyimpan & mengambil arsip bukti bayar.
  * Karena project ini client-side heavy (localStorage), API ini hanya

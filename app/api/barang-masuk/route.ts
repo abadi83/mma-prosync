@@ -3,6 +3,8 @@ import { getBarangMasuk, addBarangMasuk } from '@/app/services/barangMasukServic
 import { apiSuccess, apiCreated, apiBadRequest, apiServerError } from '@/app/lib/apiResponse';
 import { validateRequired, validatePositiveNumber, runValidations } from '@/app/lib/validation';
 
+export const dynamic = 'force-dynamic';
+
 const DEFAULT_TOKO = 'a0a0a0a0-0000-0000-0000-000000000001';
 
 export async function GET(request: Request) {

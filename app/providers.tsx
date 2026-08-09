@@ -1,5 +1,6 @@
 'use client';
 
+import React from 'react';
 import { AgregasiProvider } from '@/app/context/AgregasiContext';
 import { SkuProvider } from '@/app/context/SkuContext';
 import { AkuntansiProvider } from '@/app/context/AkuntansiContext';

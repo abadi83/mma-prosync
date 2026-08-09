@@ -1,6 +1,8 @@
 import { getLabaRugi } from '@/app/services/labaRugiService';
 import { apiSuccess, apiServerError } from '@/app/lib/apiResponse';
 
+export const dynamic = 'force-dynamic';
+
 const DK = 'a0a0a0a0-0000-0000-0000-000000000001';
 
 export async function GET(request: Request) {

@@ -1,6 +1,8 @@
 import { getArusKas } from '@/app/services/arusKasService';
 import { apiSuccess, apiServerError } from '@/app/lib/apiResponse';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);

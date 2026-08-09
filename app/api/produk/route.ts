@@ -2,6 +2,8 @@ import { getProduk, createProduk, updateProduk, deleteProduk } from '@/app/servi
 import { apiSuccess, apiCreated, apiBadRequest, apiNotFound, apiServerError } from '@/app/lib/apiResponse';
 import { validateRequired, validatePositiveNumber, runValidations } from '@/app/lib/validation';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET() {
   try { return apiSuccess(await getProduk()); }
   catch { return apiServerError('GET /api/produk'); }

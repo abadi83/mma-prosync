@@ -1,6 +1,8 @@
 import { getNotifikasi, markRead, markAllRead } from '@/app/services/notifikasiService';
 import { apiSuccess, apiNotFound, apiServerError } from '@/app/lib/apiResponse';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET() { try { return apiSuccess(await getNotifikasi()); } catch { return apiServerError('GET /api/notifikasi'); } }
 
 export async function PUT(request: Request) {

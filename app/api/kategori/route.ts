@@ -2,6 +2,8 @@ import { getKategori, createKategori, updateKategori, deleteKategori } from '@/a
 import { apiSuccess, apiCreated, apiBadRequest, apiNotFound, apiServerError } from '@/app/lib/apiResponse';
 import { validateRequired } from '@/app/lib/validation';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET() {
   try { return apiSuccess(await getKategori()); }
   catch { return apiServerError('GET /api/kategori'); }

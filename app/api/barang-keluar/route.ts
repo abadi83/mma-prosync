@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { getBarangKeluar, addBarangKeluar } from '@/app/services/barangKeluarService';
 
+export const dynamic = 'force-dynamic';
+
 const DEFAULT_TOKO = 'a0a0a0a0-0000-0000-0000-000000000001';
 
 export async function GET(request: Request) {

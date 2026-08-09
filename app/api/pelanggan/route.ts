@@ -2,6 +2,8 @@ import { getPelanggan, createPelanggan, updatePelanggan, deletePelanggan } from 
 import { apiSuccess, apiCreated, apiBadRequest, apiNotFound, apiServerError } from '@/app/lib/apiResponse';
 import { validateRequired } from '@/app/lib/validation';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET() { try { return apiSuccess(await getPelanggan()); } catch { return apiServerError('GET /api/pelanggan'); } }
 
 export async function POST(request: Request) {

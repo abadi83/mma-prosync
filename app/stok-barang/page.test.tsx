@@ -1,15 +1,18 @@
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import StokBarangPage from './page';
+import { Providers } from '@/app/providers';
+
+const renderWithProviders = (ui: React.ReactElement) => render(<Providers>{ui}</Providers>);
 
 describe('StokBarangPage', () => {
   it('renders the page header', () => {
-    render(<StokBarangPage />);
+    renderWithProviders(<StokBarangPage />);
     expect(screen.getAllByText('Inventory').length).toBeGreaterThanOrEqual(1);
   });
 
   it('renders all tab buttons', () => {
-    render(<StokBarangPage />);
+    renderWithProviders(<StokBarangPage />);
     expect(screen.getByRole('tab', { name: /stok opname/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /barang masuk/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /barang keluar/i })).toBeInTheDocument();
@@ -18,14 +21,14 @@ describe('StokBarangPage', () => {
   });
 
   it('shows Stok Opname content by default', () => {
-    render(<StokBarangPage />);
+    renderWithProviders(<StokBarangPage />);
     expect(screen.getAllByText('Stok Opname').length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText('Total SKU')).toBeInTheDocument();
     expect(screen.getByText('Sudah Dihitung')).toBeInTheDocument();
   });
 
   it('switches to Cek Stok tab and shows summary cards', () => {
-    render(<StokBarangPage />);
+    renderWithProviders(<StokBarangPage />);
     fireEvent.click(screen.getByRole('tab', { name: /cek stok/i }));
     expect(screen.getByText('Daftar stok real-time semua produk')).toBeInTheDocument();
     expect(screen.getByText('Total Produk')).toBeInTheDocument();
@@ -35,7 +38,7 @@ describe('StokBarangPage', () => {
   });
 
   it('filters products by search in Cek Stok', () => {
-    render(<StokBarangPage />);
+    renderWithProviders(<StokBarangPage />);
     fireEvent.click(screen.getByRole('tab', { name: /cek stok/i }));
 
     const searchInput = screen.getByPlaceholderText('🔍 Cari produk atau kategori...');
@@ -46,7 +49,7 @@ describe('StokBarangPage', () => {
   });
 
   it('shows Riwayat Mutasi with summary and filter buttons', () => {
-    render(<StokBarangPage />);
+    renderWithProviders(<StokBarangPage />);
     fireEvent.click(screen.getByRole('tab', { name: /riwayat mutasi/i }));
     expect(screen.getByText('Log kronologis pergerakan barang')).toBeInTheDocument();
     expect(screen.getByText('Total Barang Masuk')).toBeInTheDocument();
@@ -56,7 +59,7 @@ describe('StokBarangPage', () => {
   });
 
   it('filters mutasi by tipe masuk only', () => {
-    render(<StokBarangPage />);
+    renderWithProviders(<StokBarangPage />);
     fireEvent.click(screen.getByRole('tab', { name: /riwayat mutasi/i }));
     fireEvent.click(screen.getByRole('button', { name: /📥 Masuk/i }));
 

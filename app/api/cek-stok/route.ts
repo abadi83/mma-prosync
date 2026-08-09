@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { getCekStok } from '@/app/services/cekStokService';
 
+export const dynamic = 'force-dynamic';
+
 const DEFAULT_TOKO = 'a0a0a0a0-0000-0000-0000-000000000001';
 
 /**

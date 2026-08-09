@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { getStockSummary } from '@/app/services/stockService';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * GET /api/stock-summary
  *
