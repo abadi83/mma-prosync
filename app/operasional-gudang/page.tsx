@@ -1208,13 +1208,20 @@ function RunnerScan() {
 
 /* ── Picking List ── */
 function PickingList() {
-  const { allRows, updateStatusToQC } = useAgregasi();
+  const { allRows, updateStatusToQC, updateStatusPicking, setAllRows } = useAgregasi();
   const picking = allRows.filter(r => r.statusProses === 'Dipicking');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirmed, setConfirmed] = useState<Set<string>>(new Set());
   const [filterMp, setFilterMp] = useState('semua');
   const [filterToko, setFilterToko] = useState('semua');
   const [detailKey, setDetailKey] = useState<string|null>(null); // popup detail
+
+  // Manual input scanner
+  const [manualNoPesanan, setManualNoPesanan] = useState('');
+  const [manualNoResi, setManualNoResi] = useState('');
+  const [manualMsg, setManualMsg] = useState('');
+  const manualRef = useRef<HTMLInputElement>(null);
+  const resiRef = useRef<HTMLInputElement>(null);
 
   const grouped = new Map<string, { noPesanan: string; noResi: string; marketplace: string; namaToko: string; items: AgregasiRow[] }>();
   for (const r of picking) {
@@ -1244,21 +1251,48 @@ function PickingList() {
     if (n > 0) { setConfirmed((p: Set<string>) => { const ns = new Set(p); for (const k of keys) ns.add(k); return ns; }); setSelected(new Set()); alert(`✅ ${n} pesanan dikonfirmasi → QC.`); }
   };
 
+  /* ── Manual input: scanner atau ketik ── */
+  const handleManualSubmit = () => {
+    const pesanan = manualNoPesanan.trim();
+    if (!pesanan) { setManualMsg('No. Pesanan wajib diisi.'); return; }
+    // Bisa input multi-line (paste dari Excel/scanner bulk)
+    const lines = pesanan.split(/[\n,;]+/).map(l=>l.trim()).filter(Boolean);
+    const matches: { noPesanan: string; noResi: string }[] = [];
+    for (const line of lines) {
+      // Format: "NO_PESANAN NO_RESI" atau "NO_PESANAN"
+      const parts = line.split(/\s+/);
+      matches.push({ noPesanan: parts[0], noResi: parts[1] || manualNoResi.trim() || '' });
+    }
+    const result = updateStatusPicking(matches);
+    setManualMsg(`✅ ${result.updated} pesanan diupdate ke "Dipicking".${result.notFound>0?' '+result.notFound+' tidak ditemukan.':''}`);
+    setManualNoPesanan('');
+    setManualNoResi('');
+    setTimeout(() => setManualMsg(''), 4000);
+    manualRef.current?.focus();
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (manualNoPesanan.trim()) handleManualSubmit();
+    }
+    // Tab dari noPesanan → noResi
+    if (e.key === 'Tab' && !manualNoPesanan.trim() && manualNoResi.trim()) {
+      e.preventDefault();
+      handleManualSubmit();
+    }
+  };
+
+  const handleResiKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (manualNoPesanan.trim()) handleManualSubmit();
+    }
+  };
+
   // Detail popup: bisa satu atau gabungan dari selected
   const detailGroup = detailKey ? grouped.get(detailKey) : null;
   const selectedGroups = selected.size>0 ? Array.from(selected).map(k=>grouped.get(k)!).filter(Boolean) : [];
-
-  if (picking.length === 0) {
-    return (
-      <div>
-        <div className="mb-1 h-1 w-16 rounded-full bg-gradient-to-r from-brand-500 to-brand-300" />
-        <h2 className="text-lg font-bold text-slate-800 sm:text-xl">📋 Daftar Picking</h2>
-        <div className="mt-8 text-center py-12 text-slate-400">
-          <p className="text-4xl mb-2">📋</p><p className="font-semibold">Belum ada item picking.</p><p className="text-sm mt-1">Upload file picking di tab Dashboard untuk memulai.</p>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div>
@@ -1266,16 +1300,68 @@ function PickingList() {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h2 className="text-lg font-bold text-slate-800 sm:text-xl">📋 Daftar Picking</h2>
-          <p className="mt-1 text-sm text-slate-500">{groupList.length} resi • {picking.length} item • ✅ {confirmed.size} dikonfirmasi</p>
+          <p className="mt-1 text-sm text-slate-500">{picking.length>0?`${groupList.length} resi • ${picking.length} item • ✅ ${confirmed.size} dikonfirmasi`:'Input manual / scanner'}</p>
         </div>
+        {picking.length>0 && (
         <div className="flex gap-2">
           {selected.size>0&&<button onClick={()=>setDetailKey(null)} className="rounded-lg bg-purple-100 px-3 py-1 text-xs font-semibold text-purple-700 hover:bg-purple-200">📋 Detail ({selected.size})</button>}
           <button onClick={selectAll} className="rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-500 hover:bg-brand-50">☑ Semua</button>
           <button onClick={deselectAll} className="rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-500 hover:bg-brand-50">☐ Batal</button>
           <button onClick={confirmSelected} disabled={selected.size===0} className={`rounded-lg px-3 py-1 text-xs font-semibold text-white transition ${selected.size===0?'bg-slate-300 cursor-not-allowed':'bg-emerald-500 hover:bg-emerald-600'}`}>✅ Konfirmasi {selected.size>0?selected.size:''} → QC</button>
         </div>
+        )}
       </div>
 
+      {/* ── Manual Input Scanner ── */}
+      <div className="mt-3 rounded-xl border-2 border-dashed border-brand-200 bg-brand-50/30 p-4">
+        <p className="text-xs font-semibold text-brand-600 mb-3">🔫 Scan / Input Manual No. Pesanan & Resi</p>
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="flex-1 min-w-[180px]">
+            <label className="text-[10px] font-semibold text-slate-500">No. Pesanan *</label>
+            <input
+              ref={manualRef}
+              type="text"
+              value={manualNoPesanan}
+              onChange={e => setManualNoPesanan(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Scan barcode / ketik No. Pesanan"
+              className="w-full rounded-lg border border-brand-200 bg-white px-3 py-2 text-sm font-mono focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-200"
+              autoFocus
+            />
+            <p className="text-[10px] text-slate-400 mt-0.5">Multi: pisahkan dengan koma, titik koma, atau enter</p>
+          </div>
+          <div className="w-40">
+            <label className="text-[10px] font-semibold text-slate-500">No. Resi (opsional)</label>
+            <input
+              ref={resiRef}
+              type="text"
+              value={manualNoResi}
+              onChange={e => setManualNoResi(e.target.value)}
+              onKeyDown={handleResiKeyDown}
+              placeholder="No. Resi"
+              className="w-full rounded-lg border border-brand-200 bg-white px-3 py-2 text-sm font-mono focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-200"
+            />
+          </div>
+          <button
+            onClick={handleManualSubmit}
+            className="rounded-lg bg-brand-500 px-5 py-2 text-sm font-semibold text-white hover:bg-brand-600 transition whitespace-nowrap"
+          >
+            ➕ Picking
+          </button>
+        </div>
+        {manualMsg && (
+          <p className={`mt-2 text-xs font-semibold ${manualMsg.startsWith('✅')?'text-emerald-600':'text-red-500'}`}>{manualMsg}</p>
+        )}
+      </div>
+
+      {picking.length === 0 && (
+      <div className="mt-4 text-center py-8 text-slate-400">
+        <p className="text-4xl mb-2">📋</p><p className="font-semibold">Belum ada item picking.</p><p className="text-sm mt-1">Scan atau input No. Pesanan di atas, atau upload file picking di tab Dashboard.</p>
+      </div>
+      )}
+
+      {picking.length > 0 && (
+      <>
       {/* Filters */}
       <div className="mt-3 flex flex-wrap gap-2">
         <select value={filterMp} onChange={e=>{setFilterMp(e.target.value);deselectAll();}} className="rounded-lg border bg-white px-2 py-1 text-xs text-slate-600">
@@ -1313,6 +1399,8 @@ function PickingList() {
           </tbody>
         </table>
       </div>
+      </>
+      )}
 
       {/* ── Detail Popup Modal ── */}
       {(detailGroup||selectedGroups.length>0)&&(
