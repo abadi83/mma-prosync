@@ -1,18 +1,33 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { BellIcon } from '@/app/components/BellIcon';
+import { useUser } from '@/app/hooks/useUser';
 import Link from 'next/link';
 
 const UNREAD = 2;
 
 export function AppHeader() {
   const [logo, setLogo] = useState('');
-  const [nama, setNama] = useState('');
+  const [namaToko, setNamaToko] = useState('');
+  const { nama } = useUser();
 
   useEffect(() => {
     setLogo(localStorage.getItem('mma_logo_toko') || '');
-    setNama(localStorage.getItem('mma_nama_toko') || '');
+    setNamaToko(localStorage.getItem('mma_nama_toko') || '');
+  }, []);
+
+  const handleLogout = useCallback(() => {
+    // Hapus cookies
+    document.cookie = 'auth_token=;path=/;max-age=0';
+    document.cookie = 'user_name=;path=/;max-age=0';
+    document.cookie = 'user_role=;path=/;max-age=0';
+    document.cookie = 'user_roles=;path=/;max-age=0';
+    document.cookie = 'user_pegawai_id=;path=/;max-age=0';
+    // Hapus session localStorage
+    try { localStorage.removeItem('mma_user_session'); } catch {}
+    // Redirect ke login
+    window.location.href = '/login';
   }, []);
 
   return (
@@ -26,11 +41,25 @@ export function AppHeader() {
             🏪
           </div>
         )}
-        {nama && <span className="hidden sm:block text-sm font-bold text-slate-700">{nama}</span>}
+        {namaToko && <span className="hidden sm:block text-sm font-bold text-slate-700">{namaToko}</span>}
       </Link>
 
-      {/* Kanan: Notifikasi */}
-      <BellIcon count={UNREAD} onClick={() => window.location.href = '/notifikasi'} />
+      {/* Kanan: User + Notifikasi + Logout */}
+      <div className="flex items-center gap-3">
+        {nama && (
+          <span className="hidden sm:block text-xs font-medium text-slate-500 max-w-[120px] truncate">
+            👤 {nama}
+          </span>
+        )}
+        <BellIcon count={UNREAD} onClick={() => window.location.href = '/notifikasi'} />
+        <button
+          onClick={handleLogout}
+          className="rounded-lg bg-red-500 px-3 py-1.5 text-xs font-semibold text-white shadow transition hover:bg-red-600"
+          title="Keluar"
+        >
+          🚪 Keluar
+        </button>
+      </div>
     </header>
   );
 }
