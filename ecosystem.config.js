@@ -4,7 +4,7 @@ module.exports = {
     name: 'mma-prosync',
     script: './.next/standalone/server.js',
     args: '',
-    cwd: '/home/mulus/mma-prosync', // GANTI sesuai username/path VPS Mulus
+    cwd: '/home/mma-prosync', // GANTI sesuai username/path VPS
     instances: 1,
     exec_mode: 'fork',
     env: {
