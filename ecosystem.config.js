@@ -1,10 +1,9 @@
-// PM2 Ecosystem File untuk MMA ProSync
 module.exports = {
   apps: [{
     name: 'mma-prosync',
-    script: './.next/standalone/server.js',
-    args: '',
-    cwd: '/home/mma-prosync', // GANTI sesuai username/path VPS
+    script: 'node_modules/next/dist/bin/next',
+    args: 'start -p 3000',
+    cwd: '/home/mma-prosync',
     instances: 1,
     exec_mode: 'fork',
     env: {
