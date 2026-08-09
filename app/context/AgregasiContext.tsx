@@ -103,29 +103,30 @@ export function AgregasiProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  /** Dipanggil saat picking team upload file → update status ke "Dipicking" */
+  /** Dipanggil saat picking (upload file / manual input) → update status ke "Dipicking" */
   const updateStatusPicking = useCallback((matches: { noPesanan: string; noResi: string }[]) => {
     let updated = 0;
-    // Build lookup: exact key (noPesanan||noResi) + fallback by noPesanan saja
+    // Exact key: noPesanan||noResi
     const exactSet = new Set(matches.map(m => `${m.noPesanan}||${m.noResi}`));
-    // Map untuk lookup noResi dari picking file (by noPesanan)
+    // Map noResi by noPesanan (dari input)
     const resiByOrder = new Map<string, string>();
     for (const m of matches) {
       if (m.noResi) resiByOrder.set(m.noPesanan, m.noResi);
     }
-    // Set noPesanan dari picking file (untuk fallback matching)
+    // Set noPesanan saja (untuk fallback matching)
     const orderSet = new Set(matches.map(m => m.noPesanan));
 
     setAllRows(prev => prev.map(r => {
       const key = `${r.noPesanan}||${r.noResi}`;
       // 1. Exact match by noPesanan + noResi
       const isExactMatch = exactSet.has(key);
-      // 2. Fallback: match by noPesanan saja (jika row belum punya noResi)
+      // 2. Fallback: match by noPesanan saja (row belum punya noResi)
       const isOrderMatch = !isExactMatch && !r.noResi && orderSet.has(r.noPesanan);
+      // 3. Fallback 2: match by noPesanan saja (row SUDAH punya noResi, user hanya input noPesanan)
+      const isOrderMatchAny = !isExactMatch && !isOrderMatch && orderSet.has(r.noPesanan);
 
-      if ((isExactMatch || isOrderMatch) && (!r.statusProses || r.statusProses === 'Perlu Dikirim')) {
+      if ((isExactMatch || isOrderMatch || isOrderMatchAny) && (!r.statusProses || r.statusProses === 'Perlu Dikirim')) {
         updated++;
-        // Update noResi jika picking file menyediakannya dan row belum punya
         const newResi = (!r.noResi && resiByOrder.get(r.noPesanan)) || r.noResi;
         return { ...r, statusProses: 'Dipicking' as const, noResi: newResi };
       }
