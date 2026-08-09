@@ -1251,22 +1251,33 @@ function PickingList() {
     if (n > 0) { setConfirmed((p: Set<string>) => { const ns = new Set(p); for (const k of keys) ns.add(k); return ns; }); setSelected(new Set()); alert(`✅ ${n} pesanan dikonfirmasi → QC.`); }
   };
 
-  /* ── Manual input: scanner atau ketik ── */
+  /* ── Manual input: scanner atau ketik, minimal salah satu ── */
   const handleManualSubmit = () => {
     const pesanan = manualNoPesanan.trim();
-    if (!pesanan) { setManualMsg('No. Pesanan wajib diisi.'); return; }
+    const resi = manualNoResi.trim();
+    if (!pesanan && !resi) { setManualMsg('Isi minimal No. Pesanan atau No. Resi.'); return; }
+    // Jika hanya resi yang diisi, pakai resi tanpa noPesanan
+    if (!pesanan && resi) {
+      const lines = resi.split(/[\n,;]+/).map(l=>l.trim()).filter(Boolean);
+      const matches = lines.map(r => ({ noPesanan: '', noResi: r }));
+      const result = updateStatusPicking(matches);
+      setManualMsg(`✅ ${result.updated} pesanan diupdate.${result.notFound>0?' '+result.notFound+' tidak ditemukan.':''}`);
+      setManualNoPesanan(''); setManualNoResi('');
+      setTimeout(() => setManualMsg(''), 4000);
+      manualRef.current?.focus();
+      return;
+    }
     // Bisa input multi-line (paste dari Excel/scanner bulk)
     const lines = pesanan.split(/[\n,;]+/).map(l=>l.trim()).filter(Boolean);
     const matches: { noPesanan: string; noResi: string }[] = [];
     for (const line of lines) {
-      // Format: "NO_PESANAN NO_RESI" atau "NO_PESANAN"
+      // Format: "NO_PESANAN NO_RESI" atau "NO_PESANAN" saja
       const parts = line.split(/\s+/);
-      matches.push({ noPesanan: parts[0], noResi: parts[1] || manualNoResi.trim() || '' });
+      matches.push({ noPesanan: parts[0], noResi: parts[1] || resi || '' });
     }
     const result = updateStatusPicking(matches);
-    setManualMsg(`✅ ${result.updated} pesanan diupdate ke "Dipicking".${result.notFound>0?' '+result.notFound+' tidak ditemukan.':''}`);
-    setManualNoPesanan('');
-    setManualNoResi('');
+    setManualMsg(`✅ ${result.updated} item diupdate ke "Dipicking".${result.notFound>0?' '+result.notFound+' tidak ditemukan.':''}`);
+    setManualNoPesanan(''); setManualNoResi('');
     setTimeout(() => setManualMsg(''), 4000);
     manualRef.current?.focus();
   };
@@ -1274,19 +1285,14 @@ function PickingList() {
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      if (manualNoPesanan.trim()) handleManualSubmit();
-    }
-    // Tab dari noPesanan → noResi
-    if (e.key === 'Tab' && !manualNoPesanan.trim() && manualNoResi.trim()) {
-      e.preventDefault();
-      handleManualSubmit();
+      if (manualNoPesanan.trim() || manualNoResi.trim()) handleManualSubmit();
     }
   };
 
   const handleResiKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      if (manualNoPesanan.trim()) handleManualSubmit();
+      if (manualNoPesanan.trim() || manualNoResi.trim()) handleManualSubmit();
     }
   };
 
@@ -1314,31 +1320,32 @@ function PickingList() {
 
       {/* ── Manual Input Scanner ── */}
       <div className="mt-3 rounded-xl border-2 border-dashed border-brand-200 bg-brand-50/30 p-4">
-        <p className="text-xs font-semibold text-brand-600 mb-3">🔫 Scan / Input Manual No. Pesanan & Resi</p>
+        <p className="text-xs font-semibold text-brand-600 mb-3">🔫 Scan / Input Manual — isi No. Pesanan <span className="text-slate-400">atau</span> No. Resi (minimal salah satu)</p>
         <div className="flex flex-wrap items-end gap-2">
           <div className="flex-1 min-w-[180px]">
-            <label className="text-[10px] font-semibold text-slate-500">No. Pesanan *</label>
+            <label className="text-[10px] font-semibold text-slate-500">No. Pesanan</label>
             <input
               ref={manualRef}
               type="text"
               value={manualNoPesanan}
               onChange={e => setManualNoPesanan(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Scan barcode / ketik No. Pesanan"
+              placeholder="Scan / ketik No. Pesanan"
               className="w-full rounded-lg border border-brand-200 bg-white px-3 py-2 text-sm font-mono focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-200"
               autoFocus
             />
-            <p className="text-[10px] text-slate-400 mt-0.5">Multi: pisahkan dengan koma, titik koma, atau enter</p>
+            <p className="text-[10px] text-slate-400 mt-0.5">Multi: pisahkan koma, titik koma, atau enter</p>
           </div>
+          <span className="text-xs text-slate-400 pb-2">atau</span>
           <div className="w-40">
-            <label className="text-[10px] font-semibold text-slate-500">No. Resi (opsional)</label>
+            <label className="text-[10px] font-semibold text-slate-500">No. Resi</label>
             <input
               ref={resiRef}
               type="text"
               value={manualNoResi}
               onChange={e => setManualNoResi(e.target.value)}
               onKeyDown={handleResiKeyDown}
-              placeholder="No. Resi"
+              placeholder="Scan / ketik No. Resi"
               className="w-full rounded-lg border border-brand-200 bg-white px-3 py-2 text-sm font-mono focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-200"
             />
           </div>

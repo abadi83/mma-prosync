@@ -103,31 +103,43 @@ export function AgregasiProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  /** Dipanggil saat picking (upload file / manual input) → update status ke "Dipicking" */
+  /** Dipanggil saat picking (upload file / manual input) → update status ke "Dipicking"
+   *  Menerima minimal salah satu: noPesanan atau noResi.
+   *  Hindari double input: skip row yang sudah Dipicking/DiQC/lebih. */
   const updateStatusPicking = useCallback((matches: { noPesanan: string; noResi: string }[]) => {
     let updated = 0;
-    // Exact key: noPesanan||noResi
-    const exactSet = new Set(matches.map(m => `${m.noPesanan}||${m.noResi}`));
-    // Map noResi by noPesanan (dari input)
+    // Set lookup: noPesanan, noResi, dan combination
+    const orderSet = new Set<string>();
+    const resiSet = new Set<string>();
+    const exactSet = new Set<string>();
     const resiByOrder = new Map<string, string>();
     for (const m of matches) {
-      if (m.noResi) resiByOrder.set(m.noPesanan, m.noResi);
+      const op = m.noPesanan.trim();
+      const or = m.noResi.trim();
+      if (op) orderSet.add(op);
+      if (or) resiSet.add(or);
+      if (op || or) exactSet.add(`${op}||${or}`);
+      if (or && op) resiByOrder.set(op, or);
     }
-    // Set noPesanan saja (untuk fallback matching)
-    const orderSet = new Set(matches.map(m => m.noPesanan));
 
     setAllRows(prev => prev.map(r => {
-      const key = `${r.noPesanan}||${r.noResi}`;
-      // 1. Exact match by noPesanan + noResi
-      const isExactMatch = exactSet.has(key);
-      // 2. Fallback: match by noPesanan saja (row belum punya noResi)
-      const isOrderMatch = !isExactMatch && !r.noResi && orderSet.has(r.noPesanan);
-      // 3. Fallback 2: match by noPesanan saja (row SUDAH punya noResi, user hanya input noPesanan)
-      const isOrderMatchAny = !isExactMatch && !isOrderMatch && orderSet.has(r.noPesanan);
+      // Skip jika sudah di-picking atau lebih lanjut (hindari double)
+      if (r.statusProses && r.statusProses !== 'Perlu Dikirim') return r;
 
-      if ((isExactMatch || isOrderMatch || isOrderMatchAny) && (!r.statusProses || r.statusProses === 'Perlu Dikirim')) {
+      const key = `${r.noPesanan}||${r.noResi}`;
+      let matched = false;
+      let newResi = r.noResi;
+
+      // 1. Exact match: noPesanan||noResi
+      if (exactSet.has(key)) matched = true;
+      // 2. Match by noPesanan saja
+      else if (r.noPesanan && orderSet.has(r.noPesanan)) matched = true;
+      // 3. Match by noResi saja
+      else if (r.noResi && resiSet.has(r.noResi)) matched = true;
+
+      if (matched) {
         updated++;
-        const newResi = (!r.noResi && resiByOrder.get(r.noPesanan)) || r.noResi;
+        if (!r.noResi && resiByOrder.get(r.noPesanan)) newResi = resiByOrder.get(r.noPesanan)!;
         return { ...r, statusProses: 'Dipicking' as const, noResi: newResi };
       }
       return r;
