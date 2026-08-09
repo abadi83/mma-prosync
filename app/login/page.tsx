@@ -94,7 +94,7 @@ export default function LoginPage() {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="demo@mma.id"
+              placeholder="email@toko.id"
               className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-200"
             />
           </label>
@@ -118,11 +118,6 @@ export default function LoginPage() {
             {loading ? 'Memproses...' : 'Masuk'}
           </button>
 
-          <p className="text-center text-xs text-slate-400">
-            Admin: demo@mma.id / demo123<br />
-            Pegawai: budi@mma.id / pegawai123<br />
-            <span className="text-[10px]">(Budi: Warehouse + Logistik — 2 role)</span>
-          </p>
         </form>
 
         <div className="mt-6 text-center text-sm text-slate-500">
