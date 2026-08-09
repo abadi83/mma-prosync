@@ -58,8 +58,11 @@ cd mma-prosync
 ```bash
 cd /home/mma-prosync
 
-# Install dependencies (production only)
-npm ci --omit=dev
+# Hapus build lokal Windows (jika ada)
+rm -rf .next
+
+# Install dependencies (termasuk devDependencies untuk build)
+npm ci
 
 # Build production
 npm run build
@@ -71,8 +74,9 @@ mkdir -p logs
 ## 4. Jalankan dengan PM2
 
 ```bash
-# Ganti USER di ecosystem.config.js sesuai username VPS
-# Lalu:
+# Pastikan cwd di ecosystem.config.js sudah sesuai path project di VPS
+# Default: /home/mulus/mma-prosync — ubah jika perlu
+
 pm2 start ecosystem.config.js
 pm2 save
 pm2 startup  # auto-start saat VPS reboot
@@ -128,3 +132,4 @@ npm run build && pm2 restart mma-prosync  # update setelah git pull
 - 🔄 Data client-side tidak dishare antar user/browser
 - 🛡️ Untuk production sebaiknya tambahkan database (Supabase/PostgreSQL)
 - 🔒 Tambahkan SSL dengan Certbot: `apt install certbot python3-certbot-nginx && certbot --nginx`
+- 🐛 Jika muncul "Application error: a client-side exception", biasanya karena build Windows di-upload ke VPS. Pastikan selalu `rm -rf .next` dan build ulang di VPS.

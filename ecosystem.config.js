@@ -2,9 +2,9 @@
 module.exports = {
   apps: [{
     name: 'mma-prosync',
-    script: 'node_modules/.bin/next',
-    args: 'start -p 3000',
-    cwd: '/home/USER/mma-prosync', // GANTI USER dengan username VPS
+    script: './.next/standalone/server.js',
+    args: '',
+    cwd: '/home/mulus/mma-prosync', // GANTI sesuai username/path VPS Mulus
     instances: 1,
     exec_mode: 'fork',
     env: {

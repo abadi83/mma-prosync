@@ -2,6 +2,7 @@ import './globals.css';
 import type { Metadata, Viewport } from 'next';
 import { AppHeader } from '@/app/components/AppHeader';
 import { Providers } from '@/app/providers';
+import { ClientOnly } from '@/app/components/ClientOnly';
 
 export const metadata: Metadata = {
   title: 'MMA ProSync',
@@ -35,8 +36,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body>
         <Providers>
-          <AppHeader />
-          {children}
+          <ClientOnly>
+            <AppHeader />
+            {children}
+          </ClientOnly>
         </Providers>
         <script
           dangerouslySetInnerHTML={{

@@ -130,21 +130,17 @@ function saveToStorage<T>(key: string, data: T) {
 /* ================================================================ */
 
 export function AkuntansiProvider({ children }: { children: React.ReactNode }) {
-  const [coa] = useState<CoaAccount[]>(() => loadFromStorage(COA_STORAGE, DEFAULT_COA));
-  const [jurnal, setJurnal] = useState<JurnalEntry[]>(() => loadFromStorage(JURNAL_STORAGE, []));
-  const [aset, setAset] = useState<AsetTetap[]>(() => loadFromStorage(ASET_STORAGE, []));
-  const [modal, setModal] = useState<ModalEntry[]>(() => loadFromStorage(MODAL_STORAGE, []));
+  const [coa] = useState<CoaAccount[]>(DEFAULT_COA);
+  const [jurnal, setJurnal] = useState<JurnalEntry[]>([]);
+  const [aset, setAset] = useState<AsetTetap[]>([]);
+  const [modal, setModal] = useState<ModalEntry[]>([]);
   const [hydrated, setHydrated] = useState(false);
 
   /* Hydrate dari localStorage setelah mount */
   useEffect(() => {
-    const storedCoa = loadFromStorage(COA_STORAGE, DEFAULT_COA);
     const storedJurnal = loadFromStorage(JURNAL_STORAGE, [] as JurnalEntry[]);
     const storedAset = loadFromStorage(ASET_STORAGE, [] as AsetTetap[]);
     const storedModal = loadFromStorage(MODAL_STORAGE, [] as ModalEntry[]);
-    if (JSON.stringify(storedCoa) !== JSON.stringify(coa)) {
-      // COA tidak bisa diubah user, selalu pakai default
-    }
     setJurnal(storedJurnal);
     setAset(storedAset);
     setModal(storedModal);
