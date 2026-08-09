@@ -7,10 +7,18 @@ const PUBLIC_PREFIXES = ['/login', '/daftar', '/lupa-password', '/reset-password
 // Route API — selalu bypass middleware auth (gunakan token di header)
 const API_ROUTES = ['/api/'];
 
+// Static & internal paths — jangan redirect ke login
+const STATIC_PATHS = ['/_next/', '/manifest.json', '/icon.svg', '/sw.js', '/favicon.ico'];
+
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Biarkan API routes lolos (auth di-handle oleh endpoint masing-masing)
+  // Biarkan static files & Next.js internal paths lolos
+  if (STATIC_PATHS.some((r) => pathname.startsWith(r))) {
+    return NextResponse.next();
+  }
+
+  // Biarkan API routes lolos
   if (API_ROUTES.some((r) => pathname.startsWith(r))) {
     return NextResponse.next();
   }
