@@ -63,17 +63,33 @@ export function SkuProvider({ children }: { children: React.ReactNode }) {
   const [skus, setSkus] = useState<SkuItem[]>(DEFAULT_SKU);
   const [isHydrated, setIsHydrated] = useState(false);
 
-  // Load data: server API → localStorage → DEFAULT
+  // Load data: localStorage (utama) → server API (cadangan) → DEFAULT
   useEffect(() => {
     async function load() {
+      // 1. Coba dari localStorage dulu (sumber utama)
+      const stored = loadFromStorage();
+      if (stored && stored.length > 0 && stored.length !== DEFAULT_SKU.length) {
+        // Data bukan default, pakai localStorage
+        setSkus(stored);
+        setIsHydrated(true);
+        // Sync ke server di background
+        try {
+          fetch('/api/data', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key: SKU_STORAGE, data: stored }),
+          }).catch(() => {});
+        } catch {}
+        return;
+      }
+
+      // 2. Coba dari server API (shared data)
       try {
-        // 1. Coba dari server API (shared data)
         const res = await fetch('/api/data?key=mma_sku_data');
         if (res.ok) {
           const json = await res.json();
           if (json.data && json.data.length > 0) {
             setSkus(json.data);
-            // Update localStorage cache
             try { localStorage.setItem(SKU_STORAGE, JSON.stringify(json.data)); } catch {}
             setIsHydrated(true);
             return;
@@ -81,8 +97,7 @@ export function SkuProvider({ children }: { children: React.ReactNode }) {
         }
       } catch {}
 
-      // 2. Fallback ke localStorage
-      const stored = loadFromStorage();
+      // 3. Fallback ke localStorage (meskipun isinya default)
       if (stored && stored.length > 0) {
         setSkus(stored);
       }
