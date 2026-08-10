@@ -576,10 +576,146 @@ function InputKeuangan() {
         const h = raw[0].map((c: string) => String(c || '').toLowerCase().trim());
         const idx = (...kw: string[]) => h.findIndex(hh => kw.some(k => hh.includes(k)));
         const isShopee = h.includes('id pesanan') && h.includes('total penghasilan') && h.includes('total laba');
+        // ── Deteksi format Lazada: kolom "nama biaya" + "nomor pesanan" ──
+        const isLazada = h.some(hh => hh === 'nama biaya') && h.some(hh => hh === 'nomor pesanan');
 
-        // Deteksi marketplace
+        // ── Deteksi marketplace ──
         const mpObj = uploadMpObj || MARKETPLACE_TOKO[0];
         const tokoNama = uploadToko ? (filteredToko.find(t=>t.id===uploadToko)?.nama || '') : (mpObj.nama.split('—')[1]?.trim() || mpObj.nama);
+
+        // ── PARSE LAZADA (format vertikal: 1 pesanan = banyak baris jenis biaya) ──
+        if (isLazada) {
+          const iNamaBiaya = h.findIndex(hh => hh === 'nama biaya');       // Kolom D
+          const iJumlah = h.findIndex(hh => hh === 'jumlah (termasuk pajak)'); // Kolom E
+          const iNoPesanan = h.findIndex(hh => hh === 'nomor pesanan');    // Kolom K
+          const iIdPesanan = h.findIndex(hh => hh === 'id pesanan');       // Kolom L
+          const iSkuPenjual = h.findIndex(hh => hh === 'sku penjual');     // Kolom M
+          const iNamaProduk = h.findIndex(hh => hh === 'nama produk');     // Kolom R
+          const iStatusPesanan = h.findIndex(hh => hh === 'status pesanan'); // Kolom Q
+          const iWht = h.findIndex(hh => hh === 'wht amount');             // Kolom O
+          const iTanggalTransaksi = h.findIndex(hh => hh === 'tanggal transaksi'); // Kolom C
+
+          if (iNamaBiaya < 0 || iJumlah < 0 || iNoPesanan < 0) {
+            setErr('Format Lazada: kolom Nama Biaya / Jumlah / Nomor Pesanan wajib ada.'); setUploading(false); return;
+          }
+
+          // Group by Nomor Pesanan
+          const orderMapLazada = new Map<string, {
+            noPesanan: string; tanggal: string; items: { sku: string; nama: string; qty: number; hargaJual: number }[];
+            omset: number; komisi: number; freeShipping: number; promosi: number;
+            processingFee: number; biayaTransaksi: number; diskon: number; wht: number;
+          }>();
+
+          for (let i = 1; i < raw.length; i++) {
+            const row = raw[i]; if (!row || row.length < 2) continue;
+            const noPesanan = String(row[iNoPesanan] || '').trim();
+            const namaBiaya = String(row[iNamaBiaya] || '').trim().toLowerCase();
+            const jumlah = parseRp(row[iJumlah] || '0');
+            if (!noPesanan && !namaBiaya) continue;
+
+            // If no order number but has biaya, attach to last order
+            const key = noPesanan || (orderMapLazada.size > 0 ? Array.from(orderMapLazada.keys()).pop()! : '');
+            if (!key) continue;
+
+            if (!orderMapLazada.has(key)) {
+              const tgl = iTanggalTransaksi >= 0 ? String(row[iTanggalTransaksi] || '').trim().slice(0, 10) : '';
+              orderMapLazada.set(key, { noPesanan: key, tanggal: tgl, items: [], omset: 0, komisi: 0, freeShipping: 0, promosi: 0, processingFee: 0, biayaTransaksi: 0, diskon: 0, wht: 0 });
+            }
+            const order = orderMapLazada.get(key)!;
+
+            // Parse SKU items
+            const sku = iSkuPenjual >= 0 ? String(row[iSkuPenjual] || '').trim() : '';
+            const namaProduk = iNamaProduk >= 0 ? String(row[iNamaProduk] || '').trim() : '';
+            if (sku || namaProduk) {
+              const existingItem = order.items.find(it => it.sku === sku && it.nama === namaProduk);
+              if (existingItem) existingItem.qty++;
+              else order.items.push({ sku, nama: namaProduk, qty: 1, hargaJual: 0 });
+            }
+
+            // Categorize by Nama Biaya
+            if (namaBiaya === 'omset penjualan') order.omset += jumlah;
+            else if (namaBiaya.includes('komisi')) order.komisi += Math.abs(jumlah);
+            else if (namaBiaya.includes('free shipping') || namaBiaya.includes('gratis ongkir')) order.freeShipping += Math.abs(jumlah);
+            else if (namaBiaya.includes('promosi') || namaBiaya.includes('lazkoin')) order.promosi += Math.abs(jumlah);
+            else if (namaBiaya.includes('processing fee') || namaBiaya.includes('pemrosesan')) order.processingFee += Math.abs(jumlah);
+            else if (namaBiaya.includes('transaksi')) order.biayaTransaksi += Math.abs(jumlah);
+            else if (namaBiaya.includes('diskon')) order.diskon += Math.abs(jumlah);
+            // WHT
+            const wht = iWht >= 0 ? parseRp(row[iWht] || '0') : 0;
+            if (wht > 0) order.wht += wht;
+            // Update tanggal
+            if (iTanggalTransaksi >= 0 && !order.tanggal) order.tanggal = String(row[iTanggalTransaksi] || '').trim().slice(0, 10);
+          }
+
+          // Convert to MpOrder + HPP matching
+          const skuHppMap = new Map<string, number>();
+          let skuMapSize = 0;
+          try {
+            const skuData = JSON.parse(localStorage.getItem('mma_sku_data') || '[]');
+            for (const s of skuData) { if (s.sku && s.hargaBaru > 0) { skuHppMap.set(String(s.sku).trim(), s.hargaBaru); skuMapSize++; } }
+          } catch { }
+
+          const newOrders: MpOrder[] = [];
+          let totalHppAll = 0, matchedSku = 0, unmatchedSku = 0;
+          const unmatchedList: string[] = [];
+
+          for (const [orderId, o] of orderMapLazada) {
+            const totalFeeLazada = o.komisi + o.freeShipping + o.promosi + o.processingFee + o.biayaTransaksi + o.diskon + o.wht;
+            const gross = o.omset || 0;
+            if (gross <= 0 && totalFeeLazada <= 0) continue;
+
+            let totalHPP = 0;
+            const itemsWithHpp: MpOrderItem[] = o.items.map(item => {
+              const cleanSku = String(item.sku).trim();
+              const hpp = skuHppMap.get(cleanSku);
+              if (hpp !== undefined && hpp > 0) { matchedSku++; return { ...item, hpp, hargaJual: 0 }; }
+              else if (cleanSku) { unmatchedSku++; if (!unmatchedList.includes(cleanSku)) unmatchedList.push(cleanSku); return { ...item, hpp: 0, hargaJual: 0 }; }
+              return { ...item, hpp: 0, hargaJual: 0 };
+            });
+            totalHPP = itemsWithHpp.reduce((s, it) => s + (it.hpp * it.qty), 0);
+            totalHppAll += totalHPP;
+
+            const labaFinal = gross - totalFeeLazada - totalHPP;
+            newOrders.push({
+              id: `mp-${Date.now()}-${orderId.slice(-6)}`, noPesanan: orderId,
+              tanggal: o.tanggal || new Date().toISOString().slice(0, 10),
+              marketplaceId: mpObj.id, marketplace: mpObj.marketplace, tokoNama,
+              pendapatanKotor: gross,
+              pendapatanBersih: labaFinal,
+              totalBiaya: totalFeeLazada,
+              feeAdmin: o.komisi, feeLayanan: 0, ongkirAktual: o.freeShipping, subsidiOngkir: 0,
+              biayaPemrosesan: o.processingFee, premiProteksi: 0, biayaAMS: 0,
+              biayaTransaksi: o.biayaTransaksi, komisi: 0,
+              items: itemsWithHpp, totalHPP,
+              labaKotor: labaFinal,
+              catatan: `Upload Lazada ${file.name}`,
+            });
+          }
+
+          // Save
+          try {
+            const existing = JSON.parse(localStorage.getItem('mma_marketplace_orders') || '[]');
+            localStorage.setItem('mma_marketplace_orders', JSON.stringify([...newOrders, ...existing]));
+            const summary = newOrders.map(o => ({
+              id: o.id, tanggal: o.tanggal, marketplaceId: o.marketplaceId, marketplaceNama: `${o.marketplace} — ${o.tokoNama}`,
+              pendapatanKotor: o.pendapatanKotor, feeMarketplace: o.totalBiaya, biayaIklan: 0, biayaPengemasan: 0,
+              biayaPengiriman: o.ongkirAktual, pendapatanBersih: o.pendapatanBersih, biayaProses: o.biayaPemrosesan, totalHPP: o.totalHPP, catatan: o.catatan,
+            }));
+            const existingOld = JSON.parse(localStorage.getItem('mma_marketplace_income') || '[]');
+            localStorage.setItem('mma_marketplace_income', JSON.stringify([...summary, ...existingOld]));
+            window.dispatchEvent(new Event('refresh-laporan'));
+          } catch { }
+
+          const totalNet = newOrders.reduce((s,o) => s + o.pendapatanBersih, 0);
+          const totalKotor = newOrders.reduce((s,o) => s + o.pendapatanKotor, 0);
+          const totalFee = newOrders.reduce((s,o) => s + o.totalBiaya, 0);
+          setSuccess(true); setErr('');
+          alert(`✅ ${newOrders.length} order diupload (${mpObj.marketplace} - Lazada).\n\n📊 Ringkasan:\n💰 Kotor: Rp ${totalKotor.toLocaleString('id-ID')}\n🛒 Fee: Rp ${totalFee.toLocaleString('id-ID')}\n📦 HPP: Rp ${totalHppAll.toLocaleString('id-ID')}\n📈 Profit: Rp ${totalNet.toLocaleString('id-ID')}${unmatchedSku>0?`\n⚠️ ${unmatchedSku} SKU tidak match`:'\n✅ Semua SKU match'}`);
+          setTimeout(() => setSuccess(false), 5000);
+          setUploading(false);
+          if (fileRef.current) fileRef.current.value = '';
+          return; // Selesai — jangan lanjut ke parsing Shopee
+        }
 
         // Column indices — deteksi lebih luas termasuk "biaya proses" (1250/paket)
         const iId = h.findIndex(hh => hh === 'id pesanan');
