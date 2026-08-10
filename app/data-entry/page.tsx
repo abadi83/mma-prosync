@@ -577,7 +577,9 @@ function InputKeuangan() {
         const idx = (...kw: string[]) => h.findIndex(hh => kw.some(k => hh.includes(k)));
         const isShopee = h.includes('id pesanan') && h.includes('total penghasilan') && h.includes('total laba');
         // ── Deteksi format Lazada: kolom "nama biaya" + "nomor pesanan" ──
-        const isLazada = h.some(hh => hh === 'nama biaya') && h.some(hh => hh === 'nomor pesanan');
+        const hasNamaBiaya = h.some(hh => hh.includes('nama biaya') || hh.includes('jenis biaya') || hh.includes('tipe transaksi'));
+        const hasNoPesanan = h.some(hh => hh.includes('nomor pesanan') || hh.includes('no pesanan') || hh.includes('order id'));
+        const isLazada = hasNamaBiaya && hasNoPesanan;
 
         // ── Deteksi marketplace ──
         const mpObj = uploadMpObj || MARKETPLACE_TOKO[0];
@@ -585,18 +587,19 @@ function InputKeuangan() {
 
         // ── PARSE LAZADA (format vertikal: 1 pesanan = banyak baris jenis biaya) ──
         if (isLazada) {
-          const iNamaBiaya = h.findIndex(hh => hh === 'nama biaya');       // Kolom D
-          const iJumlah = h.findIndex(hh => hh === 'jumlah (termasuk pajak)'); // Kolom E
-          const iNoPesanan = h.findIndex(hh => hh === 'nomor pesanan');    // Kolom K
+          const iNamaBiaya = h.findIndex(hh => hh.includes('nama biaya') || hh.includes('jenis biaya'));       // Kolom D
+          const iJumlah = h.findIndex(hh => hh.includes('jumlah') && (hh.includes('pajak') || hh.includes('termasuk'))); // Kolom E
+          const iNoPesanan = h.findIndex(hh => hh.includes('nomor pesanan') || hh.includes('no pesanan'));    // Kolom K
           const iIdPesanan = h.findIndex(hh => hh === 'id pesanan');       // Kolom L
-          const iSkuPenjual = h.findIndex(hh => hh === 'sku penjual');     // Kolom M
+          const iSkuPenjual = h.findIndex(hh => hh.includes('sku penjual') || hh.includes('seller sku'));     // Kolom M
           const iNamaProduk = h.findIndex(hh => hh === 'nama produk');     // Kolom R
-          const iStatusPesanan = h.findIndex(hh => hh === 'status pesanan'); // Kolom Q
-          const iWht = h.findIndex(hh => hh === 'wht amount');             // Kolom O
-          const iTanggalTransaksi = h.findIndex(hh => hh === 'tanggal transaksi'); // Kolom C
+          const iStatusPesanan = h.findIndex(hh => hh.includes('status pesanan')); // Kolom Q
+          const iWht = h.findIndex(hh => hh.includes('wht'));             // Kolom O
+          const iTanggalTransaksi = h.findIndex(hh => hh.includes('tanggal transaksi') || hh.includes('tgl transaksi')); // Kolom C
 
           if (iNamaBiaya < 0 || iJumlah < 0 || iNoPesanan < 0) {
-            setErr('Format Lazada: kolom Nama Biaya / Jumlah / Nomor Pesanan wajib ada.'); setUploading(false); return;
+            setErr(`Format Lazada: kolom wajib tidak ditemukan.\nNama Biaya: ${iNamaBiaya>=0?'✅':`❌ (header: ${h.slice(0,6).join(', ')})`}\nJumlah: ${iJumlah>=0?'✅':'❌'}\nNo Pesanan: ${iNoPesanan>=0?'✅':'❌'}`);
+            setUploading(false); return;
           }
 
           // Group by Nomor Pesanan
@@ -632,14 +635,22 @@ function InputKeuangan() {
               else order.items.push({ sku, nama: namaProduk, qty: 1, hargaJual: 0 });
             }
 
-            // Categorize by Nama Biaya
-            if (namaBiaya === 'omset penjualan') order.omset += jumlah;
-            else if (namaBiaya.includes('komisi')) order.komisi += Math.abs(jumlah);
-            else if (namaBiaya.includes('free shipping') || namaBiaya.includes('gratis ongkir')) order.freeShipping += Math.abs(jumlah);
-            else if (namaBiaya.includes('promosi') || namaBiaya.includes('lazkoin')) order.promosi += Math.abs(jumlah);
-            else if (namaBiaya.includes('processing fee') || namaBiaya.includes('pemrosesan')) order.processingFee += Math.abs(jumlah);
-            else if (namaBiaya.includes('transaksi')) order.biayaTransaksi += Math.abs(jumlah);
-            else if (namaBiaya.includes('diskon')) order.diskon += Math.abs(jumlah);
+            // Categorize by Nama Biaya (Lazada)
+            if (namaBiaya === 'omset penjualan') {
+              order.omset += jumlah; // POSITIVE
+            } else if (namaBiaya === 'komisi') {
+              order.komisi += Math.abs(jumlah);
+            } else if (namaBiaya.includes('free shipping') || namaBiaya.includes('gratis ongkir')) {
+              order.freeShipping += Math.abs(jumlah);
+            } else if (namaBiaya.includes('promosi') && !namaBiaya.includes('diskon')) {
+              order.promosi += Math.abs(jumlah);
+            } else if (namaBiaya.includes('processing fee') || namaBiaya.includes('pemrosesan')) {
+              order.processingFee += Math.abs(jumlah);
+            } else if (namaBiaya.includes('diskon') && !namaBiaya.includes('promosi')) {
+              order.diskon += Math.abs(jumlah);
+            } else if (namaBiaya.includes('transaksi') && !namaBiaya.includes('free')) {
+              order.biayaTransaksi += Math.abs(jumlah);
+            }
             // WHT
             const wht = iWht >= 0 ? parseRp(row[iWht] || '0') : 0;
             if (wht > 0) order.wht += wht;
