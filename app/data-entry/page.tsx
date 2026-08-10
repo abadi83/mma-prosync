@@ -520,35 +520,57 @@ function InputKeuangan() {
         else if (snLow.includes('lazada') || h.some(x => x.includes('lazada'))) detectedMp = 'Lazada';
         else if (snLow.includes('tiktok') || h.some(x => x.includes('tiktok'))) detectedMp = 'TikTok Shop';
 
+        // Deteksi format Shopee "Data Penghasilan" (29 kolom spesifik)
+        const isShopeePenghasilan = h.includes('id pesanan') && h.includes('total penghasilan') && h.includes('total laba');
+
         const iTanggal = idx('tanggal', 'waktu pesanan dibuat', 'created time', 'order date', 'date');
-        // Kolom pendapatan: cari "harga awal", "total pembayaran", "pendapatan kotor", "gross"
-        const iPendapatan = idx('harga awal', 'total pembayaran', 'total amount', 'gross revenue', 'gross amount', 'unitprice');
-        // Kolom fee/biaya: "biaya layanan", "fee", "komisi", "biaya admin"
-        const iFee = idx('biaya layanan', 'biaya admin', 'fee', 'komisi', 'service fee', 'commission');
+
+        // Kolom pendapatan (prioritas: Shopee "total penghasilan", lalu generic)
+        const iPendapatan = isShopeePenghasilan
+          ? h.findIndex(hh => hh === 'total penghasilan')
+          : idx('total penghasilan', 'total laba', 'harga awal', 'total pembayaran', 'total amount', 'unitprice');
+
+        // Kolom total biaya (Shopee: "total biaya")
+        const iTotalBiaya = idx('total biaya');
+
+        // Kolom fee/biaya
+        const iFee = isShopeePenghasilan
+          ? idx('biaya admin', 'biaya layanan')
+          : idx('biaya layanan', 'biaya admin', 'fee', 'komisi', 'service fee', 'commission');
+
         // Kolom biaya pengiriman
-        const iKirim = idx('biaya pengiriman', 'ongkir', 'shipping fee', 'ongkos kirim');
+        const iKirim = idx('ongkir aktual', 'biaya pengiriman', 'ongkir', 'shipping fee');
+
         // Kolom biaya iklan
-        const iIklan = idx('biaya iklan', 'ad fee', 'advertising', 'iklan');
-        // Kolom pendapatan bersih
-        const iBersih = idx('pendapatan bersih', 'net income', 'total pendapatan', 'net revenue', 'estimated');
+        const iIklan = idx('biaya iklan', 'biaya admin ams', 'ad fee', 'advertising', 'iklan');
+
+        // Kolom pendapatan bersih (Shopee: "total laba" = net after fees)
+        const iBersih = isShopeePenghasilan
+          ? h.findIndex(hh => hh === 'total laba')
+          : idx('pendapatan bersih', 'estimasi penghasilan', 'net income', 'net revenue');
+
         // Kolom marketplace store
         const iToko = idx('nama toko', 'store name', 'shop name');
 
-        if (iPendapatan < 0) { setErr('Kolom pendapatan tidak ditemukan. Header: ' + h.slice(0, 8).join(', ')); setUploading(false); return; }
+        if (iPendapatan < 0 && iBersih < 0) { setErr('Kolom pendapatan tidak ditemukan. Header: ' + h.slice(0, 8).join(', ')); setUploading(false); return; }
 
         const newEntries: KeuEntry[] = [];
         for (let i = 1; i < raw.length; i++) {
           const row = raw[i]; if (!row || row.length < 2) continue;
-          // Skip header rows
-          const firstCell = String(row[0] || '').toLowerCase().trim();
-          if (firstCell.includes('tanggal') || firstCell.includes('no. pesanan') || firstCell.includes('waktu') || firstCell === '') continue;
+          // Hanya baris INDUK (ada ID Pesanan) — baris anak multi-SKU di-skip
+          const firstCell = String(row[0] || '').trim();
+          if (firstCell === '') continue;
 
-          const pendapatanKotor = parseRp(row[iPendapatan] || '0');
-          if (pendapatanKotor <= 0) continue;
+          // Ambil nilai pendapatan (bisa dari kolom penghasilan atau laba)
+          const pendapatanKotor = iPendapatan >= 0 ? parseRp(row[iPendapatan] || '0') : 0;
+          const laba = iBersih >= 0 ? parseRp(row[iBersih] || '0') : 0;
+          const netRevenue = laba > 0 ? laba : pendapatanKotor;
+          if (netRevenue <= 0) continue;
+
+          const totalBiaya = iTotalBiaya >= 0 ? parseRp(row[iTotalBiaya] || '0') : 0;
           const feeMarketplace = iFee >= 0 ? parseRp(row[iFee] || '0') : 0;
           const biayaPengiriman = iKirim >= 0 ? parseRp(row[iKirim] || '0') : 0;
           const biayaIklan = iIklan >= 0 ? parseRp(row[iIklan] || '0') : 0;
-          const pendapatanBersih = iBersih >= 0 ? parseRp(row[iBersih] || '0') : pendapatanKotor - feeMarketplace - biayaPengiriman - biayaIklan;
           const tanggal = iTanggal >= 0 ? String(row[iTanggal] || '').trim().slice(0, 10) : new Date().toISOString().slice(0, 10);
           const namaToko = iToko >= 0 ? String(row[iToko] || '').trim() : '';
 
@@ -557,12 +579,12 @@ function InputKeuangan() {
             tanggal: tanggal || new Date().toISOString().slice(0, 10),
             marketplaceId: MARKETPLACE_TOKO.find(m => m.marketplace === detectedMp)?.id || 'mp-1',
             marketplaceNama: namaToko || `${detectedMp} — MITRA MULIA ABADI`,
-            pendapatanKotor,
-            feeMarketplace,
+            pendapatanKotor: pendapatanKotor > 0 ? pendapatanKotor : netRevenue,
+            feeMarketplace: totalBiaya > 0 ? totalBiaya : feeMarketplace,
             biayaIklan,
             biayaPengemasan: 0,
             biayaPengiriman,
-            pendapatanBersih,
+            pendapatanBersih: netRevenue, // Net setelah fee marketplace
             catatan: `Upload ${file.name}`,
           });
         }
