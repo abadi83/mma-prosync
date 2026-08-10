@@ -24,6 +24,40 @@ const MARKETPLACE_TOKO = [
 /* ── Types ── */
 interface OpsEntry { id: string; tanggal: string; jamBuka: string; jamTutup: string; jumlahKaryawan: number; catatan: string; }
 interface KeuEntry { id: string; tanggal: string; marketplaceId: string; marketplaceNama: string; pendapatanKotor: number; feeMarketplace: number; biayaIklan: number; biayaPengemasan: number; biayaPengiriman: number; pendapatanBersih: number; catatan: string; }
+
+/* ── Marketplace Order Detail (fee breakdown + SKU items for HPP) ── */
+interface MpOrderItem {
+  sku: string;
+  nama: string;
+  qty: number;
+  hargaJual: number;
+}
+interface MpOrder {
+  id: string;
+  noPesanan: string;
+  tanggal: string;
+  marketplaceId: string;
+  marketplace: string;
+  tokoNama: string;
+  pendapatanKotor: number;
+  pendapatanBersih: number; // net after marketplace fees
+  // Fee breakdown
+  totalBiaya: number;
+  feeAdmin: number;
+  feeLayanan: number;
+  ongkirAktual: number;
+  subsidiOngkir: number;
+  biayaPemrosesan: number;
+  premiProteksi: number;
+  biayaAMS: number;
+  biayaTransaksi: number;
+  // SKU detail
+  items: MpOrderItem[];
+  // HPP (dihitung dari Master SKU)
+  totalHPP: number;
+  labaKotor: number; // pendapatanBersih - totalHPP
+  catatan: string;
+}
 interface ShopeeOrder {
   id: string;
   noPesanan: string;          // [0] No. Pesanan
@@ -481,13 +515,31 @@ function InputKeuangan() {
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
+  // State untuk upload Excel: pilih marketplace & toko
+  const [uploadMp, setUploadMp] = useState(MARKETPLACE_TOKO[0].id);
+  const [uploadToko, setUploadToko] = useState('');
+  const [tokoList, setTokoList] = useState<{id:string;nama:string;marketplace:string}[]>([]);
+
+  // Load toko dari Master Data
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('mma_toko_master');
+      if (stored) setTokoList(JSON.parse(stored));
+      else setTokoList(INITIAL_TOKO.map(t => ({id:t.id,nama:t.nama,marketplace:t.marketplace})));
+    } catch { setTokoList(INITIAL_TOKO.map(t => ({id:t.id,nama:t.nama,marketplace:t.marketplace}))); }
+  }, []);
+
   const mp = MARKETPLACE_TOKO.find(m => m.id === selectedMp)!;
   const pk = +form.pendapatanKotor || 0;
   const fee = Math.round(pk * mp.persenFee / 100);
   const biayaLain = (+form.biayaIklan || 0) + (+form.biayaPengemasan || 0) + (+form.biayaPengiriman || 0);
   const bersih = pk - fee - biayaLain;
 
-  /* ── Upload File Excel Laporan Keuangan Marketplace ── */
+  // Filter toko by selected marketplace
+  const uploadMpObj = MARKETPLACE_TOKO.find(m => m.id === uploadMp);
+  const filteredToko = tokoList.filter(t => t.marketplace === uploadMpObj?.marketplace);
+
+  /* ── Upload File Excel Laporan Keuangan Marketplace (dengan fee breakdown) ── */
   const uploadKeuangan = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file) return;
     setUploading(true); setErr('');
@@ -496,98 +548,155 @@ function InputKeuangan() {
       try {
         const data = new Uint8Array(ev.target?.result as ArrayBuffer);
         const wb = XLSX.read(data, { type: 'array' });
-        // Cari sheet yang relevan (bisa "Sheet1", "Penghasilan", "Orders", dll)
         let sheetName = wb.SheetNames[0];
         for (const sn of wb.SheetNames) {
-          const lower = sn.toLowerCase();
-          if (lower.includes('penghasilan') || lower.includes('income') || lower.includes('order') || lower.includes('pesanan')) {
-            sheetName = sn; break;
-          }
+          if (sn.toLowerCase().includes('penghasilan') || sn.toLowerCase().includes('income') || sn.toLowerCase().includes('pesanan')) { sheetName = sn; break; }
         }
         const sheet = wb.Sheets[sheetName];
         const raw = XLSX.utils.sheet_to_json<string[]>(sheet, { header: 1 });
         if (raw.length < 2) { setErr('File kosong.'); setUploading(false); return; }
         const h = raw[0].map((c: string) => String(c || '').toLowerCase().trim());
-
-        // Deteksi format: Shopee Penghasilan / Tokopedia / generic
         const idx = (...kw: string[]) => h.findIndex(hh => kw.some(k => hh.includes(k)));
+        const isShopee = h.includes('id pesanan') && h.includes('total penghasilan') && h.includes('total laba');
 
-        // Coba deteksi marketplace dari nama sheet atau header
-        let detectedMp = 'Marketplace';
-        const snLow = sheetName.toLowerCase();
-        if (snLow.includes('shopee') || h.some(x => x.includes('no. pesanan') && !x.includes('order'))) detectedMp = 'Shopee';
-        else if (snLow.includes('tokopedia') || h.some(x => x.includes('tokopedia'))) detectedMp = 'Tokopedia';
-        else if (snLow.includes('lazada') || h.some(x => x.includes('lazada'))) detectedMp = 'Lazada';
-        else if (snLow.includes('tiktok') || h.some(x => x.includes('tiktok'))) detectedMp = 'TikTok Shop';
+        // Deteksi marketplace
+        const mpObj = uploadMpObj || MARKETPLACE_TOKO[0];
+        const tokoNama = uploadToko ? (filteredToko.find(t=>t.id===uploadToko)?.nama || '') : (mpObj.nama.split('—')[1]?.trim() || mpObj.nama);
 
-        // Deteksi format Shopee "Data Penghasilan" (29 kolom spesifik)
-        const isShopeePenghasilan = h.includes('id pesanan') && h.includes('total penghasilan') && h.includes('total laba');
-
-        const iTanggal = idx('tanggal', 'waktu pesanan dibuat', 'created time', 'order date', 'date');
-
-        // Kolom pendapatan (prioritas: Shopee "total penghasilan", lalu generic)
-        const iPendapatan = isShopeePenghasilan
-          ? h.findIndex(hh => hh === 'total penghasilan')
-          : idx('total penghasilan', 'total laba', 'harga awal', 'total pembayaran', 'total amount', 'unitprice');
-
-        // Kolom total biaya (Shopee: "total biaya")
+        // Column indices
+        const iId = h.findIndex(hh => hh === 'id pesanan');
+        const iTanggal = idx('tanggal', 'waktu pesanan dibuat', 'created time');
+        const iProduk = h.findIndex(hh => hh === 'produk');
+        const iSku = h.findIndex(hh => hh === 'sku');
+        const iQty = h.findIndex(hh => hh === 'jumlah');
+        const iHargaJual = idx('total harga jual', 'total harga produk');
+        const iPenghasilan = isShopee ? h.findIndex(hh => hh === 'total penghasilan') : idx('total penghasilan', 'total laba');
+        const iLaba = isShopee ? h.findIndex(hh => hh === 'total laba') : -1;
         const iTotalBiaya = idx('total biaya');
+        const iFeeAdmin = idx('biaya admin');
+        const iFeeLayanan = idx('biaya layanan');
+        const iOngkirAktual = idx('ongkir aktual');
+        const iSubsidiOngkir = idx('subsidi ongkir shopee');
+        const iBiayaPemrosesan = idx('biaya pemrosesan pesanan');
+        const iPremiProteksi = idx('premi proteksi pengiriman');
+        const iBiayaAMS = idx('biaya admin ams');
+        const iBiayaTransaksi = idx('biaya transaksi penjual');
 
-        // Kolom fee/biaya
-        const iFee = isShopeePenghasilan
-          ? idx('biaya admin', 'biaya layanan')
-          : idx('biaya layanan', 'biaya admin', 'fee', 'komisi', 'service fee', 'commission');
+        if (iPenghasilan < 0) { setErr('Kolom pendapatan tidak ditemukan. Header: ' + h.slice(0, 8).join(', ')); setUploading(false); return; }
 
-        // Kolom biaya pengiriman
-        const iKirim = idx('ongkir aktual', 'biaya pengiriman', 'ongkir', 'shipping fee');
+        // Kumpulkan data per order (handle multi-SKU)
+        const orderMap = new Map<string, { id: string; tanggal: string; penghasilan: number; laba: number; totalBiaya: number; feeAdmin: number; feeLayanan: number; ongkirAktual: number; subsidiOngkir: number; biayaPemrosesan: number; premiProteksi: number; biayaAMS: number; biayaTransaksi: number; items: MpOrderItem[] }>();
 
-        // Kolom biaya iklan
-        const iIklan = idx('biaya iklan', 'biaya admin ams', 'ad fee', 'advertising', 'iklan');
-
-        // Kolom pendapatan bersih (Shopee: "total laba" = net after fees)
-        const iBersih = isShopeePenghasilan
-          ? h.findIndex(hh => hh === 'total laba')
-          : idx('pendapatan bersih', 'estimasi penghasilan', 'net income', 'net revenue');
-
-        // Kolom marketplace store
-        const iToko = idx('nama toko', 'store name', 'shop name');
-
-        if (iPendapatan < 0 && iBersih < 0) { setErr('Kolom pendapatan tidak ditemukan. Header: ' + h.slice(0, 8).join(', ')); setUploading(false); return; }
-
-        const newEntries: KeuEntry[] = [];
         for (let i = 1; i < raw.length; i++) {
           const row = raw[i]; if (!row || row.length < 2) continue;
-          // Hanya baris INDUK (ada ID Pesanan) — baris anak multi-SKU di-skip
-          const firstCell = String(row[0] || '').trim();
-          if (firstCell === '') continue;
+          const orderId = String(row[iId] || '').trim();
+          if (!orderId) {
+            // Baris ANAK: tambahkan SKU ke order yang sedang diproses
+            if (orderMap.size === 0) continue;
+            const lastOrder = Array.from(orderMap.values()).pop()!;
+            const sku = iSku >= 0 ? String(row[iSku] || '').trim() : '';
+            const nama = iProduk >= 0 ? String(row[iProduk] || '').trim() : '';
+            const qty = iQty >= 0 ? (parseInt(String(row[iQty] || '0')) || 1) : 1;
+            const harga = iHargaJual >= 0 ? parseRp(row[iHargaJual] || '0') : 0;
+            if (sku || nama) lastOrder.items.push({ sku, nama, qty, hargaJual: harga });
+            continue;
+          }
 
-          // Ambil nilai pendapatan (bisa dari kolom penghasilan atau laba)
-          const pendapatanKotor = iPendapatan >= 0 ? parseRp(row[iPendapatan] || '0') : 0;
-          const laba = iBersih >= 0 ? parseRp(row[iBersih] || '0') : 0;
-          const netRevenue = laba > 0 ? laba : pendapatanKotor;
-          if (netRevenue <= 0) continue;
+          // Baris INDUK
+          const penghasilan = parseRp(row[iPenghasilan] || '0');
+          const laba = iLaba >= 0 ? parseRp(row[iLaba] || '0') : penghasilan;
+          if (penghasilan <= 0 && laba <= 0) continue;
 
+          const tanggal = iTanggal >= 0 ? String(row[iTanggal] || '').trim().slice(0, 10) : '';
           const totalBiaya = iTotalBiaya >= 0 ? parseRp(row[iTotalBiaya] || '0') : 0;
-          const feeMarketplace = iFee >= 0 ? parseRp(row[iFee] || '0') : 0;
-          const biayaPengiriman = iKirim >= 0 ? parseRp(row[iKirim] || '0') : 0;
-          const biayaIklan = iIklan >= 0 ? parseRp(row[iIklan] || '0') : 0;
-          const tanggal = iTanggal >= 0 ? String(row[iTanggal] || '').trim().slice(0, 10) : new Date().toISOString().slice(0, 10);
-          const namaToko = iToko >= 0 ? String(row[iToko] || '').trim() : '';
+          const feeAdmin = iFeeAdmin >= 0 ? parseRp(row[iFeeAdmin] || '0') : 0;
+          const feeLayanan = iFeeLayanan >= 0 ? parseRp(row[iFeeLayanan] || '0') : 0;
+          const ongkirAktual = iOngkirAktual >= 0 ? parseRp(row[iOngkirAktual] || '0') : 0;
+          const subsidiOngkir = iSubsidiOngkir >= 0 ? parseRp(row[iSubsidiOngkir] || '0') : 0;
+          const biayaPemrosesan = iBiayaPemrosesan >= 0 ? parseRp(row[iBiayaPemrosesan] || '0') : 0;
+          const premiProteksi = iPremiProteksi >= 0 ? parseRp(row[iPremiProteksi] || '0') : 0;
+          const biayaAMS = iBiayaAMS >= 0 ? parseRp(row[iBiayaAMS] || '0') : 0;
+          const biayaTransaksi = iBiayaTransaksi >= 0 ? parseRp(row[iBiayaTransaksi] || '0') : 0;
 
-          newEntries.push({
-            id: `up-${Date.now()}-${i}`,
-            tanggal: tanggal || new Date().toISOString().slice(0, 10),
-            marketplaceId: MARKETPLACE_TOKO.find(m => m.marketplace === detectedMp)?.id || 'mp-1',
-            marketplaceNama: namaToko || `${detectedMp} — MITRA MULIA ABADI`,
-            pendapatanKotor: pendapatanKotor > 0 ? pendapatanKotor : netRevenue,
-            feeMarketplace: totalBiaya > 0 ? totalBiaya : feeMarketplace,
-            biayaIklan,
-            biayaPengemasan: 0,
-            biayaPengiriman,
-            pendapatanBersih: netRevenue, // Net setelah fee marketplace
+          // SKU baris pertama (INDUK juga bisa punya produk)
+          const sku = iSku >= 0 ? String(row[iSku] || '').trim() : '';
+          const nama = iProduk >= 0 ? String(row[iProduk] || '').trim() : '';
+          const qty = iQty >= 0 ? (parseInt(String(row[iQty] || '0')) || 1) : 1;
+          const harga = iHargaJual >= 0 ? parseRp(row[iHargaJual] || '0') : 0;
+
+          orderMap.set(orderId, {
+            id: orderId, tanggal, penghasilan, laba: laba || penghasilan,
+            totalBiaya, feeAdmin, feeLayanan, ongkirAktual, subsidiOngkir,
+            biayaPemrosesan, premiProteksi, biayaAMS, biayaTransaksi,
+            items: (sku || nama) ? [{ sku, nama, qty, hargaJual: harga }] : [],
+          });
+        }
+
+        // Konversi ke MpOrder + hitung HPP dari Master SKU
+        const skuHppMap = new Map<string, number>();
+        try {
+          const skuData = JSON.parse(localStorage.getItem('mma_sku_data') || '[]');
+          for (const s of skuData) { if (s.sku && s.hargaBaru > 0) skuHppMap.set(s.sku, s.hargaBaru); }
+        } catch { }
+
+        const newOrders: MpOrder[] = [];
+        for (const [orderId, o] of orderMap) {
+          let totalHPP = 0;
+          for (const item of o.items) {
+            const hpp = skuHppMap.get(item.sku) || 0;
+            totalHPP += hpp * item.qty;
+          }
+          const netRevenue = o.laba || o.penghasilan;
+          newOrders.push({
+            id: `mp-${Date.now()}-${orderId.slice(-6)}`,
+            noPesanan: orderId,
+            tanggal: o.tanggal || new Date().toISOString().slice(0, 10),
+            marketplaceId: mpObj.id,
+            marketplace: mpObj.marketplace,
+            tokoNama,
+            pendapatanKotor: o.penghasilan,
+            pendapatanBersih: netRevenue,
+            totalBiaya: o.totalBiaya,
+            feeAdmin: o.feeAdmin,
+            feeLayanan: o.feeLayanan,
+            ongkirAktual: o.ongkirAktual,
+            subsidiOngkir: o.subsidiOngkir,
+            biayaPemrosesan: o.biayaPemrosesan,
+            premiProteksi: o.premiProteksi,
+            biayaAMS: o.biayaAMS,
+            biayaTransaksi: o.biayaTransaksi,
+            items: o.items,
+            totalHPP,
+            labaKotor: netRevenue - totalHPP,
             catatan: `Upload ${file.name}`,
           });
         }
+
+        // Simpan ke localStorage
+        try {
+          const existing = JSON.parse(localStorage.getItem('mma_marketplace_orders') || '[]');
+          localStorage.setItem('mma_marketplace_orders', JSON.stringify([...newOrders, ...existing]));
+          // Juga simpan ringkasan untuk kompatibilitas
+          const summary = newOrders.map(o => ({
+            id: o.id, tanggal: o.tanggal, marketplaceId: o.marketplaceId, marketplaceNama: `${o.marketplace} — ${o.tokoNama}`,
+            pendapatanKotor: o.pendapatanKotor, feeMarketplace: o.totalBiaya, biayaIklan: 0, biayaPengemasan: 0,
+            biayaPengiriman: o.ongkirAktual, pendapatanBersih: o.pendapatanBersih, catatan: o.catatan,
+          }));
+          const existingOld = JSON.parse(localStorage.getItem('mma_marketplace_income') || '[]');
+          localStorage.setItem('mma_marketplace_income', JSON.stringify([...summary, ...existingOld]));
+        } catch { }
+
+        const totalNet = newOrders.reduce((s,o) => s + o.pendapatanBersih, 0);
+        const totalHppAll = newOrders.reduce((s,o) => s + o.totalHPP, 0);
+        setSuccess(true); setErr('');
+        alert(`✅ ${newOrders.length} order diupload (${mpObj.marketplace}).\nNet Revenue: Rp ${totalNet.toLocaleString('id-ID')}\nTotal HPP: Rp ${totalHppAll.toLocaleString('id-ID')}\nLaba Kotor: Rp ${(totalNet-totalHppAll).toLocaleString('id-ID')}`);
+        setTimeout(() => setSuccess(false), 5000);
+      } catch { setErr('Gagal membaca file. Pastikan format Excel benar.'); }
+      setUploading(false);
+    };
+    r.onerror = () => { setErr('Gagal membaca file.'); setUploading(false); };
+    r.readAsArrayBuffer(file);
+  };
 
         if (newEntries.length === 0) { setErr('Tidak ada data valid ditemukan.'); setUploading(false); return; }
         setEntries(p => [...newEntries, ...p]);
@@ -628,11 +737,30 @@ function InputKeuangan() {
       {/* Upload Excel */}
       <div className="mt-3 rounded-xl border-2 border-dashed border-emerald-200 bg-emerald-50/40 p-4">
         <p className="text-xs font-semibold text-emerald-700 mb-2">📤 Upload File Excel Laporan Marketplace</p>
-        <p className="text-[11px] text-slate-500 mb-3">Upload file Penghasilan/Income dari Shopee, Tokopedia, Lazada, TikTok → otomatis masuk Laba Rugi.</p>
-        <label className={`cursor-pointer inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-white transition ${uploading ? 'bg-slate-400' : 'bg-emerald-500 hover:bg-emerald-600'}`}>
-          {uploading ? '⏳ Memproses...' : '📥 Upload Excel'}
-          <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" onChange={uploadKeuangan} className="hidden" disabled={uploading} />
-        </label>
+        <p className="text-[11px] text-slate-500 mb-3">Upload file Penghasilan/Income dari Shopee, Tokopedia, dll. Fee otomatis di-breakdown, HPP auto-match dari Master SKU.</p>
+        {/* Pilih Marketplace & Toko */}
+        <div className="flex flex-wrap items-end gap-2 mb-3">
+          <div>
+            <label className="text-[10px] font-semibold text-slate-500">Marketplace</label>
+            <select value={uploadMp} onChange={e => { setUploadMp(e.target.value); setUploadToko(''); }}
+              className="rounded-lg border bg-white px-2 py-1.5 text-xs text-slate-700">
+              {MARKETPLACE_TOKO.map(m => <option key={m.id} value={m.id}>{m.marketplace}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="text-[10px] font-semibold text-slate-500">Toko</label>
+            <select value={uploadToko} onChange={e => setUploadToko(e.target.value)}
+              className="rounded-lg border bg-white px-2 py-1.5 text-xs text-slate-700 min-w-[140px]">
+              <option value="">— Semua Toko {uploadMpObj?.marketplace || ''} —</option>
+              {filteredToko.map(t => <option key={t.id} value={t.id}>{t.nama}</option>)}
+            </select>
+          </div>
+          <label className={`cursor-pointer inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-white transition ${uploading ? 'bg-slate-400' : 'bg-emerald-500 hover:bg-emerald-600'}`}>
+            {uploading ? '⏳ Memproses...' : '📥 Upload Excel'}
+            <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" onChange={uploadKeuangan} className="hidden" disabled={uploading} />
+          </label>
+        </div>
+        <p className="text-[10px] text-emerald-600 mt-1">✅ Fee breakdown per order • HPP auto dari Master SKU • Support multi-SKU (baris induk+anak)</p>
       </div>
 
       {err && <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{err}</p>}

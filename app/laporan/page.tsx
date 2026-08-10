@@ -76,23 +76,26 @@ export default function LaporanPage() {
     return { list, grandTotal, orderCount: selesai.length };
   }, [allRows]);
 
-  // Laba Rugi: Penjualan Kasir + Pendapatan Bersih Marketplace - HPP - Biaya
+  // Laba Rugi: Penjualan Kasir + Pendapatan Marketplace - HPP (dari Master SKU) - Biaya
   const labaRugiData = useMemo(() => {
     const pendapatan = penjualanFiltered.reduce((s: number, t: any) => s + (t.total || 0), 0);
-    // Tambah pendapatan bersih marketplace dari upload Excel
+    // Marketplace: pakai data detail dengan HPP
     let marketplaceNet = 0;
+    let marketplaceHpp = 0;
     try {
-      const mpIncome = JSON.parse(localStorage.getItem('mma_marketplace_income') || '[]');
-      const mpFiltered = filterByPeriode(mpIncome, 'tanggal', periode);
-      marketplaceNet = mpFiltered.reduce((s: number, e: any) => s + (e.pendapatanBersih || 0), 0);
+      const mpOrders = JSON.parse(localStorage.getItem('mma_marketplace_orders') || '[]');
+      const mpFiltered = filterByPeriode(mpOrders, 'tanggal', periode);
+      marketplaceNet = mpFiltered.reduce((s: number, o: any) => s + (o.pendapatanBersih || 0), 0);
+      marketplaceHpp = mpFiltered.reduce((s: number, o: any) => s + (o.totalHPP || 0), 0);
     } catch { }
     const totalPendapatan = pendapatan + marketplaceNet;
     const biayaOps = biayaFiltered.reduce((s: number, b: any) => s + (b.jumlah || 0), 0);
     const opexTotal = opexFiltered.reduce((s: number, o: any) => s + (o.total || 0), 0);
     const pembayaranPO = paymentsFiltered.reduce((s: number, p: any) => s + (p.jumlahDibayar || 0), 0);
-    const labaKotor = totalPendapatan - pembayaranPO;
+    const totalHPP = pembayaranPO + marketplaceHpp;
+    const labaKotor = totalPendapatan - totalHPP;
     const labaBersih = labaKotor - biayaOps - opexTotal;
-    return { pendapatan: totalPendapatan, hargaPokok: pembayaranPO, biayaOperasional: biayaOps, biayaLain: opexTotal, labaKotor, labaBersih };
+    return { pendapatan: totalPendapatan, hargaPokok: totalHPP, biayaOperasional: biayaOps, biayaLain: opexTotal, labaKotor, labaBersih };
   }, [penjualanFiltered, biayaFiltered, opexFiltered, paymentsFiltered, periode]);
 
   // Arus Kas real
@@ -211,29 +214,28 @@ function LabaRugi({ periode }: { periode: Periode }) {
     const f = (list: any[], field: string) => filterByPeriode(list, field, periode);
     const filteredPenjualan = f(penjualan, 'tanggal');
 
-    // Pendapatan: Kasir + Marketplace Net Income
+    // Pendapatan: Kasir + Marketplace Net
     const kasirTotal = filteredPenjualan.reduce((s: number, t: any) => s + (t.total || 0), 0);
     let marketplaceNet = 0;
+    let marketplaceHpp = 0;
     try {
-      const mpIncome = JSON.parse(localStorage.getItem('mma_marketplace_income') || '[]');
-      const mpFiltered = f(mpIncome, 'tanggal');
-      marketplaceNet = mpFiltered.reduce((s: number, e: any) => s + (e.pendapatanBersih || 0), 0);
+      const mpOrders = JSON.parse(localStorage.getItem('mma_marketplace_orders') || '[]');
+      const mpFiltered = f(mpOrders, 'tanggal');
+      marketplaceNet = mpFiltered.reduce((s: number, o: any) => s + (o.pendapatanBersih || 0), 0);
+      marketplaceHpp = mpFiltered.reduce((s: number, o: any) => s + (o.totalHPP || 0), 0);
     } catch { }
     const p = kasirTotal + marketplaceNet;
 
-    // HPP: dari Master Data SKU — pakai hargaBaru (harga beli terbaru per SKU)
+    // HPP: dari Master SKU untuk Kasir + HPP Marketplace (sudah dihitung saat upload)
     let hpp = 0;
     try {
       const skuData = JSON.parse(localStorage.getItem('mma_sku_data') || '[]');
       const hargaMap = new Map<string, number>();
-      for (const s of skuData) {
-        if (s.sku && s.hargaBaru > 0) hargaMap.set(s.sku, s.hargaBaru);
-      }
-      for (const t of filteredPenjualan) {
-        const harga = hargaMap.get(t.sku) || 0;
-        hpp += harga * (t.qty || 1);
-      }
+      for (const s of skuData) { if (s.sku && s.hargaBaru > 0) hargaMap.set(s.sku, s.hargaBaru); }
+      for (const t of filteredPenjualan) { hpp += (hargaMap.get(t.sku) || 0) * (t.qty || 1); }
     } catch {}
+    // Tambah HPP marketplace (dari upload)
+    hpp += marketplaceHpp;
 
     const b = f(biaya, 'tanggal').reduce((s: number, b2: any) => s + (b2.jumlah || 0), 0);
     const o = f(opex, 'tanggal').reduce((s: number, o2: any) => s + (o2.total || 0), 0);
