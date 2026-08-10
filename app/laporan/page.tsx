@@ -49,7 +49,7 @@ export default function LaporanPage() {
 
   useEffect(() => { setMounted(true); }, []);
 
-  const realData = useMemo(() => (mounted ? getRealData() : { penjualan: [], payments: [], biaya: [], opex: [], modal: [] }), [mounted]);
+  const realData = useMemo(() => (mounted ? getRealData() : { penjualan: [], payments: [], biaya: [], opex: [], modal: [], keuanganManual: [], mpIncome: [] }), [mounted]);
 
   const penjualanFiltered = useMemo(() => filterByPeriode(realData.penjualan, 'tanggal', periode), [realData, periode]);
   const paymentsFiltered = useMemo(() => filterByPeriode(realData.payments, 'tanggalBayar', periode), [realData, periode]);
