@@ -31,6 +31,7 @@ interface MpOrderItem {
   nama: string;
   qty: number;
   hargaJual: number;
+  hpp: number;        // HPP dari Master SKU (per unit)
 }
 interface MpOrder {
   id: string;
@@ -47,10 +48,11 @@ interface MpOrder {
   feeLayanan: number;
   ongkirAktual: number;
   subsidiOngkir: number;
-  biayaPemrosesan: number;
+  biayaPemrosesan: number;   // 1250/paket — biaya per ORDER, bukan per SKU
   premiProteksi: number;
   biayaAMS: number;
   biayaTransaksi: number;
+  komisi: number;
   // SKU detail
   items: MpOrderItem[];
   // HPP (dihitung dari Master SKU)
@@ -568,7 +570,7 @@ function InputKeuangan() {
         const mpObj = uploadMpObj || MARKETPLACE_TOKO[0];
         const tokoNama = uploadToko ? (filteredToko.find(t=>t.id===uploadToko)?.nama || '') : (mpObj.nama.split('—')[1]?.trim() || mpObj.nama);
 
-        // Column indices
+        // Column indices — deteksi lebih luas termasuk "biaya proses" (1250/paket)
         const iId = h.findIndex(hh => hh === 'id pesanan');
         const iTanggal = idx('tanggal', 'waktu pesanan dibuat', 'created time');
         const iProduk = h.findIndex(hh => hh === 'produk');
@@ -577,20 +579,21 @@ function InputKeuangan() {
         const iHargaJual = idx('total harga jual', 'total harga produk');
         const iPenghasilan = isShopee ? h.findIndex(hh => hh === 'total penghasilan') : idx('total penghasilan', 'total laba');
         const iLaba = isShopee ? h.findIndex(hh => hh === 'total laba') : -1;
-        const iTotalBiaya = idx('total biaya');
-        const iFeeAdmin = idx('biaya admin');
-        const iFeeLayanan = idx('biaya layanan');
-        const iOngkirAktual = idx('ongkir aktual');
-        const iSubsidiOngkir = idx('subsidi ongkir shopee');
-        const iBiayaPemrosesan = idx('biaya pemrosesan pesanan');
-        const iPremiProteksi = idx('premi proteksi pengiriman');
-        const iBiayaAMS = idx('biaya admin ams');
-        const iBiayaTransaksi = idx('biaya transaksi penjual');
+        const iTotalBiaya = idx('total biaya', 'jumlah biaya', 'total fees');
+        const iFeeAdmin = idx('biaya admin', 'admin fee');
+        const iFeeLayanan = idx('biaya layanan', 'service fee', 'biaya pelayanan');
+        const iOngkirAktual = idx('ongkir aktual', 'ongkos kirim aktual', 'actual shipping');
+        const iSubsidiOngkir = idx('subsidi ongkir', 'subsidi pengiriman', 'shipping subsidy');
+        const iBiayaPemrosesan = idx('biaya pemrosesan pesanan', 'biaya pemrosesan', 'biaya proses', 'processing fee', 'biaya penanganan', 'handling fee');
+        const iPremiProteksi = idx('premi proteksi pengiriman', 'premi proteksi', 'insurance');
+        const iBiayaAMS = idx('biaya admin ams', 'biaya ams', 'ams fee');
+        const iBiayaTransaksi = idx('biaya transaksi penjual', 'biaya transaksi', 'transaction fee');
+        const iKomisi = idx('komisi', 'commission');
 
         if (iPenghasilan < 0) { setErr('Kolom pendapatan tidak ditemukan. Header: ' + h.slice(0, 8).join(', ')); setUploading(false); return; }
 
         // Kumpulkan data per order (handle multi-SKU)
-        const orderMap = new Map<string, { id: string; tanggal: string; penghasilan: number; laba: number; totalBiaya: number; feeAdmin: number; feeLayanan: number; ongkirAktual: number; subsidiOngkir: number; biayaPemrosesan: number; premiProteksi: number; biayaAMS: number; biayaTransaksi: number; items: MpOrderItem[] }>();
+        const orderMap = new Map<string, { id: string; tanggal: string; penghasilan: number; laba: number; totalBiaya: number; feeAdmin: number; feeLayanan: number; ongkirAktual: number; subsidiOngkir: number; biayaPemrosesan: number; premiProteksi: number; biayaAMS: number; biayaTransaksi: number; komisi: number; items: MpOrderItem[] }>();
 
         for (let i = 1; i < raw.length; i++) {
           const row = raw[i]; if (!row || row.length < 2) continue;
@@ -622,6 +625,7 @@ function InputKeuangan() {
           const premiProteksi = iPremiProteksi >= 0 ? parseRp(row[iPremiProteksi] || '0') : 0;
           const biayaAMS = iBiayaAMS >= 0 ? parseRp(row[iBiayaAMS] || '0') : 0;
           const biayaTransaksi = iBiayaTransaksi >= 0 ? parseRp(row[iBiayaTransaksi] || '0') : 0;
+          const komisi = iKomisi >= 0 ? parseRp(row[iKomisi] || '0') : 0;
 
           // SKU baris pertama (INDUK juga bisa punya produk)
           const sku = iSku >= 0 ? String(row[iSku] || '').trim() : '';
@@ -632,7 +636,7 @@ function InputKeuangan() {
           orderMap.set(orderId, {
             id: orderId, tanggal, penghasilan, laba: laba || penghasilan,
             totalBiaya, feeAdmin, feeLayanan, ongkirAktual, subsidiOngkir,
-            biayaPemrosesan, premiProteksi, biayaAMS, biayaTransaksi,
+            biayaPemrosesan, premiProteksi, biayaAMS, biayaTransaksi, komisi,
             items: (sku || nama) ? [{ sku, nama, qty, hargaJual: harga }] : [],
           });
         }
@@ -650,12 +654,21 @@ function InputKeuangan() {
         const unmatchedList: string[] = [];
         for (const [orderId, o] of orderMap) {
           let totalHPP = 0;
-          for (const item of o.items) {
+          // Per-SKU: attach HPP dari Master Data
+          const itemsWithHpp: MpOrderItem[] = o.items.map(item => {
             const cleanSku = String(item.sku).trim();
             const hpp = skuHppMap.get(cleanSku);
-            if (hpp !== undefined && hpp > 0) { totalHPP += hpp * item.qty; matchedSku++; }
-            else if (cleanSku) { unmatchedSku++; if (!unmatchedList.includes(cleanSku)) unmatchedList.push(cleanSku); }
-          }
+            if (hpp !== undefined && hpp > 0) {
+              matchedSku++;
+              return { ...item, hpp };
+            } else if (cleanSku) {
+              unmatchedSku++;
+              if (!unmatchedList.includes(cleanSku)) unmatchedList.push(cleanSku);
+              return { ...item, hpp: 0 };
+            }
+            return { ...item, hpp: 0 };
+          });
+          totalHPP = itemsWithHpp.reduce((s, it) => s + (it.hpp * it.qty), 0);
           totalHppAll += totalHPP;
           const netRevenue = o.laba || o.penghasilan;
           newOrders.push({
@@ -676,7 +689,8 @@ function InputKeuangan() {
             premiProteksi: o.premiProteksi,
             biayaAMS: o.biayaAMS,
             biayaTransaksi: o.biayaTransaksi,
-            items: o.items,
+            komisi: o.komisi,
+            items: itemsWithHpp,
             totalHPP,
             labaKotor: netRevenue - totalHPP,
             catatan: `Upload ${file.name}`,
@@ -855,6 +869,7 @@ function RiwayatEntry() {
 function UploadHistory() {
   const [orders, setOrders] = useState<MpOrder[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [showAllSku, setShowAllSku] = useState(false);
 
   useEffect(() => {
     try {
@@ -871,64 +886,222 @@ function UploadHistory() {
 
   const totalNet = orders.reduce((s, o) => s + o.pendapatanBersih, 0);
   const totalHpp = orders.reduce((s, o) => s + o.totalHPP, 0);
+  const totalKotor = orders.reduce((s, o) => s + o.pendapatanKotor, 0);
+  const totalFee = orders.reduce((s, o) => s + o.totalBiaya, 0);
+  const totalBiayaProses = orders.reduce((s, o) => s + (o.biayaPemrosesan || 0), 0);
+
+  // Kumpulkan semua SKU unik dengan HPP
+  const skuSummary = new Map<string, { nama: string; totalQty: number; totalHpp: number; hppUnit: number; muncul: number }>();
+  for (const o of orders) {
+    for (const item of o.items) {
+      if (!item.sku) continue;
+      const key = item.sku;
+      const existing = skuSummary.get(key);
+      if (existing) {
+        existing.totalQty += item.qty;
+        existing.totalHpp += (item.hpp || 0) * item.qty;
+        existing.muncul++;
+      } else {
+        skuSummary.set(key, {
+          nama: item.nama,
+          totalQty: item.qty,
+          totalHpp: (item.hpp || 0) * item.qty,
+          hppUnit: item.hpp || 0,
+          muncul: 1,
+        });
+      }
+    }
+  }
 
   return (
-    <div className="mt-5">
-      <div className="flex items-center justify-between">
-        <p className="text-sm font-bold text-slate-700">📊 Riwayat Upload Marketplace</p>
-        <div className="flex gap-3 text-xs">
-          <span>Net: <strong className="text-emerald-600">Rp {totalNet.toLocaleString('id-ID')}</strong></span>
-          <span>HPP: <strong className="text-red-500">Rp {totalHpp.toLocaleString('id-ID')}</strong></span>
-          <span>Laba: <strong className={totalNet-totalHpp>=0?'text-brand-600':'text-red-600'}>Rp {(totalNet-totalHpp).toLocaleString('id-ID')}</strong></span>
+    <div className="mt-5 space-y-4">
+      {/* Ringkasan Total */}
+      <div className="rounded-2xl border border-brand-100 bg-white p-4 shadow-sm">
+        <p className="text-sm font-bold text-slate-700 mb-3">📊 Ringkasan Upload Marketplace</p>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-xs">
+          <div className="rounded-xl bg-slate-50 p-3 text-center">
+            <p className="text-slate-400">Pendapatan Kotor</p>
+            <p className="text-lg font-bold text-slate-700">Rp {totalKotor.toLocaleString('id-ID')}</p>
+          </div>
+          <div className="rounded-xl bg-red-50 p-3 text-center">
+            <p className="text-red-400">Total Fee</p>
+            <p className="text-lg font-bold text-red-600">−Rp {totalFee.toLocaleString('id-ID')}</p>
+          </div>
+          <div className="rounded-xl bg-amber-50 p-3 text-center">
+            <p className="text-amber-500">Biaya Proses</p>
+            <p className="text-lg font-bold text-amber-600">−Rp {totalBiayaProses.toLocaleString('id-ID')}</p>
+            <p className="text-[10px] text-amber-400">per paket</p>
+          </div>
+          <div className="rounded-xl bg-emerald-50 p-3 text-center">
+            <p className="text-emerald-500">Pendapatan Bersih</p>
+            <p className="text-lg font-bold text-emerald-600">Rp {totalNet.toLocaleString('id-ID')}</p>
+          </div>
+          <div className="rounded-xl bg-purple-50 p-3 text-center">
+            <p className="text-purple-500">Total HPP</p>
+            <p className="text-lg font-bold text-purple-600">−Rp {totalHpp.toLocaleString('id-ID')}</p>
+          </div>
+          <div className="rounded-xl bg-blue-50 p-3 text-center">
+            <p className="text-blue-500">Laba Kotor</p>
+            <p className={`text-lg font-bold ${totalNet - totalHpp >= 0 ? 'text-blue-600' : 'text-red-600'}`}>
+              Rp {(totalNet - totalHpp).toLocaleString('id-ID')}
+            </p>
+          </div>
         </div>
       </div>
-      <div className="mt-2 overflow-x-auto rounded-xl border border-slate-100">
-        <table className="w-full text-left text-xs">
-          <thead><tr className="bg-brand-50 text-[10px] uppercase text-brand-500">
-            {['No. Pesanan','Tgl','MP','Net','HPP','Laba','SKU','Detail'].map(c => <th key={c} className="px-2 py-2 font-semibold whitespace-nowrap">{c}</th>)}
-          </tr></thead>
-          <tbody className="divide-y divide-slate-50 bg-white">
-            {orders.slice(0, 50).map(o => {
-              const laba = o.pendapatanBersih - o.totalHPP;
-              const isOpen = expanded.has(o.id);
-              return (
-                <React.Fragment key={o.id}>
-                  <tr className={`cursor-pointer hover:bg-brand-50/30 ${isOpen?'bg-brand-50/50':''}`} onClick={() => toggle(o.id)}>
-                    <td className="px-2 py-2 font-mono text-[10px] text-slate-600">{o.noPesanan}</td>
-                    <td className="px-2 py-2 text-[10px]">{o.tanggal}</td>
-                    <td className="px-2 py-2 font-medium">{o.marketplace}</td>
-                    <td className="px-2 py-2 font-semibold text-emerald-600">Rp {o.pendapatanBersih.toLocaleString('id-ID')}</td>
-                    <td className="px-2 py-2 text-red-500">{o.totalHPP>0?`Rp ${o.totalHPP.toLocaleString('id-ID')}`:'⚠️ 0'}</td>
-                    <td className="px-2 py-2 font-bold" style={{color: laba>=0?'#059669':'#dc2626'}}>Rp {laba.toLocaleString('id-ID')}</td>
-                    <td className="px-2 py-2 text-slate-400">{o.items.length} SKU</td>
-                    <td className="px-2 py-2 text-[10px] text-brand-500">{isOpen?'▲':'▼'}</td>
-                  </tr>
-                  {isOpen && (
-                    <tr key={`det-${o.id}`}>
-                      <td colSpan={8} className="px-3 py-2 bg-slate-50/50">
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-1 text-[10px] mb-2">
-                          <div>Fee Admin: <strong>Rp {o.feeAdmin.toLocaleString('id-ID')}</strong></div>
-                          <div>Fee Layanan: <strong>Rp {o.feeLayanan.toLocaleString('id-ID')}</strong></div>
-                          <div>Ongkir: <strong>Rp {o.ongkirAktual.toLocaleString('id-ID')}</strong></div>
-                          <div>Subsidi: <strong>Rp {o.subsidiOngkir.toLocaleString('id-ID')}</strong></div>
-                        </div>
-                        <p className="text-[10px] font-semibold text-slate-500 mb-1">SKU:</p>
-                        {o.items.map((item, idx) => (
-                          <div key={idx} className="flex gap-2 text-[10px] py-0.5">
-                            <span className="font-mono text-brand-700 w-16 truncate">{item.sku||'-'}</span>
-                            <span className="text-slate-600 flex-1 truncate">{item.nama||'-'}</span>
-                            <span className="text-slate-400">x{item.qty} @Rp {item.hargaJual.toLocaleString('id-ID')}</span>
-                          </div>
-                        ))}
-                      </td>
+
+      {/* Tabel Utama */}
+      <div className="rounded-xl border border-slate-100 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs">
+            <thead><tr className="bg-brand-50 text-[10px] uppercase text-brand-500">
+              {['No. Pesanan','Tgl','MP','Pendapatan','Fee','B.Proses','Bersih','HPP','Laba','SKU'].map(c => <th key={c} className="px-2 py-2 font-semibold whitespace-nowrap">{c}</th>)}
+            </tr></thead>
+            <tbody className="divide-y divide-slate-50 bg-white">
+              {orders.slice(0, 100).map(o => {
+                const laba = o.pendapatanBersih - o.totalHPP;
+                const isOpen = expanded.has(o.id);
+                return (
+                  <React.Fragment key={o.id}>
+                    <tr className={`cursor-pointer hover:bg-brand-50/30 transition ${isOpen?'bg-brand-50/60':''}`} onClick={() => toggle(o.id)}>
+                      <td className="px-2 py-2 font-mono text-[10px] text-slate-600 max-w-[100px] truncate">{o.noPesanan}</td>
+                      <td className="px-2 py-2 text-[10px] whitespace-nowrap">{o.tanggal}</td>
+                      <td className="px-2 py-2 font-medium text-[10px]">{o.marketplace}</td>
+                      <td className="px-2 py-2 text-[10px]">Rp {o.pendapatanKotor.toLocaleString('id-ID')}</td>
+                      <td className="px-2 py-2 text-[10px] text-red-500">−{o.totalBiaya.toLocaleString('id-ID')}</td>
+                      <td className="px-2 py-2 text-[10px] text-amber-600">{o.biayaPemrosesan > 0 ? `−${o.biayaPemrosesan.toLocaleString('id-ID')}` : '-'}</td>
+                      <td className="px-2 py-2 text-[10px] font-semibold text-emerald-600">Rp {o.pendapatanBersih.toLocaleString('id-ID')}</td>
+                      <td className="px-2 py-2 text-[10px] text-purple-600">{o.totalHPP>0?`Rp ${o.totalHPP.toLocaleString('id-ID')}`:'⚠️ 0'}</td>
+                      <td className="px-2 py-2 text-[10px] font-bold" style={{color: laba>=0?'#059669':'#dc2626'}}>Rp {laba.toLocaleString('id-ID')}</td>
+                      <td className="px-2 py-2 text-[10px] text-brand-500 font-semibold">{o.items.length} SKU {isOpen?'▲':'▼'}</td>
                     </tr>
-                  )}
-                </React.Fragment>
-              );
-            })}
-          </tbody>
-        </table>
+                    {/* ── EXPANDED DETAIL ROW ── */}
+                    {isOpen && (
+                      <tr key={`det-${o.id}`}>
+                        <td colSpan={10} className="px-4 py-3 bg-slate-50/70 border-t border-slate-100">
+                          {/* Fee Breakdown */}
+                          <div className="mb-3">
+                            <p className="text-[11px] font-bold text-slate-600 mb-2">💰 Rincian Biaya (per ORDER — paket):</p>
+                            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-2 text-[10px]">
+                              {o.feeAdmin > 0 && <div className="rounded-lg bg-white px-2 py-1.5 border border-slate-100"><span className="text-slate-400">Fee Admin</span><p className="font-semibold text-red-500">−Rp {o.feeAdmin.toLocaleString('id-ID')}</p></div>}
+                              {o.feeLayanan > 0 && <div className="rounded-lg bg-white px-2 py-1.5 border border-slate-100"><span className="text-slate-400">Fee Layanan</span><p className="font-semibold text-red-500">−Rp {o.feeLayanan.toLocaleString('id-ID')}</p></div>}
+                              {o.komisi > 0 && <div className="rounded-lg bg-white px-2 py-1.5 border border-slate-100"><span className="text-slate-400">Komisi</span><p className="font-semibold text-red-500">−Rp {o.komisi.toLocaleString('id-ID')}</p></div>}
+                              {o.biayaPemrosesan > 0 && <div className="rounded-lg bg-amber-50 px-2 py-1.5 border border-amber-100"><span className="text-amber-600">Biaya Proses (1250/paket)</span><p className="font-semibold text-amber-700">−Rp {o.biayaPemrosesan.toLocaleString('id-ID')}</p></div>}
+                              {o.biayaTransaksi > 0 && <div className="rounded-lg bg-white px-2 py-1.5 border border-slate-100"><span className="text-slate-400">Biaya Transaksi</span><p className="font-semibold text-red-500">−Rp {o.biayaTransaksi.toLocaleString('id-ID')}</p></div>}
+                              {o.ongkirAktual > 0 && <div className="rounded-lg bg-white px-2 py-1.5 border border-slate-100"><span className="text-slate-400">Ongkir Aktual</span><p className="font-semibold text-red-500">−Rp {o.ongkirAktual.toLocaleString('id-ID')}</p></div>}
+                              {o.subsidiOngkir > 0 && <div className="rounded-lg bg-white px-2 py-1.5 border border-slate-100"><span className="text-slate-400">Subsidi Ongkir</span><p className="font-semibold text-emerald-500">+Rp {o.subsidiOngkir.toLocaleString('id-ID')}</p></div>}
+                              {o.premiProteksi > 0 && <div className="rounded-lg bg-white px-2 py-1.5 border border-slate-100"><span className="text-slate-400">Premi Proteksi</span><p className="font-semibold text-red-500">−Rp {o.premiProteksi.toLocaleString('id-ID')}</p></div>}
+                              {o.biayaAMS > 0 && <div className="rounded-lg bg-white px-2 py-1.5 border border-slate-100"><span className="text-slate-400">Biaya AMS</span><p className="font-semibold text-red-500">−Rp {o.biayaAMS.toLocaleString('id-ID')}</p></div>}
+                            </div>
+                            {/* Total verifikasi */}
+                            <div className="mt-2 rounded-lg bg-slate-100 px-3 py-1.5 flex items-center justify-between text-[10px]">
+                              <span className="text-slate-500">Total Biaya Terhitung:</span>
+                              <span className="font-bold text-slate-700">
+                                Rp {(o.feeAdmin + o.feeLayanan + o.komisi + o.biayaPemrosesan + o.biayaTransaksi + o.ongkirAktual - o.subsidiOngkir + o.premiProteksi + o.biayaAMS).toLocaleString('id-ID')}
+                                {Math.abs(o.totalBiaya - (o.feeAdmin + o.feeLayanan + o.komisi + o.biayaPemrosesan + o.biayaTransaksi + o.ongkirAktual - o.subsidiOngkir + o.premiProteksi + o.biayaAMS)) > 100 &&
+                                  <span className="text-amber-500 ml-1">(Excel: Rp {o.totalBiaya.toLocaleString('id-ID')})</span>
+                                }
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* SKU Detail dengan HPP */}
+                          <div>
+                            <p className="text-[11px] font-bold text-slate-600 mb-2">📦 Detail SKU & HPP (dari Master Data):</p>
+                            <div className="overflow-x-auto rounded-lg border border-slate-100">
+                              <table className="w-full text-[10px]">
+                                <thead><tr className="bg-slate-100 text-slate-500">
+                                  <th className="px-2 py-1.5 text-left font-semibold">SKU</th>
+                                  <th className="px-2 py-1.5 text-left font-semibold">Nama Produk</th>
+                                  <th className="px-2 py-1.5 text-center font-semibold">Qty</th>
+                                  <th className="px-2 py-1.5 text-right font-semibold">Harga Jual</th>
+                                  <th className="px-2 py-1.5 text-right font-semibold">HPP/Unit</th>
+                                  <th className="px-2 py-1.5 text-right font-semibold">Subtotal HPP</th>
+                                  <th className="px-2 py-1.5 text-right font-semibold">Laba/SKU</th>
+                                </tr></thead>
+                                <tbody className="divide-y divide-slate-50">
+                                  {o.items.map((item, idx) => {
+                                    const subtotalHpp = (item.hpp || 0) * item.qty;
+                                    const revenueItem = item.hargaJual * item.qty;
+                                    const labaItem = revenueItem - subtotalHpp;
+                                    return (
+                                      <tr key={idx} className="hover:bg-white">
+                                        <td className="px-2 py-1.5 font-mono text-brand-700">{item.sku || '-'}</td>
+                                        <td className="px-2 py-1.5 text-slate-600 max-w-[150px] truncate">{item.nama || '-'}</td>
+                                        <td className="px-2 py-1.5 text-center">{item.qty}</td>
+                                        <td className="px-2 py-1.5 text-right">Rp {item.hargaJual.toLocaleString('id-ID')}</td>
+                                        <td className={`px-2 py-1.5 text-right font-semibold ${item.hpp > 0 ? 'text-purple-600' : 'text-red-400'}`}>
+                                          {item.hpp > 0 ? `Rp ${item.hpp.toLocaleString('id-ID')}` : '⚠ Tdk ada'}
+                                        </td>
+                                        <td className="px-2 py-1.5 text-right text-purple-600">Rp {subtotalHpp.toLocaleString('id-ID')}</td>
+                                        <td className={`px-2 py-1.5 text-right font-bold ${labaItem >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                                          Rp {labaItem.toLocaleString('id-ID')}
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                                <tfoot><tr className="bg-slate-50 font-semibold">
+                                  <td colSpan={3} className="px-2 py-2 text-slate-500">TOTAL</td>
+                                  <td className="px-2 py-2 text-right">Rp {o.items.reduce((s,i)=>s+(i.hargaJual*i.qty),0).toLocaleString('id-ID')}</td>
+                                  <td className="px-2 py-2"></td>
+                                  <td className="px-2 py-2 text-right text-purple-600">Rp {o.totalHPP.toLocaleString('id-ID')}</td>
+                                  <td className={`px-2 py-2 text-right ${laba>=0?'text-emerald-600':'text-red-500'}`}>Rp {laba.toLocaleString('id-ID')}</td>
+                                </tr></tfoot>
+                              </table>
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
+
+      {/* Ringkasan Semua SKU */}
+      {skuSummary.size > 0 && (
+        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-sm font-bold text-slate-700">🔍 Ringkasan Semua SKU & HPP</p>
+            <button onClick={() => setShowAllSku(!showAllSku)} className="text-xs text-brand-500 font-semibold">
+              {showAllSku ? 'Sembunyikan' : `Lihat Semua (${skuSummary.size} SKU)`}
+            </button>
+          </div>
+          {showAllSku && (
+            <div className="overflow-x-auto rounded-lg border border-slate-100">
+              <table className="w-full text-[10px]">
+                <thead><tr className="bg-slate-100 text-slate-500">
+                  <th className="px-2 py-1.5 text-left font-semibold">SKU</th>
+                  <th className="px-2 py-1.5 text-left font-semibold">Nama</th>
+                  <th className="px-2 py-1.5 text-center font-semibold">Total Qty</th>
+                  <th className="px-2 py-1.5 text-right font-semibold">HPP/Unit</th>
+                  <th className="px-2 py-1.5 text-right font-semibold">Total HPP</th>
+                  <th className="px-2 py-1.5 text-center font-semibold">Muncul</th>
+                </tr></thead>
+                <tbody className="divide-y divide-slate-50">
+                  {Array.from(skuSummary.entries()).sort((a,b) => b[1].totalHpp - a[1].totalHpp).map(([sku, info]) => (
+                    <tr key={sku} className="hover:bg-white">
+                      <td className="px-2 py-1.5 font-mono text-brand-700">{sku}</td>
+                      <td className="px-2 py-1.5 text-slate-600 max-w-[200px] truncate">{info.nama}</td>
+                      <td className="px-2 py-1.5 text-center">{info.totalQty}</td>
+                      <td className={`px-2 py-1.5 text-right font-semibold ${info.hppUnit > 0 ? 'text-purple-600' : 'text-red-400'}`}>
+                        {info.hppUnit > 0 ? `Rp ${info.hppUnit.toLocaleString('id-ID')}` : '⚠ Tdk ada'}
+                      </td>
+                      <td className="px-2 py-1.5 text-right text-purple-600">Rp {info.totalHpp.toLocaleString('id-ID')}</td>
+                      <td className="px-2 py-1.5 text-center text-slate-400">{info.muncul}x</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {orders.length > 100 && <p className="text-xs text-slate-400 text-center">Menampilkan 100 dari {orders.length} order</p>}
     </div>
   );
 }
