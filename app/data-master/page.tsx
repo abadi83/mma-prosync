@@ -3,13 +3,15 @@
 import React, { useState, useRef, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { useSkus, type SkuItem } from '@/app/context/SkuContext';
+import TaskHargaTab from '@/app/components/TaskHargaTab';
 
-type Tab = 'sku' | 'supplier' | 'toko' | 'pelanggan' | 'fleet';
+type Tab = 'sku' | 'supplier' | 'toko' | 'pelanggan' | 'fleet' | 'taskharga';
 
 const TABS: { key: Tab; label: string; icon: string }[] = [
   { key: 'sku', label: 'Master SKU', icon: '📦' },
   { key: 'supplier', label: 'Daftar Supplier', icon: '🏭' },
   { key: 'toko', label: 'Toko per Marketplace', icon: '🛒' },
+  { key: 'taskharga', label: 'Task Harga Jual', icon: '📋' },
   { key: 'pelanggan', label: 'Daftar Pelanggan', icon: '👥' },
   { key: 'fleet', label: 'Manajemen Fleet', icon: '🚛' },
 ];
@@ -84,6 +86,7 @@ export default function DataMasterPage() {
         {tab==='sku' && <SkuTab />}
         {tab==='supplier' && <SupplierTab />}
         {tab==='toko' && <TokoTab />}
+        {tab==='taskharga' && <TaskHargaTab />}
         {tab==='pelanggan' && <PelangganTab />}
         {tab==='fleet' && <FleetTab />}
       </section>
