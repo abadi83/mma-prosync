@@ -576,10 +576,11 @@ function InputKeuangan() {
         const h = raw[0].map((c: string) => String(c || '').toLowerCase().trim());
         const idx = (...kw: string[]) => h.findIndex(hh => kw.some(k => hh.includes(k)));
         const isShopee = h.includes('id pesanan') && h.includes('total penghasilan') && h.includes('total laba');
-        // ── Deteksi format Lazada: kolom "nama biaya" + "nomor pesanan" ──
+        // ── Deteksi format Lazada ──
         const hasNamaBiaya = h.some(hh => hh.includes('nama biaya') || hh.includes('jenis biaya') || hh.includes('tipe transaksi'));
         const hasNoPesanan = h.some(hh => hh.includes('nomor pesanan') || hh.includes('no pesanan') || hh.includes('order id'));
-        const isLazada = hasNamaBiaya && hasNoPesanan;
+        const hasPeriodeLaporan = h[0]?.includes('periode laporan');
+        const isLazada = (hasNamaBiaya && hasNoPesanan) || hasPeriodeLaporan;
 
         // ── Deteksi marketplace ──
         const mpObj = uploadMpObj || MARKETPLACE_TOKO[0];
@@ -758,7 +759,10 @@ function InputKeuangan() {
         const iBiayaTransaksi = idx('biaya transaksi penjual', 'biaya transaksi', 'transaction fee', 'biaya trans');
         const iKomisi = idx('komisi', 'commission', 'biaya komisi');
 
-        if (iPenghasilan < 0) { setErr('Kolom pendapatan tidak ditemukan. Header: ' + h.slice(0, 8).join(', ')); setUploading(false); return; }
+        if (iPenghasilan < 0) {
+          setErr('Kolom pendapatan tidak ditemukan.\n\nHeader (' + h.length + ' kolom):\n' + h.slice(0, 14).join(', ') + (h.length > 14 ? '...' : '') + '\n\n⚠️ Jika ini file Lazada, pilih Marketplace: Lazada sebelum upload.');
+          setUploading(false); return;
+        }
 
         // Kumpulkan data per order (handle multi-SKU)
         const orderMap = new Map<string, { id: string; tanggal: string; totalHargaProduk: number; penghasilan: number; laba: number; totalBiaya: number; feeAdmin: number; feeLayanan: number; ongkirAktual: number; subsidiOngkir: number; biayaPemrosesan: number; premiProteksi: number; biayaAMS: number; biayaTransaksi: number; komisi: number; items: MpOrderItem[] }>();
