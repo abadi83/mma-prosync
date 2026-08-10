@@ -572,7 +572,14 @@ function InputKeuangan() {
 
         // Column indices — deteksi lebih luas termasuk "biaya proses" (1250/paket)
         const iId = h.findIndex(hh => hh === 'id pesanan');
-        const iTanggal = idx('tanggal', 'waktu pesanan dibuat', 'created time');
+        // ── Deteksi kolom Tanggal: header dulu, fallback ke kolom B (index 1) ──
+        let iTanggal = idx('tanggal', 'waktu pesanan dibuat', 'created time', 'waktu dibuat', 'order date');
+        if (iTanggal < 0) {
+          // Fallback: cek kolom index 1 (kolom B) — apakah isinya mirip tanggal?
+          const sample = raw.slice(1, 10).map(r => String(r[1] || '').trim()).filter(Boolean);
+          const dateLike = sample.filter(s => /\d{1,2}[/-]\d{1,2}[/-]\d{2,4}/.test(s) || /\d{4}-\d{2}-\d{2}/.test(s));
+          if (dateLike.length >= sample.length * 0.5) iTanggal = 1;
+        }
         const iProduk = h.findIndex(hh => hh === 'produk');
         const iSku = h.findIndex(hh => hh === 'sku');
         const iQty = h.findIndex(hh => hh === 'jumlah');
@@ -741,8 +748,28 @@ function InputKeuangan() {
   return (
     <div>
       <div className="mb-1 h-1 w-16 rounded-full bg-gradient-to-r from-brand-500 to-brand-300" />
-      <h2 className="text-lg font-bold text-slate-800 sm:text-xl">💰 Input Data Keuangan</h2>
-      <p className="mt-1 text-sm text-slate-500">Input manual atau upload file Excel laporan keuangan marketplace (Shopee, Tokopedia, dll).</p>
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div>
+          <h2 className="text-lg font-bold text-slate-800 sm:text-xl">💰 Input Data Keuangan</h2>
+          <p className="mt-1 text-sm text-slate-500">Input manual atau upload file Excel laporan keuangan marketplace (Shopee, Tokopedia, dll).</p>
+        </div>
+        {/* ── Reset Data ── */}
+        <button
+          onClick={() => {
+            if (!confirm('⚠️ Hapus SEMUA data Input Keuangan & Riwayat Marketplace?\n\nData yang dihapus: Upload Excel, input manual, riwayat marketplace.\n\nData Master SKU & lainnya TIDAK terpengaruh.')) return;
+            localStorage.removeItem('mma_marketplace_orders');
+            localStorage.removeItem('mma_marketplace_income');
+            setEntries([]);
+            setSuccess(true);
+            setTimeout(() => setSuccess(false), 3000);
+            window.dispatchEvent(new Event('refresh-upload-history'));
+            window.dispatchEvent(new Event('storage'));
+          }}
+          className="rounded-xl bg-red-100 px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-200 transition"
+        >
+          🗑️ Reset Data
+        </button>
+      </div>
 
       {/* Upload Excel */}
       <div className="mt-3 rounded-xl border-2 border-dashed border-emerald-200 bg-emerald-50/40 p-4">
@@ -872,10 +899,21 @@ function UploadHistory() {
   const [showAllSku, setShowAllSku] = useState(false);
 
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem('mma_marketplace_orders');
-      if (stored) setOrders(JSON.parse(stored));
-    } catch { }
+    const loadOrders = () => {
+      try {
+        const stored = localStorage.getItem('mma_marketplace_orders');
+        if (stored) setOrders(JSON.parse(stored));
+        else setOrders([]);
+      } catch { }
+    };
+    loadOrders();
+    window.addEventListener('storage', loadOrders);
+    // Juga listen custom refresh event
+    window.addEventListener('refresh-upload-history', loadOrders);
+    return () => {
+      window.removeEventListener('storage', loadOrders);
+      window.removeEventListener('refresh-upload-history', loadOrders);
+    };
   }, []);
 
   const toggle = (id: string) => {

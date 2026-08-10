@@ -11,13 +11,30 @@ export interface LabaRugiData {
   labaBersih: number;
 }
 
+export interface LabaRugiExtra {
+  feeMarketplace: number;
+  hppMarketplace: number;
+  breakdownPerToko: {
+    tokoNama: string;
+    marketplace: string;
+    pendapatanKotor: number;
+    fee: number;
+    pendapatanBersih: number;
+    hpp: number;
+    labaKotor: number;
+    orderCount: number;
+  }[];
+  filterToko: string;
+}
+
 interface Props {
   data: LabaRugiData;
   periode: string;
+  extra?: LabaRugiExtra;
 }
 
-export function LabaRugiReport({ data, periode }: Props) {
-  const pendapatanBersih = data.labaKotor; // setelah HPP
+export function LabaRugiReport({ data, periode, extra }: Props) {
+  const pendapatanBersih = data.labaKotor;
   const totalBiaya = data.biayaOperasional + data.biayaLain;
   const labaBersih = data.labaBersih;
   const marginKotor = data.pendapatan > 0 ? ((pendapatanBersih / data.pendapatan) * 100).toFixed(1) : '0';
@@ -83,6 +100,64 @@ export function LabaRugiReport({ data, periode }: Props) {
           </span>
         </div>
       </div>
+
+      {/* ── Marketplace Fee & HPP Breakdown ── */}
+      {extra && (extra.feeMarketplace > 0 || extra.hppMarketplace > 0) && (
+        <div className="mt-4 overflow-hidden rounded-2xl border border-purple-100">
+          <div className="bg-purple-50 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-purple-600">
+            🛒 Rincian Marketplace {extra.filterToko !== 'semua' ? `— ${extra.filterToko}` : ''}
+          </div>
+          <div className="divide-y divide-slate-50 bg-white">
+            <div className="flex items-center justify-between px-4 py-2.5">
+              <span className="text-xs text-slate-600 pl-4">Total Fee Marketplace</span>
+              <span className="text-xs font-semibold text-red-500">− Rp {extra.feeMarketplace.toLocaleString('id-ID')}</span>
+            </div>
+            <div className="flex items-center justify-between px-4 py-2.5">
+              <span className="text-xs text-slate-600 pl-4">Total HPP Marketplace</span>
+              <span className="text-xs font-semibold text-red-500">− Rp {extra.hppMarketplace.toLocaleString('id-ID')}</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Breakdown per Toko ── */}
+      {extra && extra.breakdownPerToko.length > 0 && extra.filterToko === 'semua' && (
+        <div className="mt-4 overflow-hidden rounded-2xl border border-slate-100">
+          <div className="bg-slate-50 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            🏪 Breakdown per Toko
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-[10px]">
+              <thead><tr className="bg-slate-50 text-slate-500">
+                <th className="px-2 py-2 font-semibold">Toko</th>
+                <th className="px-2 py-2 font-semibold">MP</th>
+                <th className="px-2 py-2 font-semibold text-right">Kotor</th>
+                <th className="px-2 py-2 font-semibold text-right">Fee</th>
+                <th className="px-2 py-2 font-semibold text-right">Bersih</th>
+                <th className="px-2 py-2 font-semibold text-right">HPP</th>
+                <th className="px-2 py-2 font-semibold text-right">Laba</th>
+                <th className="px-2 py-2 font-semibold text-center">Order</th>
+              </tr></thead>
+              <tbody className="divide-y divide-slate-50 bg-white">
+                {extra.breakdownPerToko.sort((a,b) => b.labaKotor - a.labaKotor).map((t, i) => (
+                  <tr key={i} className="hover:bg-purple-50/30">
+                    <td className="px-2 py-1.5 font-medium text-slate-700 max-w-[100px] truncate">{t.tokoNama}</td>
+                    <td className="px-2 py-1.5 text-slate-400">{t.marketplace}</td>
+                    <td className="px-2 py-1.5 text-right">Rp {t.pendapatanKotor.toLocaleString('id-ID')}</td>
+                    <td className="px-2 py-1.5 text-right text-red-500">−{t.fee.toLocaleString('id-ID')}</td>
+                    <td className="px-2 py-1.5 text-right font-semibold text-emerald-600">Rp {t.pendapatanBersih.toLocaleString('id-ID')}</td>
+                    <td className="px-2 py-1.5 text-right text-purple-600">−{t.hpp.toLocaleString('id-ID')}</td>
+                    <td className={`px-2 py-1.5 text-right font-bold ${t.labaKotor >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                      Rp {t.labaKotor.toLocaleString('id-ID')}
+                    </td>
+                    <td className="px-2 py-1.5 text-center text-slate-400">{t.orderCount}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Visual batang */}
       <div className="mt-4 rounded-2xl bg-slate-50 p-4">

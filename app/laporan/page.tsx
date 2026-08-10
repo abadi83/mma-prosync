@@ -207,43 +207,134 @@ export default function LaporanPage() {
 
 function LabaRugi({ periode }: { periode: Periode }) {
   const [mounted, setMounted] = useState(false);
+  const [filterToko, setFilterToko] = useState<string>('semua');
   useEffect(() => { setMounted(true); }, []);
+
   const data = useMemo(() => {
-    if (!mounted) return { pendapatan: 0, hargaPokok: 0, biayaOperasional: 0, biayaLain: 0, labaKotor: 0, labaBersih: 0 };
+    if (!mounted) return { pendapatan: 0, hargaPokok: 0, biayaOperasional: 0, biayaLain: 0, labaKotor: 0, labaBersih: 0, feeMarketplace: 0, hppMarketplace: 0, breakdownPerToko: [] as any[], tokoList: [] as string[] };
     const { penjualan, biaya, opex } = getRealData();
     const f = (list: any[], field: string) => filterByPeriode(list, field, periode);
-    const filteredPenjualan = f(penjualan, 'tanggal');
 
-    // Pendapatan: Kasir + Marketplace Net
+    // Pendapatan Kasir
+    const filteredPenjualan = f(penjualan, 'tanggal');
     const kasirTotal = filteredPenjualan.reduce((s: number, t: any) => s + (t.total || 0), 0);
+
+    // Marketplace: detail per order
     let marketplaceNet = 0;
     let marketplaceHpp = 0;
+    let marketplaceFee = 0;
+    let marketplaceKotor = 0;
+    const breakdownPerToko: any[] = [];
+    const tokoSet = new Set<string>();
+
     try {
       const mpOrders = JSON.parse(localStorage.getItem('mma_marketplace_orders') || '[]');
       const mpFiltered = f(mpOrders, 'tanggal');
-      marketplaceNet = mpFiltered.reduce((s: number, o: any) => s + (o.pendapatanBersih || 0), 0);
-      marketplaceHpp = mpFiltered.reduce((s: number, o: any) => s + (o.totalHPP || 0), 0);
-    } catch { }
-    const p = kasirTotal + marketplaceNet;
 
-    // HPP: dari Master SKU untuk Kasir + HPP Marketplace (sudah dihitung saat upload)
-    let hpp = 0;
+      // Group by toko
+      const byToko = new Map<string, { net: number; hpp: number; fee: number; kotor: number; count: number; marketplace: string }>();
+      for (const o of mpFiltered) {
+        const key = o.tokoNama || 'Unknown';
+        tokoSet.add(key);
+        const exist = byToko.get(key) || { net: 0, hpp: 0, fee: 0, kotor: 0, count: 0, marketplace: o.marketplace || '' };
+        exist.net += o.pendapatanBersih || 0;
+        exist.hpp += o.totalHPP || 0;
+        exist.fee += o.totalBiaya || 0;
+        exist.kotor += o.pendapatanKotor || 0;
+        exist.count++;
+        exist.marketplace = o.marketplace || exist.marketplace;
+        byToko.set(key, exist);
+      }
+
+      // Filter by toko
+      const filteredByToko = filterToko === 'semua'
+        ? Array.from(byToko.values())
+        : [byToko.get(filterToko)].filter(Boolean) as any[];
+
+      marketplaceNet = filteredByToko.reduce((s, t) => s + t.net, 0);
+      marketplaceHpp = filteredByToko.reduce((s, t) => s + t.hpp, 0);
+      marketplaceFee = filteredByToko.reduce((s, t) => s + t.fee, 0);
+      marketplaceKotor = filteredByToko.reduce((s, t) => s + t.kotor, 0);
+
+      for (const [nama, d] of byToko) {
+        breakdownPerToko.push({
+          tokoNama: nama,
+          marketplace: d.marketplace,
+          pendapatanKotor: d.kotor,
+          fee: d.fee,
+          pendapatanBersih: d.net,
+          hpp: d.hpp,
+          labaKotor: d.net - d.hpp,
+          orderCount: d.count,
+        });
+      }
+    } catch { }
+
+    const p = kasirTotal + marketplaceNet;
+    const totalHpp = marketplaceHpp; // HPP dari marketplace
+    // HPP dari Master SKU untuk Kasir (jika ada)
+    let hppKasir = 0;
     try {
       const skuData = JSON.parse(localStorage.getItem('mma_sku_data') || '[]');
       const hargaMap = new Map<string, number>();
       for (const s of skuData) { if (s.sku && s.hargaBaru > 0) hargaMap.set(s.sku, s.hargaBaru); }
-      for (const t of filteredPenjualan) { hpp += (hargaMap.get(t.sku) || 0) * (t.qty || 1); }
+      for (const t of filteredPenjualan) { hppKasir += (hargaMap.get(t.sku) || 0) * (t.qty || 1); }
     } catch {}
-    // Tambah HPP marketplace (dari upload)
-    hpp += marketplaceHpp;
+    const hpp = hppKasir + totalHpp;
 
     const b = f(biaya, 'tanggal').reduce((s: number, b2: any) => s + (b2.jumlah || 0), 0);
     const o = f(opex, 'tanggal').reduce((s: number, o2: any) => s + (o2.total || 0), 0);
     const labaKotor = p - hpp;
     const labaBersih = labaKotor - b - o;
-    return { pendapatan: p, hargaPokok: hpp, biayaOperasional: b, biayaLain: o, labaKotor, labaBersih };
-  }, [mounted, periode]);
-  return <LabaRugiReport data={data} periode={PERIODE_LABELS[periode]} />;
+    return {
+      pendapatan: p, hargaPokok: hpp, biayaOperasional: b, biayaLain: o, labaKotor, labaBersih,
+      feeMarketplace: marketplaceFee, hppMarketplace: totalHpp,
+      breakdownPerToko, tokoList: Array.from(tokoSet).sort(),
+    };
+  }, [mounted, periode, filterToko]);
+
+  return (
+    <div>
+      {/* Filter Toko */}
+      {data.tokoList.length > 1 && (
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <span className="text-xs font-semibold text-slate-500">🏪 Toko:</span>
+          <button
+            onClick={() => setFilterToko('semua')}
+            className={`rounded-lg px-3 py-1 text-xs font-semibold transition ${filterToko === 'semua' ? 'bg-brand-500 text-white' : 'bg-slate-100 text-slate-600 hover:bg-brand-50'}`}
+          >
+            Semua Toko
+          </button>
+          {data.tokoList.map(toko => (
+            <button
+              key={toko}
+              onClick={() => setFilterToko(toko)}
+              className={`rounded-lg px-3 py-1 text-xs font-semibold transition ${filterToko === toko ? 'bg-brand-500 text-white' : 'bg-slate-100 text-slate-600 hover:bg-brand-50'}`}
+            >
+              {toko}
+            </button>
+          ))}
+        </div>
+      )}
+      <LabaRugiReport
+        data={{
+          pendapatan: data.pendapatan,
+          hargaPokok: data.hargaPokok,
+          biayaOperasional: data.biayaOperasional,
+          biayaLain: data.biayaLain,
+          labaKotor: data.labaKotor,
+          labaBersih: data.labaBersih,
+        }}
+        periode={PERIODE_LABELS[periode]}
+        extra={{
+          feeMarketplace: data.feeMarketplace,
+          hppMarketplace: data.hppMarketplace,
+          breakdownPerToko: data.breakdownPerToko,
+          filterToko: filterToko,
+        }}
+      />
+    </div>
+  );
 }
 
 function ArusKas({ periode }: { periode: Periode }) {
