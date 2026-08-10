@@ -66,10 +66,10 @@ export function SkuProvider({ children }: { children: React.ReactNode }) {
   // Load data: localStorage (utama) → server API (cadangan) → DEFAULT
   useEffect(() => {
     async function load() {
-      // 1. Coba dari localStorage dulu (sumber utama)
+      // 1. Coba dari localStorage dulu (sumber utama) — APAPUN isinya
       const stored = loadFromStorage();
-      if (stored && stored.length > 0 && stored.length !== DEFAULT_SKU.length) {
-        // Data bukan default, pakai localStorage
+      if (stored && stored.length > 0) {
+        // Pakai localStorage SELALU — hanya skip kalau kosong
         setSkus(stored);
         setIsHydrated(true);
         // Sync ke server di background
@@ -83,7 +83,7 @@ export function SkuProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      // 2. Coba dari server API (shared data)
+      // 2. Coba dari server API (shared data) — hanya jika localStorage kosong
       try {
         const res = await fetch('/api/data?key=mma_sku_data');
         if (res.ok) {
@@ -97,10 +97,7 @@ export function SkuProvider({ children }: { children: React.ReactNode }) {
         }
       } catch {}
 
-      // 3. Fallback ke localStorage (meskipun isinya default)
-      if (stored && stored.length > 0) {
-        setSkus(stored);
-      }
+      // 3. Fallback ke DEFAULT (first time user)
       setIsHydrated(true);
     }
     load();
