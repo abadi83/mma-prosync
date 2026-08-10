@@ -291,7 +291,7 @@ function LabaRugi({ periode }: { periode: Periode }) {
         tokoSet.add(key);
         const exist = byToko.get(key) || { laba: 0, hpp: 0, fee: 0, kotor: 0, biayaProses: 0, count: 0, marketplace: o.marketplace || '' };
         exist.kotor += o.pendapatanKotor || 0;
-        exist.fee += (o.totalBiaya || 0) + (o.biayaPemrosesan || 0);
+        exist.fee += o.totalBiaya || 0;            // ← udah total semua kolom fee
         exist.biayaProses += o.biayaPemrosesan || 0;
         exist.hpp += o.totalHPP || 0;
         exist.laba += o.pendapatanBersih || 0;   // ← udah laba/rugi final (Kotor - Fee - BiayaProses - HPP)

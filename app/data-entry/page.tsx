@@ -691,10 +691,16 @@ function InputKeuangan() {
           totalHPP = itemsWithHpp.reduce((s, it) => s + (it.hpp * it.qty), 0);
           totalHppAll += totalHPP;
 
-          // ── Kotor = Total Harga Produk dari kolom Excel (baris INDUK) ──
+          // ── Kotor = Total Harga Produk dari kolom H/I Excel (baris INDUK, SUDAH total, tidak dikali qty) ──
           const grossRevenue = o.totalHargaProduk || o.penghasilan || 0;
-          // ── Laba Bersih = Kotor - Fee - HPP ──
-          const totalBiayaFinal = (o.totalBiaya || 0) + (o.biayaPemrosesan || 0);
+          // ── Total Fee = jumlah SEMUA kolom fee: M+N+Q+R+S+T+U+dll ──
+          const totalFeeAll = (o.feeAdmin || 0) + (o.feeLayanan || 0) + (o.komisi || 0)
+            + (o.biayaPemrosesan || 0) + (o.biayaTransaksi || 0)
+            + (o.ongkirAktual || 0) - (o.subsidiOngkir || 0)
+            + (o.premiProteksi || 0) + (o.biayaAMS || 0);
+          // Kalau individual fee kosong, fallback ke kolom "Total Biaya"
+          const totalBiayaFinal = totalFeeAll > 0 ? totalFeeAll : (o.totalBiaya || 0);
+          // ── Laba Bersih = Kotor - Total Fee - HPP (sebelum OPEX) ──
           const labaFinal = grossRevenue - totalBiayaFinal - totalHPP;
 
           newOrders.push({
@@ -704,9 +710,9 @@ function InputKeuangan() {
             marketplaceId: mpObj.id,
             marketplace: mpObj.marketplace,
             tokoNama,
-            pendapatanKotor: grossRevenue,                        // ← GROSS, total penjualan
-            pendapatanBersih: labaFinal,                          // ← LABA/RUGI: Kotor - Fee - BiayaProses - HPP
-            totalBiaya: o.totalBiaya,
+            pendapatanKotor: grossRevenue,                        // ← dari kolom H/I Excel (Total Harga Produk)
+            pendapatanBersih: labaFinal,                          // ← LABA BERSIH: Kotor - Fee - HPP (sebelum OPEX)
+            totalBiaya: totalBiayaFinal,                          // ← TOTAL semua kolom fee (M+N+Q+R+S+T+U...)
             feeAdmin: o.feeAdmin,
             feeLayanan: o.feeLayanan,
             ongkirAktual: o.ongkirAktual,
@@ -951,9 +957,8 @@ function UploadHistory() {
   const totalNet = orders.reduce((s, o) => s + o.pendapatanBersih, 0);     // sekarang = Laba/Rugi
   const totalHpp = orders.reduce((s, o) => s + o.totalHPP, 0);
   const totalKotor = orders.reduce((s, o) => s + o.pendapatanKotor, 0);    // GROSS
-  const totalFee = orders.reduce((s, o) => s + (o.totalBiaya || 0), 0);
+  const totalFee = orders.reduce((s, o) => s + (o.totalBiaya || 0), 0);   // udah total semua fee
   const totalBiayaProses = orders.reduce((s, o) => s + (o.biayaPemrosesan || 0), 0);
-  const totalFeeAll = totalFee + totalBiayaProses;                           // Fee + Biaya Proses
 
   // Kumpulkan semua SKU unik dengan HPP
   const skuSummary = new Map<string, { nama: string; totalQty: number; totalHpp: number; hppUnit: number; muncul: number }>();
@@ -991,7 +996,7 @@ function UploadHistory() {
           </div>
           <div className="rounded-xl bg-red-50 p-3 text-center">
             <p className="text-red-400">🛒 Total Fee + Biaya</p>
-            <p className="text-lg font-bold text-red-600">−Rp {totalFeeAll.toLocaleString('id-ID')}</p>
+            <p className="text-lg font-bold text-red-600">−Rp {totalFee.toLocaleString('id-ID')}</p>
             <p className="text-[10px] text-red-400">fee MP + biaya proses</p>
           </div>
           <div className="rounded-xl bg-purple-50 p-3 text-center">
@@ -1006,7 +1011,7 @@ function UploadHistory() {
           </div>
           <div className="rounded-xl bg-blue-50 p-3 text-center">
             <p className="text-blue-500">Pendapatan Bersih</p>
-            <p className="text-lg font-bold text-blue-600">Rp {(totalKotor - totalFeeAll).toLocaleString('id-ID')}</p>
+            <p className="text-lg font-bold text-blue-600">Rp {(totalKotor - totalFee).toLocaleString('id-ID')}</p>
             <p className="text-[10px] text-blue-400">Kotor − Fee</p>
           </div>
           <div className={`rounded-xl p-3 text-center ${totalNet >= 0 ? 'bg-emerald-50' : 'bg-red-50'}`}>
@@ -1037,7 +1042,7 @@ function UploadHistory() {
                       <td className="px-2 py-2 text-[10px] whitespace-nowrap">{o.tanggal}</td>
                       <td className="px-2 py-2 font-medium text-[10px]">{o.marketplace}</td>
                       <td className="px-2 py-2 text-[10px]">Rp {o.pendapatanKotor.toLocaleString('id-ID')}</td>
-                      <td className="px-2 py-2 text-[10px] text-red-500">−{(o.totalBiaya + (o.biayaPemrosesan||0)).toLocaleString('id-ID')}</td>
+                      <td className="px-2 py-2 text-[10px] text-red-500">−{o.totalBiaya.toLocaleString('id-ID')}</td>
                       <td className="px-2 py-2 text-[10px] text-amber-600">{o.biayaPemrosesan > 0 ? `−${o.biayaPemrosesan.toLocaleString('id-ID')}` : '-'}</td>
                       <td className="px-2 py-2 text-[10px] text-purple-600">{o.totalHPP>0?`Rp ${o.totalHPP.toLocaleString('id-ID')}`:'⚠️ 0'}</td>
                       <td className="px-2 py-2 text-[10px] font-bold" style={{color: o.pendapatanBersih>=0?'#059669':'#dc2626'}}>Rp {o.pendapatanBersih.toLocaleString('id-ID')}</td>
