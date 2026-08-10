@@ -227,6 +227,43 @@ export default function TaskHargaTab() {
     return () => window.removeEventListener('sku-saved', handler);
   }, [generateTaskForSku]);
 
+  /* ── Process pending queue dari localStorage (pas tab ini di-buka) ── */
+  const queueProcessedRef = React.useRef(false);
+  useEffect(() => {
+    // Reset ref when component mounts (tab dibuka)
+    queueProcessedRef.current = false;
+  }, []);
+  useEffect(() => {
+    if (queueProcessedRef.current || skus.length === 0) return;
+    // Delay sedikit biar tasks & history udah ke-load dari localStorage
+    const timer = setTimeout(() => {
+      if (queueProcessedRef.current) return;
+      try {
+        const raw = localStorage.getItem('mma_pending_task_skus');
+        if (!raw) { queueProcessedRef.current = true; return; }
+        const queue: string[] = JSON.parse(raw);
+        if (queue.length === 0) { queueProcessedRef.current = true; return; }
+
+        let processed = 0;
+        for (const skuCode of queue) {
+          const count = generateTaskForSku(skuCode);
+          if (count > 0) processed += count;
+        }
+
+        localStorage.removeItem('mma_pending_task_skus');
+        queueProcessedRef.current = true;
+
+        if (processed > 0) {
+          console.log(`[TaskHarga] ✅ ${processed} task baru dari ${queue.length} SKU pending`);
+        }
+      } catch {
+        localStorage.removeItem('mma_pending_task_skus');
+        queueProcessedRef.current = true;
+      }
+    }, 600);
+    return () => clearTimeout(timer);
+  }, [skus.length, generateTaskForSku]);
+
   /* ── Full scan manual (tombol "Scan Semua SKU") ── */
   const generateTasks = useCallback(() => {
     let totalNew = 0;

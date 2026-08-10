@@ -180,7 +180,16 @@ function SkuTab() {
     setShowForm(false);
     // ── Trigger Task Harga: auto-buat task hanya untuk SKU ini ──
     if (typeof window !== 'undefined') {
+      // Via custom event (jika TaskHargaTab sedang mounted)
       window.dispatchEvent(new CustomEvent('sku-saved', { detail: { sku: f.sku } }));
+      // Via localStorage queue (fallback jika TaskHargaTab belum mounted)
+      try {
+        const queue = JSON.parse(localStorage.getItem('mma_pending_task_skus') || '[]');
+        if (!queue.includes(f.sku)) {
+          queue.push(f.sku);
+          localStorage.setItem('mma_pending_task_skus', JSON.stringify(queue));
+        }
+      } catch {}
     }
   };
   const del=()=>{if(deleteId){setSkus(skus.filter(x=>x.id!==deleteId));setDeleteId(null);}};
@@ -255,12 +264,17 @@ function SkuTab() {
       // ── Trigger Task Harga untuk setiap SKU yang diupload ──
       if (typeof window !== 'undefined') {
         const triggeredSkus = new Set<string>();
-        for (const item of incoming) {
-          if (!triggeredSkus.has(item.sku)) {
-            triggeredSkus.add(item.sku);
-            window.dispatchEvent(new CustomEvent('sku-saved', { detail: { sku: item.sku } }));
+        try {
+          const queue = JSON.parse(localStorage.getItem('mma_pending_task_skus') || '[]');
+          for (const item of incoming) {
+            if (!triggeredSkus.has(item.sku)) {
+              triggeredSkus.add(item.sku);
+              window.dispatchEvent(new CustomEvent('sku-saved', { detail: { sku: item.sku } }));
+              if (!queue.includes(item.sku)) queue.push(item.sku);
+            }
           }
-        }
+          localStorage.setItem('mma_pending_task_skus', JSON.stringify(queue));
+        } catch {}
       }
 
       const parts:string[]=[];
