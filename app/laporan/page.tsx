@@ -46,10 +46,23 @@ export default function LaporanPage() {
   const [jenis, setJenis] = useState<JenisLaporan>('laba-rugi');
   const [periode, setPeriode] = useState<Periode>('bulan');
   const [mounted, setMounted] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => { setMounted(true); }, []);
 
-  const realData = useMemo(() => (mounted ? getRealData() : { penjualan: [], payments: [], biaya: [], opex: [], modal: [], keuanganManual: [], mpIncome: [] }), [mounted]);
+  // ── Auto-refresh saat ada perubahan localStorage ──
+  useEffect(() => {
+    const onStorage = () => setRefreshKey(k => k + 1);
+    window.addEventListener('storage', onStorage);
+    // Juga listen custom refresh event
+    window.addEventListener('refresh-laporan', onStorage);
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      window.removeEventListener('refresh-laporan', onStorage);
+    };
+  }, []);
+
+  const realData = useMemo(() => (mounted ? getRealData() : { penjualan: [], payments: [], biaya: [], opex: [], modal: [], keuanganManual: [], mpIncome: [] }), [mounted, refreshKey]);
 
   const penjualanFiltered = useMemo(() => filterByPeriode(realData.penjualan, 'tanggal', periode), [realData, periode]);
   const paymentsFiltered = useMemo(() => filterByPeriode(realData.payments, 'tanggalBayar', periode), [realData, periode]);
@@ -227,7 +240,19 @@ export default function LaporanPage() {
 function LabaRugi({ periode }: { periode: Periode }) {
   const [mounted, setMounted] = useState(false);
   const [filterToko, setFilterToko] = useState<string>('semua');
+  const [localRefresh, setLocalRefresh] = useState(0);
   useEffect(() => { setMounted(true); }, []);
+
+  // ── Auto-refresh saat ada perubahan data ──
+  useEffect(() => {
+    const onRefresh = () => setLocalRefresh(k => k + 1);
+    window.addEventListener('storage', onRefresh);
+    window.addEventListener('refresh-laporan', onRefresh);
+    return () => {
+      window.removeEventListener('storage', onRefresh);
+      window.removeEventListener('refresh-laporan', onRefresh);
+    };
+  }, []);
 
   const data = useMemo(() => {
     if (!mounted) return { pendapatan: 0, hargaPokok: 0, biayaOperasional: 0, biayaLain: 0, labaKotor: 0, labaBersih: 0, feeMarketplace: 0, hppMarketplace: 0, breakdownPerToko: [] as any[], tokoList: [] as string[] };
@@ -363,7 +388,7 @@ function LabaRugi({ periode }: { periode: Periode }) {
       feeMarketplace: marketplaceFee, hppMarketplace: marketplaceHpp,
       breakdownPerToko, tokoList: Array.from(tokoSet).sort(),
     };
-  }, [mounted, periode, filterToko]);
+  }, [mounted, periode, filterToko, localRefresh]);
 
   return (
     <div>

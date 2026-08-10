@@ -733,6 +733,8 @@ function InputKeuangan() {
           }));
           const existingOld = JSON.parse(localStorage.getItem('mma_marketplace_income') || '[]');
           localStorage.setItem('mma_marketplace_income', JSON.stringify([...summary, ...existingOld]));
+          // ── Trigger refresh Laba Rugi ──
+          window.dispatchEvent(new Event('refresh-laporan'));
         } catch { }
 
         const totalNet = newOrders.reduce((s,o) => s + o.pendapatanBersih, 0);
@@ -759,6 +761,8 @@ function InputKeuangan() {
     setEntries(p => [{ id: `keu-${Date.now()}`, tanggal: form.tanggal, marketplaceId: mp.id, marketplaceNama: mp.nama, pendapatanKotor: pk, feeMarketplace: fee, biayaIklan: +form.biayaIklan || 0, biayaPengemasan: +form.biayaPengemasan || 0, biayaPengiriman: +form.biayaPengiriman || 0, pendapatanBersih: bersih, catatan: form.catatan }, ...p]);
     setForm({ tanggal: new Date().toISOString().slice(0, 10), pendapatanKotor: '', biayaIklan: '', biayaPengemasan: '', biayaPengiriman: '', catatan: '' });
     setErr(''); setSuccess(true);
+    // ── Trigger refresh Laba Rugi ──
+    if (typeof window !== 'undefined') window.dispatchEvent(new Event('refresh-laporan'));
     setTimeout(() => setSuccess(false), 3000);
   };
 
