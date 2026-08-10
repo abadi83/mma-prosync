@@ -12,7 +12,7 @@ type Periode = 'minggu' | 'bulan' | 'tahun';
 
 // Helper: baca data real dari localStorage
 function getRealData() {
-  if (typeof window === 'undefined') return { penjualan: [], payments: [], biaya: [], opex: [], modal: [] };
+  if (typeof window === 'undefined') return { penjualan: [], payments: [], biaya: [], opex: [], modal: [], keuanganManual: [], mpIncome: [] };
   try {
     return {
       penjualan: JSON.parse(localStorage.getItem('mma_penjualan_transaksi') || '[]'),
@@ -20,8 +20,10 @@ function getRealData() {
       biaya: JSON.parse(localStorage.getItem('mma_biaya_operasional') || '[]'),
       opex: JSON.parse(localStorage.getItem('mma_opex_purchases') || '[]'),
       modal: JSON.parse(localStorage.getItem('mma_modal') || '[]'),
+      keuanganManual: JSON.parse(localStorage.getItem('mma_keuangan_manual') || '[]'),
+      mpIncome: JSON.parse(localStorage.getItem('mma_marketplace_income') || '[]'),
     };
-  } catch { return { penjualan: [], payments: [], biaya: [], opex: [], modal: [] }; }
+  } catch { return { penjualan: [], payments: [], biaya: [], opex: [], modal: [], keuanganManual: [], mpIncome: [] }; }
 }
 
 function filterByPeriode(list: any[], dateField: string, periode: Periode): any[] {
@@ -76,27 +78,44 @@ export default function LaporanPage() {
     return { list, grandTotal, orderCount: selesai.length };
   }, [allRows]);
 
-  // Laba Rugi: Penjualan Kasir + Pendapatan Marketplace - HPP (dari Master SKU) - Biaya
+  // Laba Rugi: Penjualan Kasir + Marketplace (upload + manual) - HPP - Biaya
   const labaRugiData = useMemo(() => {
     const pendapatan = penjualanFiltered.reduce((s: number, t: any) => s + (t.total || 0), 0);
-    // Marketplace: pakai data detail dengan HPP
+    // Marketplace: upload Excel detail
     let marketplaceNet = 0;
     let marketplaceHpp = 0;
+    let marketplaceKotor = 0;
     try {
       const mpOrders = JSON.parse(localStorage.getItem('mma_marketplace_orders') || '[]');
       const mpFiltered = filterByPeriode(mpOrders, 'tanggal', periode);
       marketplaceNet = mpFiltered.reduce((s: number, o: any) => s + (o.pendapatanBersih || 0), 0);
       marketplaceHpp = mpFiltered.reduce((s: number, o: any) => s + (o.totalHPP || 0), 0);
+      marketplaceKotor = mpFiltered.reduce((s: number, o: any) => s + (o.pendapatanKotor || 0), 0);
     } catch { }
-    const totalPendapatan = pendapatan + marketplaceNet;
+    // Manual entries
+    let manualKotor = 0, manualNet = 0, manualFee = 0;
+    try {
+      const manual = filterByPeriode(realData.keuanganManual, 'tanggal', periode);
+      manualKotor = manual.reduce((s: number, e: any) => s + (e.pendapatanKotor || 0), 0);
+      manualNet = manual.reduce((s: number, e: any) => s + (e.pendapatanBersih || 0), 0);
+      manualFee = manual.reduce((s: number, e: any) => s + (e.feeMarketplace || 0), 0);
+    } catch { }
+    // MP Income ringkasan
+    let incKotor = 0, incNet = 0;
+    try {
+      const inc = filterByPeriode(realData.mpIncome, 'tanggal', periode);
+      incKotor = inc.reduce((s: number, e: any) => s + (e.pendapatanKotor || 0), 0);
+      incNet = inc.reduce((s: number, e: any) => s + (e.pendapatanBersih || 0), 0);
+    } catch { }
+    const totalPendapatan = pendapatan + marketplaceKotor + manualKotor + incKotor;
     const biayaOps = biayaFiltered.reduce((s: number, b: any) => s + (b.jumlah || 0), 0);
     const opexTotal = opexFiltered.reduce((s: number, o: any) => s + (o.total || 0), 0);
     const pembayaranPO = paymentsFiltered.reduce((s: number, p: any) => s + (p.jumlahDibayar || 0), 0);
     const totalHPP = pembayaranPO + marketplaceHpp;
-    const labaKotor = totalPendapatan - totalHPP;
+    const labaKotor = totalPendapatan - totalHPP - manualFee;
     const labaBersih = labaKotor - biayaOps - opexTotal;
-    return { pendapatan: totalPendapatan, hargaPokok: totalHPP, biayaOperasional: biayaOps, biayaLain: opexTotal, labaKotor, labaBersih };
-  }, [penjualanFiltered, biayaFiltered, opexFiltered, paymentsFiltered, periode]);
+    return { pendapatan: totalPendapatan, hargaPokok: totalHPP, biayaOperasional: biayaOps, biayaLain: opexTotal + manualFee, labaKotor, labaBersih };
+  }, [penjualanFiltered, biayaFiltered, opexFiltered, paymentsFiltered, periode, realData]);
 
   // Arus Kas real
   const arusKasData = useMemo(() => {
@@ -232,6 +251,14 @@ function LabaRugi({ periode }: { periode: Periode }) {
       const mpOrders = JSON.parse(localStorage.getItem('mma_marketplace_orders') || '[]');
       const mpFiltered = f(mpOrders, 'tanggal');
 
+      // ── Juga baca input keuangan MANUAL ──
+      const manualEntries: any[] = JSON.parse(localStorage.getItem('mma_keuangan_manual') || '[]');
+      const manualFiltered = f(manualEntries, 'tanggal');
+
+      // ── Juga baca marketplace_income (ringkasan kompatibilitas) ──
+      const mpIncome: any[] = JSON.parse(localStorage.getItem('mma_marketplace_income') || '[]');
+      const mpIncomeFiltered = f(mpIncome, 'tanggal');
+
       // Group by toko
       const byToko = new Map<string, { laba: number; hpp: number; fee: number; kotor: number; biayaProses: number; count: number; marketplace: string }>();
       for (const o of mpFiltered) {
@@ -246,6 +273,44 @@ function LabaRugi({ periode }: { periode: Periode }) {
         exist.count++;
         exist.marketplace = o.marketplace || exist.marketplace;
         byToko.set(key, exist);
+      }
+
+      // ── Tambahin input keuangan MANUAL ke byToko ──
+      for (const e of manualFiltered) {
+        const namaToko = e.marketplaceNama?.split('—')[1]?.trim() || e.marketplaceNama || 'Manual';
+        const mp = e.marketplaceNama?.split('—')[0]?.trim() || 'Lainnya';
+        tokoSet.add(namaToko);
+        const exist = byToko.get(namaToko) || { laba: 0, hpp: 0, fee: 0, kotor: 0, biayaProses: 0, count: 0, marketplace: mp };
+        const kotor = e.pendapatanKotor || 0;
+        const feeManual = e.feeMarketplace || 0;
+        const bersih = e.pendapatanBersih || 0;
+        exist.kotor += kotor;
+        exist.fee += feeManual;
+        exist.hpp += 0; // manual entry gak ada HPP detail
+        exist.laba += bersih;
+        exist.count++;
+        exist.marketplace = mp || exist.marketplace;
+        byToko.set(namaToko, exist);
+      }
+
+      // ── Tambahin marketplace_income (ringkasan) ke byToko ──
+      for (const inc of mpIncomeFiltered) {
+        const namaToko = inc.marketplaceNama?.split('—')[1]?.trim() || inc.marketplaceNama || 'Ringkasan';
+        const mp = inc.marketplaceNama?.split('—')[0]?.trim() || 'Lainnya';
+        // Skip kalau duplikat dengan data detail (cek by order ID pattern)
+        const existKey = namaToko;
+        if (!byToko.has(existKey)) {
+          tokoSet.add(namaToko);
+          byToko.set(existKey, {
+            laba: inc.pendapatanBersih || 0,
+            hpp: inc.totalHPP || 0,
+            fee: inc.feeMarketplace || 0,
+            kotor: inc.pendapatanKotor || 0,
+            biayaProses: inc.biayaProses || 0,
+            count: 1,
+            marketplace: mp,
+          });
+        }
       }
 
       // Filter by toko
@@ -353,11 +418,15 @@ function ArusKas({ periode }: { periode: Periode }) {
     const f = (list: any[], field: string) => filterByPeriode(list, field, periode);
     const saldoAwal = modal.reduce((s: number, m: any) => s + (m.jumlah || 0), 0);
     const kasKecil = (() => { try { const kk = JSON.parse(localStorage.getItem('mma_kas_kecil') || '[]'); return kk.reduce((s: number, e: any) => s + (e.jenis === 'masuk' ? e.jumlah : -e.jumlah), 0); } catch { return 0; } })();
-    // Marketplace income
+    // Marketplace income (upload + manual)
     let mpNet = 0;
     try {
       const mpIncome = JSON.parse(localStorage.getItem('mma_marketplace_income') || '[]');
-      mpNet = f(mpIncome, 'tanggal').reduce((s: number, e: any) => s + (e.pendapatanBersih || 0), 0);
+      mpNet += f(mpIncome, 'tanggal').reduce((s: number, e: any) => s + (e.pendapatanBersih || 0), 0);
+      const manual = JSON.parse(localStorage.getItem('mma_keuangan_manual') || '[]');
+      mpNet += f(manual, 'tanggal').reduce((s: number, e: any) => s + (e.pendapatanBersih || 0), 0);
+      const mpOrders = JSON.parse(localStorage.getItem('mma_marketplace_orders') || '[]');
+      mpNet += f(mpOrders, 'tanggal').reduce((s: number, o: any) => s + (o.pendapatanBersih || 0), 0);
     } catch { }
     return {
       saldoAwal: saldoAwal + kasKecil,

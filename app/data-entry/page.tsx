@@ -509,7 +509,13 @@ function InputOperasional() {
 /* INPUT DATA KEUANGAN PER MARKETPLACE                               */
 /* ═══════════════════════════════════════════════════════════════════ */
 function InputKeuangan() {
-  const [entries, setEntries] = useState<KeuEntry[]>([]);
+  const [entries, setEntries] = useState<KeuEntry[]>(() => {
+    if (typeof window === 'undefined') return [];
+    try {
+      const stored = localStorage.getItem('mma_keuangan_manual');
+      return stored ? JSON.parse(stored) : [];
+    } catch { return []; }
+  });
   const [selectedMp, setSelectedMp] = useState(MARKETPLACE_TOKO[0].id);
   const [form, setForm] = useState({ tanggal: new Date().toISOString().slice(0, 10), pendapatanKotor: '', biayaIklan: '', biayaPengemasan: '', biayaPengiriman: '', catatan: '' });
   const [err, setErr] = useState('');
@@ -535,6 +541,11 @@ function InputKeuangan() {
       else setTokoList(DEFAULT_TOKO);
     } catch { setTokoList(DEFAULT_TOKO); }
   }, []);
+
+  // Persist manual entries ke localStorage (biar Laba Rugi bisa baca)
+  useEffect(() => {
+    try { localStorage.setItem('mma_keuangan_manual', JSON.stringify(entries)); } catch { }
+  }, [entries]);
 
   const mp = MARKETPLACE_TOKO.find(m => m.id === selectedMp)!;
   const pk = +form.pendapatanKotor || 0;
@@ -767,6 +778,7 @@ function InputKeuangan() {
             if (!confirm('⚠️ Hapus SEMUA data Input Keuangan & Riwayat Marketplace?\n\nData yang dihapus: Upload Excel, input manual, riwayat marketplace.\n\nData Master SKU & lainnya TIDAK terpengaruh.')) return;
             localStorage.removeItem('mma_marketplace_orders');
             localStorage.removeItem('mma_marketplace_income');
+            localStorage.removeItem('mma_keuangan_manual');
             setEntries([]);
             setSuccess(true);
             setTimeout(() => setSuccess(false), 3000);
