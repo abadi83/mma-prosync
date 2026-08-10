@@ -350,6 +350,10 @@ function DaftarPegawai({ pegawai, setPegawai }: { pegawai: Pegawai[]; setPegawai
   const [pwErr, setPwErr] = useState('');
   const [pwSuccess, setPwSuccess] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [editPegawaiId, setEditPegawaiId] = useState<string | null>(null);
+  const [pegawaiForm, setPegawaiForm] = useState({ nama: '', nik: '', username: '', jabatan: '', departemen: 'Warehouse', noHp: '', email: '', status: 'Aktif' as Pegawai['status'], roles: ['pegawai'] as string[], tanggalMasuk: new Date().toISOString().slice(0, 10) });
+  const [formErr, setFormErr] = useState('');
 
   // All available roles
   const ALL_ROLES = ['admin', 'hr', 'finance', 'purchasing', 'warehouse', 'logistik', 'inventory', 'sales', 'pegawai'];
@@ -384,11 +388,32 @@ function DaftarPegawai({ pegawai, setPegawai }: { pegawai: Pegawai[]; setPegawai
   const totalNonaktif = pegawai.filter(p => p.status === 'Nonaktif').length;
   const totalCuti = pegawai.filter(p => p.status === 'Cuti').length;
 
+  const openAddPegawai = () => {
+    setPegawaiForm({ nama: '', nik: `MMA-${String(pegawai.length + 1).padStart(3, '0')}`, username: '', jabatan: '', departemen: 'Warehouse', noHp: '', email: '', status: 'Aktif', roles: ['pegawai'], tanggalMasuk: new Date().toISOString().slice(0, 10) });
+    setFormErr(''); setShowAddForm(true); setEditPegawaiId(null);
+  };
+  const openEditPegawai = (p: Pegawai) => {
+    setPegawaiForm({ nama: p.nama, nik: p.nik, username: p.username || '', jabatan: p.jabatan, departemen: p.departemen, noHp: p.noHp, email: p.email, status: p.status, roles: [...p.roles], tanggalMasuk: p.tanggalMasuk });
+    setFormErr(''); setEditPegawaiId(p.id); setShowAddForm(true);
+  };
+  const savePegawai = () => {
+    if (!pegawaiForm.nama || !pegawaiForm.nik) { setFormErr('Nama & NIK wajib diisi.'); return; }
+    if (editPegawaiId) {
+      setPegawai(prev => prev.map(p => p.id === editPegawaiId ? { ...p, ...pegawaiForm } : p));
+    } else {
+      setPegawai(prev => [{ id: `pg-${Date.now()}`, ...pegawaiForm }, ...prev]);
+    }
+    setShowAddForm(false);
+  };
+
   return (
     <div>
       <div className="mb-1 h-1 w-16 rounded-full bg-gradient-to-r from-purple-500 to-pink-400" />
       <h2 className="text-lg font-bold text-slate-800 sm:text-xl">👥 Daftar Pegawai</h2>
-      <p className="mt-1 text-sm text-slate-500">{pegawai.length} pegawai terdaftar</p>
+      <div className="flex items-center justify-between mt-1">
+        <p className="text-sm text-slate-500">{pegawai.length} pegawai terdaftar</p>
+        <button onClick={openAddPegawai} className="rounded-xl bg-purple-500 px-4 py-1.5 text-sm font-semibold text-white hover:bg-purple-700">+ Tambah Pegawai</button>
+      </div>
 
       {/* Stats mini */}
       <div className="mt-4 grid grid-cols-4 gap-3">
@@ -462,6 +487,8 @@ function DaftarPegawai({ pegawai, setPegawai }: { pegawai: Pegawai[]; setPegawai
             <div className="flex gap-2">
               {!editMode && (
                 <>
+                  <button onClick={() => openEditPegawai(selected)}
+                    className="rounded-lg bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-200">✏️ Edit</button>
                   <button
                     onClick={() => { setEditMode(true); setEditRoles([...selected.roles]); }}
                     className="rounded-lg bg-purple-200 px-3 py-1 text-xs font-semibold text-purple-700 hover:bg-purple-300"
@@ -609,6 +636,31 @@ function DaftarPegawai({ pegawai, setPegawai }: { pegawai: Pegawai[]; setPegawai
                 </div>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Modal Tambah/Edit Pegawai */}
+      {showAddForm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 overflow-y-auto py-8">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl mx-4">
+            <p className="text-lg font-bold text-slate-800">{editPegawaiId ? '✏️ Edit Pegawai' : '➕ Tambah Pegawai'}</p>
+            {formErr && <p className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{formErr}</p>}
+            <div className="mt-4 grid grid-cols-2 gap-3">
+              <label className="flex flex-col gap-1"><span className="text-xs font-semibold text-slate-600">NIK *</span><input value={pegawaiForm.nik} onChange={e => setPegawaiForm({ ...pegawaiForm, nik: e.target.value })} className="rounded-xl border px-2 py-1.5 text-sm focus:border-purple-500 focus:outline-none" /></label>
+              <label className="flex flex-col gap-1"><span className="text-xs font-semibold text-slate-600">Nama *</span><input value={pegawaiForm.nama} onChange={e => setPegawaiForm({ ...pegawaiForm, nama: e.target.value })} className="rounded-xl border px-2 py-1.5 text-sm focus:border-purple-500 focus:outline-none" /></label>
+              <label className="flex flex-col gap-1"><span className="text-xs font-semibold text-slate-600">Username</span><input value={pegawaiForm.username} onChange={e => setPegawaiForm({ ...pegawaiForm, username: e.target.value })} className="rounded-xl border px-2 py-1.5 text-sm focus:border-purple-500 focus:outline-none" /></label>
+              <label className="flex flex-col gap-1"><span className="text-xs font-semibold text-slate-600">Jabatan</span><input value={pegawaiForm.jabatan} onChange={e => setPegawaiForm({ ...pegawaiForm, jabatan: e.target.value })} className="rounded-xl border px-2 py-1.5 text-sm focus:border-purple-500 focus:outline-none" /></label>
+              <label className="flex flex-col gap-1"><span className="text-xs font-semibold text-slate-600">Departemen</span><select value={pegawaiForm.departemen} onChange={e => setPegawaiForm({ ...pegawaiForm, departemen: e.target.value })} className="rounded-xl border px-2 py-1.5 text-sm bg-white focus:border-purple-500 focus:outline-none"><option>Warehouse</option><option>Sales</option><option>Finance</option><option>Logistik</option><option>HR</option><option>Purchasing</option></select></label>
+              <label className="flex flex-col gap-1"><span className="text-xs font-semibold text-slate-600">No HP</span><input value={pegawaiForm.noHp} onChange={e => setPegawaiForm({ ...pegawaiForm, noHp: e.target.value })} className="rounded-xl border px-2 py-1.5 text-sm focus:border-purple-500 focus:outline-none" /></label>
+              <label className="flex flex-col gap-1"><span className="text-xs font-semibold text-slate-600">Email</span><input value={pegawaiForm.email} onChange={e => setPegawaiForm({ ...pegawaiForm, email: e.target.value })} className="rounded-xl border px-2 py-1.5 text-sm focus:border-purple-500 focus:outline-none" /></label>
+              <label className="flex flex-col gap-1"><span className="text-xs font-semibold text-slate-600">Tanggal Masuk</span><input type="date" value={pegawaiForm.tanggalMasuk} onChange={e => setPegawaiForm({ ...pegawaiForm, tanggalMasuk: e.target.value })} className="rounded-xl border px-2 py-1.5 text-sm focus:border-purple-500 focus:outline-none" /></label>
+              <label className="flex flex-col gap-1"><span className="text-xs font-semibold text-slate-600">Status</span><select value={pegawaiForm.status} onChange={e => setPegawaiForm({ ...pegawaiForm, status: e.target.value as Pegawai['status'] })} className="rounded-xl border px-2 py-1.5 text-sm bg-white focus:border-purple-500 focus:outline-none"><option>Aktif</option><option>Cuti</option><option>Nonaktif</option></select></label>
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button onClick={() => setShowAddForm(false)} className="rounded-xl bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-600">Batal</button>
+              <button onClick={savePegawai} className="rounded-xl bg-purple-500 px-4 py-2 text-sm font-semibold text-white">{editPegawaiId ? 'Update' : 'Simpan'}</button>
+            </div>
           </div>
         </div>
       )}
