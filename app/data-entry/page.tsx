@@ -594,19 +594,22 @@ function InputKeuangan() {
         const iProduk = h.findIndex(hh => hh === 'produk');
         const iSku = h.findIndex(hh => hh === 'sku');
         const iQty = h.findIndex(hh => hh === 'jumlah');
-        const iHargaJual = idx('total harga jual', 'total harga produk');
-        const iPenghasilan = isShopee ? h.findIndex(hh => hh === 'total penghasilan') : idx('total penghasilan', 'total laba');
+        // ── Kolom H/I: Total Harga Produk/Jual ──
+        const iHargaJual = idx('total harga jual', 'total harga produk', 'total harga', 'harga produk', 'harga jual', 'total harga barang');
+        const iPenghasilan = isShopee ? h.findIndex(hh => hh === 'total penghasilan') : idx('total penghasilan', 'total laba', 'penghasilan bersih', 'net income');
         const iLaba = isShopee ? h.findIndex(hh => hh === 'total laba') : -1;
-        const iTotalBiaya = idx('total biaya', 'jumlah biaya', 'total fees');
-        const iFeeAdmin = idx('biaya admin', 'admin fee');
-        const iFeeLayanan = idx('biaya layanan', 'service fee', 'biaya pelayanan');
-        const iOngkirAktual = idx('ongkir aktual', 'ongkos kirim aktual', 'actual shipping');
-        const iSubsidiOngkir = idx('subsidi ongkir', 'subsidi pengiriman', 'shipping subsidy');
-        const iBiayaPemrosesan = idx('biaya pemrosesan pesanan', 'biaya pemrosesan', 'biaya proses', 'processing fee', 'biaya penanganan', 'handling fee');
-        const iPremiProteksi = idx('premi proteksi pengiriman', 'premi proteksi', 'insurance');
-        const iBiayaAMS = idx('biaya admin ams', 'biaya ams', 'ams fee');
-        const iBiayaTransaksi = idx('biaya transaksi penjual', 'biaya transaksi', 'transaction fee');
-        const iKomisi = idx('komisi', 'commission');
+        // ── Total Biaya ──
+        const iTotalBiaya = idx('total biaya', 'jumlah biaya', 'total fees', 'total beban', 'jumlah beban');
+        // ── Fee columns (M,N,Q,R,S,T,U + others) ──
+        const iFeeAdmin = idx('biaya admin', 'admin fee', 'biaya administrasi');
+        const iFeeLayanan = idx('biaya layanan', 'service fee', 'biaya pelayanan', 'biaya jasa');
+        const iOngkirAktual = idx('ongkir aktual', 'ongkos kirim aktual', 'actual shipping', 'ongkos kirim', 'biaya kirim', 'shipping fee');
+        const iSubsidiOngkir = idx('subsidi ongkir', 'subsidi pengiriman', 'shipping subsidy', 'subsidi ongkos kirim');
+        const iBiayaPemrosesan = idx('biaya pemrosesan pesanan', 'biaya pemrosesan', 'biaya proses', 'processing fee', 'biaya penanganan', 'handling fee', 'biaya pemroses', 'biaya pack');
+        const iPremiProteksi = idx('premi proteksi pengiriman', 'premi proteksi', 'insurance', 'proteksi', 'asuransi');
+        const iBiayaAMS = idx('biaya admin ams', 'biaya ams', 'ams fee', 'admin ams');
+        const iBiayaTransaksi = idx('biaya transaksi penjual', 'biaya transaksi', 'transaction fee', 'biaya trans');
+        const iKomisi = idx('komisi', 'commission', 'biaya komisi');
 
         if (iPenghasilan < 0) { setErr('Kolom pendapatan tidak ditemukan. Header: ' + h.slice(0, 8).join(', ')); setUploading(false); return; }
 
@@ -747,15 +750,27 @@ function InputKeuangan() {
 
         const totalNet = newOrders.reduce((s,o) => s + o.pendapatanBersih, 0);
         const totalKotor = newOrders.reduce((s,o) => s + o.pendapatanKotor, 0);
-        const totalFee = newOrders.reduce((s,o) => s + o.totalBiaya + (o.biayaPemrosesan||0), 0);
+        const totalFee = newOrders.reduce((s,o) => s + o.totalBiaya, 0);
         setSuccess(true); setErr('');
+
+        // ── Kolom terdeteksi (debug) ──
+        const colsFound: string[] = [];
+        if (iHargaJual >= 0) colsFound.push('✅ Total Harga Produk');
+        else colsFound.push('❌ Total Harga Produk (H/I)');
+        if (iPenghasilan >= 0) colsFound.push('✅ Penghasilan');
+        else colsFound.push('❌ Penghasilan');
+        if (iTotalBiaya >= 0) colsFound.push('✅ Total Biaya');
+        const feeCols = [iFeeAdmin, iFeeLayanan, iOngkirAktual, iSubsidiOngkir, iBiayaPemrosesan, iPremiProteksi, iBiayaAMS, iBiayaTransaksi, iKomisi];
+        const feeFound = feeCols.filter(c => c >= 0).length;
+        colsFound.push(`${feeFound}/${feeCols.length} kolom fee terdeteksi`);
+
         const hppMsg = totalHppAll > 0
           ? `\n✅ HPP: Rp ${totalHppAll.toLocaleString('id-ID')} (${matchedSku} SKU matched dari ${skuMapSize} di Master)`
           : '\n⚠️ HPP: Rp 0 — tidak ada SKU yang match dengan Master Data!';
         const unmatchedMsg = unmatchedSku > 0
           ? `\n⚠️ ${unmatchedSku} SKU tidak ditemukan di Master: ${unmatchedList.slice(0,5).join(', ')}${unmatchedList.length>5?'...':''}`
           : '';
-        alert(`✅ ${newOrders.length} order diupload (${mpObj.marketplace}).\n💰 Kotor (Gross): Rp ${totalKotor.toLocaleString('id-ID')}\n🛒 Fee + Biaya: Rp ${totalFee.toLocaleString('id-ID')}${hppMsg}\n📊 Laba/Rugi: Rp ${totalNet.toLocaleString('id-ID')}${unmatchedMsg}`);
+        alert(`✅ ${newOrders.length} order diupload (${mpObj.marketplace}).\n\n📊 Ringkasan:\n💰 Kotor: Rp ${totalKotor.toLocaleString('id-ID')}\n🛒 Fee: Rp ${totalFee.toLocaleString('id-ID')}\n📦 HPP: Rp ${totalHppAll.toLocaleString('id-ID')}\n📈 Profit: Rp ${totalNet.toLocaleString('id-ID')}\n\n🔍 Kolom Terdeteksi:\n${colsFound.join('\n')}${hppMsg}${unmatchedMsg}`);
         setTimeout(() => setSuccess(false), 5000);
       } catch { setErr('Gagal membaca file. Pastikan format Excel benar.'); }
       setUploading(false);
