@@ -566,13 +566,25 @@ function InputKeuangan() {
       try {
         const data = new Uint8Array(ev.target?.result as ArrayBuffer);
         const wb = XLSX.read(data, { type: 'array' });
-        let sheetName = wb.SheetNames[0];
+        // ── Coba SEMUA sheet, cari yang ada keyword Lazada ──
+        let raw: string[][] = [];
+        let foundSheet = '';
         for (const sn of wb.SheetNames) {
-          if (sn.toLowerCase().includes('penghasilan') || sn.toLowerCase().includes('income') || sn.toLowerCase().includes('pesanan')) { sheetName = sn; break; }
+          const sheet = wb.Sheets[sn];
+          const r = XLSX.utils.sheet_to_json<string[]>(sheet, { header: 1 });
+          if (r.length < 2) continue;
+          for (let rowIdx = 0; rowIdx < Math.min(5, r.length); rowIdx++) {
+            const rowStr = (r[rowIdx] || []).map(c => String(c || '').toLowerCase().trim()).join(' ');
+            if (rowStr.includes('nama biaya') || rowStr.includes('nomor pesanan') || rowStr.includes('omset penjualan')) {
+              raw = r; foundSheet = sn; break;
+            }
+          }
+          if (foundSheet) break;
         }
-        const sheet = wb.Sheets[sheetName];
-        const raw = XLSX.utils.sheet_to_json<string[]>(sheet, { header: 1 });
-        if (raw.length < 2) { setErr('File kosong.'); setUploading(false); return; }
+        if (!foundSheet) {
+          raw = XLSX.utils.sheet_to_json<string[]>(wb.Sheets[wb.SheetNames[0]], { header: 1 });
+        }
+        if (raw.length < 2) { setErr('File kosong atau tidak ada data. Sheet ditemukan: ' + (foundSheet || 'tidak ada')); setUploading(false); return; }
         const h = raw[0].map((c: string) => String(c || '').toLowerCase().trim());
         const idx = (...kw: string[]) => h.findIndex(hh => kw.some(k => hh.includes(k)));
         const isShopee = h.includes('id pesanan') && h.includes('total penghasilan') && h.includes('total laba');
@@ -588,13 +600,20 @@ function InputKeuangan() {
 
         // ── PARSE LAZADA (format vertikal: 1 pesanan = banyak baris jenis biaya) ──
         if (isLazada) {
-          // ── Fallback: jika header row 0 tidak punya "nama biaya", coba row 1 ──
-          let lazadaH = h;
+          // ── Cari baris header dengan keyword "nama biaya" di 5 baris pertama ──
+          let lazadaH: string[] = [];
           let lazadaStartRow = 1;
-          const checkLazadaH = (hdrs: string[]) => hdrs.some(c => c.includes('nama biaya')) && hdrs.some(c => c.includes('nomor pesanan'));
-          if (!checkLazadaH(h) && raw.length > 2) {
-            const h1 = raw[1].map((c: string) => String(c || '').toLowerCase().trim());
-            if (checkLazadaH(h1)) { lazadaH = h1; lazadaStartRow = 2; }
+          for (let r = 0; r < Math.min(5, raw.length); r++) {
+            const row = (raw[r] || []).map(c => String(c || '').toLowerCase().trim());
+            if (row.some(c => c.includes('nama biaya')) && row.some(c => c.includes('nomor pesanan'))) {
+              lazadaH = row;
+              lazadaStartRow = r + 1;
+              break;
+            }
+          }
+          if (lazadaH.length === 0) {
+            // Fallback: pakai row 0
+            lazadaH = raw[0].map((c: string) => String(c || '').toLowerCase().trim());
           }
 
           const iNamaBiaya = lazadaH.findIndex(hh => hh.includes('nama biaya') || hh.includes('jenis biaya'));
