@@ -588,18 +588,28 @@ function InputKeuangan() {
 
         // ── PARSE LAZADA (format vertikal: 1 pesanan = banyak baris jenis biaya) ──
         if (isLazada) {
-          const iNamaBiaya = h.findIndex(hh => hh.includes('nama biaya') || hh.includes('jenis biaya'));       // Kolom D
-          const iJumlah = h.findIndex(hh => hh.includes('jumlah') && (hh.includes('pajak') || hh.includes('termasuk'))); // Kolom E
-          const iNoPesanan = h.findIndex(hh => hh.includes('nomor pesanan') || hh.includes('no pesanan'));    // Kolom K
-          const iIdPesanan = h.findIndex(hh => hh === 'id pesanan');       // Kolom L
-          const iSkuPenjual = h.findIndex(hh => hh.includes('sku penjual') || hh.includes('seller sku'));     // Kolom M
-          const iNamaProduk = h.findIndex(hh => hh === 'nama produk');     // Kolom R
-          const iStatusPesanan = h.findIndex(hh => hh.includes('status pesanan')); // Kolom Q
-          const iWht = h.findIndex(hh => hh.includes('wht'));             // Kolom O
-          const iTanggalTransaksi = h.findIndex(hh => hh.includes('tanggal transaksi') || hh.includes('tgl transaksi')); // Kolom C
+          // ── Fallback: jika header row 0 tidak punya "nama biaya", coba row 1 ──
+          let lazadaH = h;
+          let lazadaStartRow = 1;
+          const checkLazadaH = (hdrs: string[]) => hdrs.some(c => c.includes('nama biaya')) && hdrs.some(c => c.includes('nomor pesanan'));
+          if (!checkLazadaH(h) && raw.length > 2) {
+            const h1 = raw[1].map((c: string) => String(c || '').toLowerCase().trim());
+            if (checkLazadaH(h1)) { lazadaH = h1; lazadaStartRow = 2; }
+          }
+
+          const iNamaBiaya = lazadaH.findIndex(hh => hh.includes('nama biaya') || hh.includes('jenis biaya'));
+          const iJumlah = lazadaH.findIndex(hh => hh.includes('jumlah') && (hh.includes('pajak') || hh.includes('termasuk'))); // Kolom E
+          const iNoPesanan = lazadaH.findIndex(hh => hh.includes('nomor pesanan') || hh.includes('no pesanan'));    // Kolom K
+          const iIdPesanan = lazadaH.findIndex(hh => hh === 'id pesanan');       // Kolom L
+          const iSkuPenjual = lazadaH.findIndex(hh => hh.includes('sku penjual') || hh.includes('seller sku'));     // Kolom M
+          const iNamaProduk = lazadaH.findIndex(hh => hh === 'nama produk');     // Kolom R
+          const iStatusPesanan = lazadaH.findIndex(hh => hh.includes('status pesanan')); // Kolom Q
+          const iWht = lazadaH.findIndex(hh => hh.includes('wht'));             // Kolom O
+          const iTanggalTransaksi = lazadaH.findIndex(hh => hh.includes('tanggal transaksi') || hh.includes('tgl transaksi')); // Kolom C
 
           if (iNamaBiaya < 0 || iJumlah < 0 || iNoPesanan < 0) {
-            setErr(`Format Lazada: kolom wajib tidak ditemukan.\nNama Biaya: ${iNamaBiaya>=0?'✅':`❌ (header: ${h.slice(0,6).join(', ')})`}\nJumlah: ${iJumlah>=0?'✅':'❌'}\nNo Pesanan: ${iNoPesanan>=0?'✅':'❌'}`);
+            const allHeaders = lazadaH.map((hh, i) => `[${i}] ${hh || '(kosong)'}`).join('\n');
+            setErr(`Format Lazada: kolom wajib tidak ditemukan.\n\nNama Biaya: ${iNamaBiaya>=0?'OK':'MISSING'}\nJumlah: ${iJumlah>=0?'OK':'MISSING'}\nNo Pesanan: ${iNoPesanan>=0?'OK':'MISSING'}\n\nHEADER (${lazadaH.length} kolom):\n${allHeaders.slice(0, 600)}`);
             setUploading(false); return;
           }
 
