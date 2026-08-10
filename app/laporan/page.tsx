@@ -4,9 +4,10 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { ArusKasReport } from '@/app/laporan/components/ArusKasReport';
 import { LabaRugiReport } from '@/app/laporan/components/LabaRugiReport';
 import { LaporanStokReport } from '@/app/laporan/components/LaporanStokReport';
+import { useAgregasi } from '@/app/context/AgregasiContext';
 import { ExportButton } from '@/app/components/ExportButton';
 
-type JenisLaporan = 'laba-rugi' | 'arus-kas' | 'stok';
+type JenisLaporan = 'laba-rugi' | 'arus-kas' | 'stok' | 'omset';
 type Periode = 'minggu' | 'bulan' | 'tahun';
 
 // Helper: baca data real dari localStorage
@@ -53,7 +54,29 @@ export default function LaporanPage() {
   const biayaFiltered = useMemo(() => filterByPeriode(realData.biaya, 'tanggal', periode), [realData, periode]);
   const opexFiltered = useMemo(() => filterByPeriode(realData.opex, 'tanggal', periode), [realData, periode]);
 
-  // Laba Rugi real
+  // ── Data Omset Marketplace dari Agregasi (Operasional Gudang) ──
+  const { allRows } = useAgregasi();
+  const omsetData = useMemo(() => {
+    // Hanya order yang sudah selesai (Dikirim / Selesai / delivered)
+    const selesai = allRows.filter(r =>
+      r.statusPesanan === 'Selesai' || r.statusPesanan === 'delivered' ||
+      r.statusProses === 'Dikirim' || r.statusProses === 'Selesai'
+    );
+    // Group by marketplace
+    const byMp = new Map<string, { total: number; count: number }>();
+    for (const r of selesai) {
+      const mp = r.marketplace || 'Lainnya';
+      const exist = byMp.get(mp) || { total: 0, count: 0 };
+      exist.total += (r.hargaJual * r.kuantity) || r.hargaJual || 0;
+      exist.count += r.kuantity || 1;
+      byMp.set(mp, exist);
+    }
+    const list = Array.from(byMp.entries()).map(([mp, d]) => ({ marketplace: mp, total: d.total, items: d.count }));
+    const grandTotal = list.reduce((s, l) => s + l.total, 0);
+    return { list, grandTotal, orderCount: selesai.length };
+  }, [allRows]);
+
+  // Laba Rugi: HANYA dari Penjualan Kasir
   const labaRugiData = useMemo(() => {
     const pendapatan = penjualanFiltered.reduce((s: number, t: any) => s + (t.total || 0), 0);
     const biayaOps = biayaFiltered.reduce((s: number, b: any) => s + (b.jumlah || 0), 0);
@@ -122,6 +145,7 @@ export default function LaporanPage() {
         <span className="text-xs font-semibold text-slate-500">Jenis:</span>
         {([
           { key: 'laba-rugi' as const, label: '📈 Laba Rugi' },
+          { key: 'omset' as const, label: '💰 Omset' },
           { key: 'arus-kas' as const, label: '💵 Arus Kas' },
           { key: 'stok' as const, label: '📦 Stok' },
         ]).map((j) => (
@@ -158,6 +182,7 @@ export default function LaporanPage() {
       {/* Konten Laporan */}
       <section className="card-blue">
         {jenis === 'laba-rugi' && <LabaRugi periode={periode} />}
+        {jenis === 'omset' && <OmsetTab data={omsetData} />}
         {jenis === 'arus-kas' && <ArusKas periode={periode} />}
         {jenis === 'stok' && <LaporanStok periode={periode} />}
       </section>
@@ -249,6 +274,55 @@ function LaporanStok({ periode }: { periode: Periode }) {
     } catch { return { totalItem: 0, totalNilai: 0, items: [] }; }
   }, [mounted]);
   return <LaporanStokReport data={data} periode={PERIODE_LABELS[periode]} />;
+}
+
+/* ── Omset Tab: Gross Revenue dari Marketplace (Operasional Gudang) ── */
+function OmsetTab({ data }: { data: { list: { marketplace: string; total: number; items: number }[]; grandTotal: number; orderCount: number } }) {
+  // Warna per marketplace
+  const mpColors: Record<string, string> = {
+    Shopee: 'border-l-orange-500 bg-orange-50',
+    'TikTok Shop': 'border-l-slate-500 bg-slate-50',
+    Lazada: 'border-l-blue-500 bg-blue-50',
+    Tokopedia: 'border-l-emerald-500 bg-emerald-50',
+  };
+
+  return (
+    <div>
+      <div className="mb-1 h-1 w-16 rounded-full bg-gradient-to-r from-brand-500 to-brand-300" />
+      <h2 className="text-lg font-bold text-slate-800 sm:text-xl">💰 Gross Omset Marketplace</h2>
+      <p className="mt-1 text-sm text-slate-500">Pendapatan kotor dari pesanan marketplace yang sudah selesai / terkirim (belum dikurangi fee, HPP, dll)</p>
+
+      {/* Grand Total */}
+      <div className="mt-5 grid gap-3 sm:grid-cols-2">
+        <CardReport label="Total Omset Kotor" value={data.grandTotal} color="brand" highlight />
+        <CardReport label="Total Order Selesai" value={data.orderCount} color="slate" isCurrency={false} />
+      </div>
+
+      {/* Per Marketplace */}
+      {data.list.length > 0 ? (
+        <div className="mt-5 grid gap-3 sm:grid-cols-2">
+          {data.list.map(mp => (
+            <div key={mp.marketplace} className={`rounded-xl border-l-4 p-4 ${mpColors[mp.marketplace] || 'border-l-slate-300 bg-slate-50'}`}>
+              <p className="text-xs font-semibold text-slate-500">{mp.marketplace}</p>
+              <p className="mt-1 text-lg font-bold text-slate-800">Rp {mp.total.toLocaleString('id-ID')}</p>
+              <p className="text-xs text-slate-400">{mp.items} item terjual</p>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="mt-8 text-center py-12 text-slate-400">
+          <p className="text-4xl mb-2">💰</p>
+          <p className="font-semibold">Belum ada data omset marketplace.</p>
+          <p className="text-sm mt-1">Order yang sudah Dikirim/Selesai dari Operasional Gudang akan muncul di sini.</p>
+        </div>
+      )}
+
+      {/* Note */}
+      <div className="mt-5 rounded-xl bg-amber-50 border border-amber-200 p-3 text-xs text-amber-700">
+        ⚠️ <strong>Catatan:</strong> Ini adalah <strong>Gross Omset</strong> (pendapatan kotor marketplace). Belum termasuk potongan fee marketplace, HPP, biaya packing, dll. Untuk laporan laba rugi bersih, gunakan tab <strong>📈 Laba Rugi</strong> yang saat ini hanya menghitung dari Penjualan Kasir.
+      </div>
+    </div>
+  );
 }
 
 /* ------------------------------------------------------------------ */
