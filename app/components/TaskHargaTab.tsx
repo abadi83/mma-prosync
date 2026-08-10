@@ -132,7 +132,7 @@ export default function TaskHargaTab() {
   }, [settings]);
 
   /* ── Generate task untuk SATU SKU saja (dipicu dari SkuTab save) ── */
-  const generateTaskForSku = useCallback((skuCode: string) => {
+  const generateTaskForSku = useCallback((skuCode: string, knownOldHargaJual?: number) => {
     const skuItem = skus.find(s => s.sku === skuCode);
     if (!skuItem || skuItem.aktif !== 1) return 0;
     if (!skuItem.statusUploadToko || skuItem.statusUploadToko === 'nan') return 0;
@@ -169,14 +169,31 @@ export default function TaskHargaTab() {
       );
       if (alreadyExists) continue;
 
-      // Cek history terakhir
+      // Cek history terakhir di toko ini
       const lastHistory = history
         .filter(h => h.sku === skuCode && h.marketplace === toko.marketplace && h.tokoNama === toko.tokoNama)
         .sort((a, b) => b.tanggal.localeCompare(a.tanggal))[0];
-      const lastAppliedPrice = lastHistory ? lastHistory.hargaJualBaru : 0;
+      const lastHistoryPrice = lastHistory ? lastHistory.hargaJualBaru : 0;
 
-      // Skip kalau harga di toko sudah = master & harga beli sama
-      if (lastAppliedPrice === masterHargaJual && lastHistory && lastHistory.hargaBeliSaatItu === skuItem.hargaBaru) {
+      // Cek task done terakhir untuk toko ini (fallback kalau history kosong)
+      const lastDoneTask = !lastHistoryPrice ? tasks
+        .filter(t => t.sku === skuCode && t.marketplace === toko.marketplace &&
+          t.tokoNama === toko.tokoNama && t.status === 'done' && t.hargaJualFinal)
+        .sort((a, b) => (b.completedAt || '').localeCompare(a.completedAt || ''))[0]
+        : null;
+      const lastDonePrice = lastDoneTask?.hargaJualFinal || 0;
+
+      // ── Tentukan hargaJualLama (prioritas) ──
+      // 1. knownOldHargaJual = harga sebelum edit dari SkuTab (paling akurat!)
+      // 2. lastHistoryPrice = dari riwayat perubahan sebelumnya
+      // 3. lastDonePrice = dari task selesai sebelumnya
+      // 4. fallback: 0 → nanti di UI tampil "Baru"
+      const determinedOldPrice = knownOldHargaJual && knownOldHargaJual > 0
+        ? knownOldHargaJual
+        : lastHistoryPrice || lastDonePrice || 0;
+
+      // Skip kalau harga lama = harga baru (gak ada perubahan)
+      if (determinedOldPrice === masterHargaJual && determinedOldPrice > 0) {
         continue;
       }
 
@@ -195,7 +212,7 @@ export default function TaskHargaTab() {
         tokoId: toko.key,
         tokoNama: toko.tokoNama,
         marketplace: toko.marketplace,
-        hargaJualLama: lastAppliedPrice || skuItem.hargaJual,
+        hargaJualLama: determinedOldPrice,
         hargaJualBaru: masterHargaJual,
         hargaBeliSaatIni: skuItem.hargaBaru,
         status: 'todo',
@@ -218,9 +235,9 @@ export default function TaskHargaTab() {
   /* ── Listen event dari SkuTab: setiap kali user save SKU ── */
   useEffect(() => {
     const handler = (e: Event) => {
-      const detail = (e as CustomEvent).detail as { sku: string };
+      const detail = (e as CustomEvent).detail as { sku: string; oldHargaJual?: number; newHargaJual?: number };
       if (detail?.sku) {
-        generateTaskForSku(detail.sku);
+        generateTaskForSku(detail.sku, detail.oldHargaJual);
       }
     };
     window.addEventListener('sku-saved', handler);
@@ -230,23 +247,23 @@ export default function TaskHargaTab() {
   /* ── Process pending queue dari localStorage (pas tab ini di-buka) ── */
   const queueProcessedRef = React.useRef(false);
   useEffect(() => {
-    // Reset ref when component mounts (tab dibuka)
     queueProcessedRef.current = false;
   }, []);
   useEffect(() => {
     if (queueProcessedRef.current || skus.length === 0) return;
-    // Delay sedikit biar tasks & history udah ke-load dari localStorage
     const timer = setTimeout(() => {
       if (queueProcessedRef.current) return;
       try {
         const raw = localStorage.getItem('mma_pending_task_skus');
         if (!raw) { queueProcessedRef.current = true; return; }
-        const queue: string[] = JSON.parse(raw);
+        const queue: (string | { sku: string; oldHargaJual?: number; newHargaJual?: number })[] = JSON.parse(raw);
         if (queue.length === 0) { queueProcessedRef.current = true; return; }
 
         let processed = 0;
-        for (const skuCode of queue) {
-          const count = generateTaskForSku(skuCode);
+        for (const item of queue) {
+          const skuCode = typeof item === 'string' ? item : item.sku;
+          const oldPrice = typeof item === 'string' ? undefined : item.oldHargaJual;
+          const count = generateTaskForSku(skuCode, oldPrice);
           if (count > 0) processed += count;
         }
 
@@ -600,13 +617,23 @@ export default function TaskHargaTab() {
 
                     <div className="text-right shrink-0">
                       <p className="text-xs text-slate-400">Harga Jual Lama</p>
-                      <p className="text-sm font-semibold text-slate-500 line-through">
-                        Rp {task.hargaJualLama.toLocaleString('id-ID')}
-                      </p>
-                      <p className="text-xs text-slate-400 mt-0.5">Disarankan</p>
+                      {task.hargaJualLama > 0 ? (
+                        <p className="text-sm font-semibold text-slate-500 line-through">
+                          Rp {task.hargaJualLama.toLocaleString('id-ID')}
+                        </p>
+                      ) : (
+                        <p className="text-xs font-semibold text-amber-500">⚠ Belum ada data</p>
+                      )}
+                      <p className="text-xs text-slate-400 mt-0.5">Harga Baru (Master)</p>
                       <p className="text-sm font-bold text-emerald-600">
                         Rp {task.hargaJualBaru.toLocaleString('id-ID')}
                       </p>
+                      {/* Selisih */}
+                      {task.hargaJualLama > 0 && task.hargaJualBaru !== task.hargaJualLama && (
+                        <p className={`text-[10px] font-bold mt-0.5 ${task.hargaJualBaru > task.hargaJualLama ? 'text-red-500' : 'text-emerald-500'}`}>
+                          {task.hargaJualBaru > task.hargaJualLama ? '📈' : '📉'} Rp {Math.abs(task.hargaJualBaru - task.hargaJualLama).toLocaleString('id-ID')} ({((task.hargaJualBaru - task.hargaJualLama) / task.hargaJualLama * 100) >= 0 ? '+' : ''}{((task.hargaJualBaru - task.hargaJualLama) / task.hargaJualLama * 100).toFixed(1)}%)
+                        </p>
+                      )}
                       {task.hargaJualFinal && task.hargaJualFinal !== task.hargaJualBaru && (
                         <p className="text-xs text-amber-600">
                           Final: Rp {task.hargaJualFinal.toLocaleString('id-ID')}
@@ -837,14 +864,17 @@ export default function TaskHargaTab() {
                   ['Marketplace', detailTask.marketplace],
                   ['Toko', detailTask.tokoNama],
                   ['Harga Beli Saat Ini', `Rp ${detailTask.hargaBeliSaatIni.toLocaleString('id-ID')}`],
-                  ['Harga Jual Lama', `Rp ${detailTask.hargaJualLama.toLocaleString('id-ID')}`],
-                  ['Harga Disarankan', `Rp ${detailTask.hargaJualBaru.toLocaleString('id-ID')}`],
+                  ['Harga Jual Lama', detailTask.hargaJualLama > 0 ? `Rp ${detailTask.hargaJualLama.toLocaleString('id-ID')}` : '⚠ Belum ada data'],
+                  ['Harga Baru (Master)', `Rp ${detailTask.hargaJualBaru.toLocaleString('id-ID')}`],
+                  detailTask.hargaJualLama > 0 && detailTask.hargaJualBaru !== detailTask.hargaJualLama
+                    ? ['Selisih', `${detailTask.hargaJualBaru > detailTask.hargaJualLama ? '📈 +' : '📉 '}Rp ${Math.abs(detailTask.hargaJualBaru - detailTask.hargaJualLama).toLocaleString('id-ID')} (${((detailTask.hargaJualBaru - detailTask.hargaJualLama) / detailTask.hargaJualLama * 100) >= 0 ? '+' : ''}${((detailTask.hargaJualBaru - detailTask.hargaJualLama) / detailTask.hargaJualLama * 100).toFixed(1)}%)`]
+                    : null,
                   ['Dibuat', new Date(detailTask.createdAt).toLocaleString('id-ID')],
                   ['Assigned To', detailTask.assignedTo || '-'],
                   ['Diselesaikan Oleh', detailTask.completedBy || '-'],
                   ['Harga Final', detailTask.hargaJualFinal ? `Rp ${detailTask.hargaJualFinal.toLocaleString('id-ID')}` : '-'],
                   ['Catatan', detailTask.catatan || '-'],
-                ].map(([label, val]) => (
+                ].filter(Boolean).map(([label, val]) => (
                   <div key={label as string} className="flex flex-col">
                     <span className="text-xs text-slate-400">{label}</span>
                     <span className="font-medium text-slate-800 text-xs">{val}</span>
@@ -922,12 +952,27 @@ export default function TaskHargaTab() {
               <div className="rounded-xl bg-slate-50 p-3">
                 <div className="flex justify-between text-xs">
                   <span className="text-slate-500">Harga Jual Lama</span>
-                  <span className="text-slate-500 line-through">Rp {completeForm.task.hargaJualLama.toLocaleString('id-ID')}</span>
+                  {completeForm.task.hargaJualLama > 0 ? (
+                    <span className="text-slate-500 line-through">Rp {completeForm.task.hargaJualLama.toLocaleString('id-ID')}</span>
+                  ) : (
+                    <span className="text-amber-500 font-semibold">⚠ Belum ada data</span>
+                  )}
                 </div>
                 <div className="flex justify-between text-xs mt-1">
                   <span className="text-slate-500">Harga Beli Saat Ini</span>
                   <span className="font-semibold text-slate-700">Rp {completeForm.task.hargaBeliSaatIni.toLocaleString('id-ID')}</span>
                 </div>
+                {completeForm.task.hargaJualLama > 0 && completeForm.task.hargaJualBaru !== completeForm.task.hargaJualLama && (
+                  <div className="flex justify-between text-xs mt-1">
+                    <span className="text-slate-500">Selisih</span>
+                    <span className={`font-bold ${completeForm.task.hargaJualBaru > completeForm.task.hargaJualLama ? 'text-red-500' : 'text-emerald-500'}`}>
+                      {completeForm.task.hargaJualBaru > completeForm.task.hargaJualLama ? '📈 +' : '📉 '}
+                      Rp {Math.abs(completeForm.task.hargaJualBaru - completeForm.task.hargaJualLama).toLocaleString('id-ID')}
+                      ({((completeForm.task.hargaJualBaru - completeForm.task.hargaJualLama) / completeForm.task.hargaJualLama * 100) >= 0 ? '+' : ''}
+                      {((completeForm.task.hargaJualBaru - completeForm.task.hargaJualLama) / completeForm.task.hargaJualLama * 100).toFixed(1)}%)
+                    </span>
+                  </div>
+                )}
                 <div className="flex justify-between text-sm mt-1">
                   <span className="text-emerald-600 font-semibold">💰 Master SKU (hargaJual)</span>
                   <span className="font-bold text-emerald-600">Rp {completeForm.task.hargaJualBaru.toLocaleString('id-ID')}</span>

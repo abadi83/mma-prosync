@@ -172,6 +172,9 @@ function SkuTab() {
       },...prev]);
     }
 
+    // ── Capture harga JUAL lama SEBELUM di-update ──
+    const oldHargaJual = oldItem ? oldItem.hargaJual : 0;
+
     const item:SkuItem={
       id:editId||`p-${Date.now()}`,
       sku:f.sku,nama:f.nama,grade:f.grade,kodeSupplierVarian:f.kodeSupplierVarian,statusEditGambar:f.statusEditGambar,statusUploadToko:f.statusUploadToko,supplier:f.supplier,kategori:f.kategori,satuan:f.satuan||'pcs',hargaModalLama:hargaModalFinal,hargaBaru:hargaBaruFinal,hargaJual:+f.hargaJual||0,stok:editId?(skus.find(x=>x.id===editId)?.stok??0):0,minStok:+f.minStok||0,aktif:f.aktif,perubahanHargaBeli:pct};
@@ -180,15 +183,20 @@ function SkuTab() {
     setShowForm(false);
     // ── Trigger Task Harga: auto-buat task hanya untuk SKU ini ──
     if (typeof window !== 'undefined') {
+      const newHargaJual = +f.hargaJual || 0;
       // Via custom event (jika TaskHargaTab sedang mounted)
-      window.dispatchEvent(new CustomEvent('sku-saved', { detail: { sku: f.sku } }));
+      window.dispatchEvent(new CustomEvent('sku-saved', { detail: { sku: f.sku, oldHargaJual, newHargaJual } }));
       // Via localStorage queue (fallback jika TaskHargaTab belum mounted)
       try {
         const queue = JSON.parse(localStorage.getItem('mma_pending_task_skus') || '[]');
-        if (!queue.includes(f.sku)) {
-          queue.push(f.sku);
-          localStorage.setItem('mma_pending_task_skus', JSON.stringify(queue));
+        // Cek apakah SKU ini sudah ada di queue, kalau ada update oldHargaJual-nya
+        const existingIdx = queue.findIndex((q: any) => (typeof q === 'string' ? q : q.sku) === f.sku);
+        if (existingIdx >= 0) {
+          queue[existingIdx] = { sku: f.sku, oldHargaJual, newHargaJual };
+        } else {
+          queue.push({ sku: f.sku, oldHargaJual, newHargaJual });
         }
+        localStorage.setItem('mma_pending_task_skus', JSON.stringify(queue));
       } catch {}
     }
   };
@@ -269,8 +277,13 @@ function SkuTab() {
           for (const item of incoming) {
             if (!triggeredSkus.has(item.sku)) {
               triggeredSkus.add(item.sku);
-              window.dispatchEvent(new CustomEvent('sku-saved', { detail: { sku: item.sku } }));
-              if (!queue.includes(item.sku)) queue.push(item.sku);
+              window.dispatchEvent(new CustomEvent('sku-saved', { detail: { sku: item.sku, oldHargaJual: 0, newHargaJual: item.hargaJual } }));
+              const existingIdx = queue.findIndex((q: any) => (typeof q === 'string' ? q : q.sku) === item.sku);
+              if (existingIdx >= 0) {
+                queue[existingIdx] = { sku: item.sku, oldHargaJual: 0, newHargaJual: item.hargaJual };
+              } else {
+                queue.push({ sku: item.sku, oldHargaJual: 0, newHargaJual: item.hargaJual });
+              }
             }
           }
           localStorage.setItem('mma_pending_task_skus', JSON.stringify(queue));
