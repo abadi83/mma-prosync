@@ -522,11 +522,16 @@ function InputKeuangan() {
 
   // Load toko dari Master Data
   useEffect(() => {
+    const DEFAULT_TOKO = [
+      { id:'t-1',nama:'Toko Berkah Abadi',marketplace:'Shopee' },
+      { id:'t-2',nama:'Berkah Abadi Official',marketplace:'Tokopedia' },
+      { id:'t-3',nama:'Toko Berkah Abadi',marketplace:'Lazada' },
+    ];
     try {
       const stored = localStorage.getItem('mma_toko_master');
       if (stored) setTokoList(JSON.parse(stored));
-      else setTokoList(INITIAL_TOKO.map(t => ({id:t.id,nama:t.nama,marketplace:t.marketplace})));
-    } catch { setTokoList(INITIAL_TOKO.map(t => ({id:t.id,nama:t.nama,marketplace:t.marketplace}))); }
+      else setTokoList(DEFAULT_TOKO);
+    } catch { setTokoList(DEFAULT_TOKO); }
   }, []);
 
   const mp = MARKETPLACE_TOKO.find(m => m.id === selectedMp)!;
