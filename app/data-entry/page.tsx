@@ -1095,7 +1095,7 @@ function UploadHistory() {
                                 <tbody className="divide-y divide-slate-50">
                                   {o.items.map((item, idx) => {
                                     const subtotalHpp = (item.hpp || 0) * item.qty;
-                                    const revenueItem = item.hargaJual * item.qty;
+                                    const revenueItem = item.hargaJual; // ← sudah total dari Excel, tidak dikali qty
                                     const labaItem = revenueItem - subtotalHpp;
                                     return (
                                       <tr key={idx} className="hover:bg-white">
@@ -1116,7 +1116,7 @@ function UploadHistory() {
                                 </tbody>
                                 <tfoot><tr className="bg-slate-50 font-semibold">
                                   <td colSpan={3} className="px-2 py-2 text-slate-500">TOTAL</td>
-                                  <td className="px-2 py-2 text-right">Rp {o.items.reduce((s,i)=>s+(i.hargaJual*i.qty),0).toLocaleString('id-ID')}</td>
+                                  <td className="px-2 py-2 text-right">Rp {o.items.reduce((s,i)=>s + i.hargaJual,0).toLocaleString('id-ID')}</td>
                                   <td className="px-2 py-2"></td>
                                   <td className="px-2 py-2 text-right text-purple-600">Rp {o.totalHPP.toLocaleString('id-ID')}</td>
                                   <td className={`px-2 py-2 text-right ${grossMargin>=0?'text-emerald-600':'text-red-500'}`}>Rp {grossMargin.toLocaleString('id-ID')}</td>
