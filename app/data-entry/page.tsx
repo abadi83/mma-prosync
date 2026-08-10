@@ -677,7 +677,13 @@ function InputKeuangan() {
           });
           totalHPP = itemsWithHpp.reduce((s, it) => s + (it.hpp * it.qty), 0);
           totalHppAll += totalHPP;
-          const netRevenue = o.laba || o.penghasilan;
+
+          // ── Kotor = GROSS (total penjualan dari item, tanpa dikurangi apapun) ──
+          const grossRevenue = itemsWithHpp.reduce((s, it) => s + (it.hargaJual * it.qty), 0) || o.penghasilan || 0;
+          // ── Bersih = Kotor - Fee - Biaya Proses - HPP ──
+          const totalBiayaFinal = (o.totalBiaya || 0) + (o.biayaPemrosesan || 0);
+          const labaFinal = grossRevenue - totalBiayaFinal - totalHPP;
+
           newOrders.push({
             id: `mp-${Date.now()}-${orderId.slice(-6)}`,
             noPesanan: orderId,
@@ -685,8 +691,8 @@ function InputKeuangan() {
             marketplaceId: mpObj.id,
             marketplace: mpObj.marketplace,
             tokoNama,
-            pendapatanKotor: o.penghasilan,
-            pendapatanBersih: netRevenue,
+            pendapatanKotor: grossRevenue,                        // ← GROSS, total penjualan
+            pendapatanBersih: labaFinal,                          // ← LABA/RUGI: Kotor - Fee - BiayaProses - HPP
             totalBiaya: o.totalBiaya,
             feeAdmin: o.feeAdmin,
             feeLayanan: o.feeLayanan,
@@ -699,7 +705,7 @@ function InputKeuangan() {
             komisi: o.komisi,
             items: itemsWithHpp,
             totalHPP,
-            labaKotor: netRevenue - totalHPP,
+            labaKotor: labaFinal,                                 // ← sama dengan pendapatanBersih
             catatan: `Upload ${file.name}`,
           });
         }
@@ -712,13 +718,16 @@ function InputKeuangan() {
           const summary = newOrders.map(o => ({
             id: o.id, tanggal: o.tanggal, marketplaceId: o.marketplaceId, marketplaceNama: `${o.marketplace} — ${o.tokoNama}`,
             pendapatanKotor: o.pendapatanKotor, feeMarketplace: o.totalBiaya, biayaIklan: 0, biayaPengemasan: 0,
-            biayaPengiriman: o.ongkirAktual, pendapatanBersih: o.pendapatanBersih, catatan: o.catatan,
+            biayaPengiriman: o.ongkirAktual, pendapatanBersih: o.pendapatanBersih, biayaProses: o.biayaPemrosesan, totalHPP: o.totalHPP, catatan: o.catatan,
+          }));
           }));
           const existingOld = JSON.parse(localStorage.getItem('mma_marketplace_income') || '[]');
           localStorage.setItem('mma_marketplace_income', JSON.stringify([...summary, ...existingOld]));
         } catch { }
 
         const totalNet = newOrders.reduce((s,o) => s + o.pendapatanBersih, 0);
+        const totalKotor = newOrders.reduce((s,o) => s + o.pendapatanKotor, 0);
+        const totalFee = newOrders.reduce((s,o) => s + o.totalBiaya + (o.biayaPemrosesan||0), 0);
         setSuccess(true); setErr('');
         const hppMsg = totalHppAll > 0
           ? `\n✅ HPP: Rp ${totalHppAll.toLocaleString('id-ID')} (${matchedSku} SKU matched dari ${skuMapSize} di Master)`
@@ -726,7 +735,7 @@ function InputKeuangan() {
         const unmatchedMsg = unmatchedSku > 0
           ? `\n⚠️ ${unmatchedSku} SKU tidak ditemukan di Master: ${unmatchedList.slice(0,5).join(', ')}${unmatchedList.length>5?'...':''}`
           : '';
-        alert(`✅ ${newOrders.length} order diupload (${mpObj.marketplace}).\nNet Revenue: Rp ${totalNet.toLocaleString('id-ID')}${hppMsg}\nLaba Kotor: Rp ${(totalNet-totalHppAll).toLocaleString('id-ID')}${unmatchedMsg}`);
+        alert(`✅ ${newOrders.length} order diupload (${mpObj.marketplace}).\n💰 Kotor (Gross): Rp ${totalKotor.toLocaleString('id-ID')}\n🛒 Fee + Biaya: Rp ${totalFee.toLocaleString('id-ID')}${hppMsg}\n📊 Laba/Rugi: Rp ${totalNet.toLocaleString('id-ID')}${unmatchedMsg}`);
         setTimeout(() => setSuccess(false), 5000);
       } catch { setErr('Gagal membaca file. Pastikan format Excel benar.'); }
       setUploading(false);
@@ -922,11 +931,12 @@ function UploadHistory() {
 
   if (orders.length === 0) return null;
 
-  const totalNet = orders.reduce((s, o) => s + o.pendapatanBersih, 0);
+  const totalNet = orders.reduce((s, o) => s + o.pendapatanBersih, 0);     // sekarang = Laba/Rugi
   const totalHpp = orders.reduce((s, o) => s + o.totalHPP, 0);
-  const totalKotor = orders.reduce((s, o) => s + o.pendapatanKotor, 0);
-  const totalFee = orders.reduce((s, o) => s + o.totalBiaya, 0);
+  const totalKotor = orders.reduce((s, o) => s + o.pendapatanKotor, 0);    // GROSS
+  const totalFee = orders.reduce((s, o) => s + (o.totalBiaya || 0), 0);
   const totalBiayaProses = orders.reduce((s, o) => s + (o.biayaPemrosesan || 0), 0);
+  const totalFeeAll = totalFee + totalBiayaProses;                           // Fee + Biaya Proses
 
   // Kumpulkan semua SKU unik dengan HPP
   const skuSummary = new Map<string, { nama: string; totalQty: number; totalHpp: number; hppUnit: number; muncul: number }>();
@@ -958,31 +968,36 @@ function UploadHistory() {
         <p className="text-sm font-bold text-slate-700 mb-3">📊 Ringkasan Upload Marketplace</p>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-xs">
           <div className="rounded-xl bg-slate-50 p-3 text-center">
-            <p className="text-slate-400">Pendapatan Kotor</p>
+            <p className="text-slate-400">💰 Pendapatan Kotor</p>
             <p className="text-lg font-bold text-slate-700">Rp {totalKotor.toLocaleString('id-ID')}</p>
+            <p className="text-[10px] text-slate-400">Gross (tanpa potongan)</p>
           </div>
           <div className="rounded-xl bg-red-50 p-3 text-center">
-            <p className="text-red-400">Total Fee</p>
-            <p className="text-lg font-bold text-red-600">−Rp {totalFee.toLocaleString('id-ID')}</p>
+            <p className="text-red-400">🛒 Total Fee + Biaya</p>
+            <p className="text-lg font-bold text-red-600">−Rp {totalFeeAll.toLocaleString('id-ID')}</p>
+            <p className="text-[10px] text-red-400">fee MP + biaya proses</p>
+          </div>
+          <div className="rounded-xl bg-purple-50 p-3 text-center">
+            <p className="text-purple-500">📦 Total HPP</p>
+            <p className="text-lg font-bold text-purple-600">−Rp {totalHpp.toLocaleString('id-ID')}</p>
+            <p className="text-[10px] text-purple-400">harga modal SKU</p>
           </div>
           <div className="rounded-xl bg-amber-50 p-3 text-center">
             <p className="text-amber-500">Biaya Proses</p>
             <p className="text-lg font-bold text-amber-600">−Rp {totalBiayaProses.toLocaleString('id-ID')}</p>
             <p className="text-[10px] text-amber-400">per paket</p>
           </div>
-          <div className="rounded-xl bg-emerald-50 p-3 text-center">
-            <p className="text-emerald-500">Pendapatan Bersih</p>
-            <p className="text-lg font-bold text-emerald-600">Rp {totalNet.toLocaleString('id-ID')}</p>
-          </div>
-          <div className="rounded-xl bg-purple-50 p-3 text-center">
-            <p className="text-purple-500">Total HPP</p>
-            <p className="text-lg font-bold text-purple-600">−Rp {totalHpp.toLocaleString('id-ID')}</p>
-          </div>
           <div className="rounded-xl bg-blue-50 p-3 text-center">
-            <p className="text-blue-500">Laba Kotor</p>
-            <p className={`text-lg font-bold ${totalNet - totalHpp >= 0 ? 'text-blue-600' : 'text-red-600'}`}>
-              Rp {(totalNet - totalHpp).toLocaleString('id-ID')}
+            <p className="text-blue-500">Pendapatan Bersih</p>
+            <p className="text-lg font-bold text-blue-600">Rp {(totalKotor - totalFeeAll).toLocaleString('id-ID')}</p>
+            <p className="text-[10px] text-blue-400">Kotor − Fee</p>
+          </div>
+          <div className={`rounded-xl p-3 text-center ${totalNet >= 0 ? 'bg-emerald-50' : 'bg-red-50'}`}>
+            <p className={totalNet >= 0 ? 'text-emerald-500' : 'text-red-500'}>📊 Laba / Rugi</p>
+            <p className={`text-lg font-bold ${totalNet >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+              Rp {totalNet.toLocaleString('id-ID')}
             </p>
+            <p className={`text-[10px] ${totalNet >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>Kotor − Fee − HPP</p>
           </div>
         </div>
       </div>
@@ -992,11 +1007,11 @@ function UploadHistory() {
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead><tr className="bg-brand-50 text-[10px] uppercase text-brand-500">
-              {['No. Pesanan','Tgl','MP','Pendapatan','Fee','B.Proses','Bersih','HPP','Laba','SKU'].map(c => <th key={c} className="px-2 py-2 font-semibold whitespace-nowrap">{c}</th>)}
+              {['No. Pesanan','Tgl','MP','Kotor','Fee','B.Proses','HPP','Laba/Rugi','SKU'].map(c => <th key={c} className="px-2 py-2 font-semibold whitespace-nowrap">{c}</th>)}
             </tr></thead>
             <tbody className="divide-y divide-slate-50 bg-white">
               {orders.slice(0, 100).map(o => {
-                const laba = o.pendapatanBersih - o.totalHPP;
+                const grossMargin = o.pendapatanKotor - o.totalHPP;  // margin kotor per SKU (sebelum fee)
                 const isOpen = expanded.has(o.id);
                 return (
                   <React.Fragment key={o.id}>
@@ -1005,11 +1020,10 @@ function UploadHistory() {
                       <td className="px-2 py-2 text-[10px] whitespace-nowrap">{o.tanggal}</td>
                       <td className="px-2 py-2 font-medium text-[10px]">{o.marketplace}</td>
                       <td className="px-2 py-2 text-[10px]">Rp {o.pendapatanKotor.toLocaleString('id-ID')}</td>
-                      <td className="px-2 py-2 text-[10px] text-red-500">−{o.totalBiaya.toLocaleString('id-ID')}</td>
+                      <td className="px-2 py-2 text-[10px] text-red-500">−{(o.totalBiaya + (o.biayaPemrosesan||0)).toLocaleString('id-ID')}</td>
                       <td className="px-2 py-2 text-[10px] text-amber-600">{o.biayaPemrosesan > 0 ? `−${o.biayaPemrosesan.toLocaleString('id-ID')}` : '-'}</td>
-                      <td className="px-2 py-2 text-[10px] font-semibold text-emerald-600">Rp {o.pendapatanBersih.toLocaleString('id-ID')}</td>
                       <td className="px-2 py-2 text-[10px] text-purple-600">{o.totalHPP>0?`Rp ${o.totalHPP.toLocaleString('id-ID')}`:'⚠️ 0'}</td>
-                      <td className="px-2 py-2 text-[10px] font-bold" style={{color: laba>=0?'#059669':'#dc2626'}}>Rp {laba.toLocaleString('id-ID')}</td>
+                      <td className="px-2 py-2 text-[10px] font-bold" style={{color: o.pendapatanBersih>=0?'#059669':'#dc2626'}}>Rp {o.pendapatanBersih.toLocaleString('id-ID')}</td>
                       <td className="px-2 py-2 text-[10px] text-brand-500 font-semibold">{o.items.length} SKU {isOpen?'▲':'▼'}</td>
                     </tr>
                     {/* ── EXPANDED DETAIL ROW ── */}
@@ -1083,7 +1097,7 @@ function UploadHistory() {
                                   <td className="px-2 py-2 text-right">Rp {o.items.reduce((s,i)=>s+(i.hargaJual*i.qty),0).toLocaleString('id-ID')}</td>
                                   <td className="px-2 py-2"></td>
                                   <td className="px-2 py-2 text-right text-purple-600">Rp {o.totalHPP.toLocaleString('id-ID')}</td>
-                                  <td className={`px-2 py-2 text-right ${laba>=0?'text-emerald-600':'text-red-500'}`}>Rp {laba.toLocaleString('id-ID')}</td>
+                                  <td className={`px-2 py-2 text-right ${grossMargin>=0?'text-emerald-600':'text-red-500'}`}>Rp {grossMargin.toLocaleString('id-ID')}</td>
                                 </tr></tfoot>
                               </table>
                             </div>

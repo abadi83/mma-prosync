@@ -219,11 +219,12 @@ function LabaRugi({ periode }: { periode: Periode }) {
     const filteredPenjualan = f(penjualan, 'tanggal');
     const kasirTotal = filteredPenjualan.reduce((s: number, t: any) => s + (t.total || 0), 0);
 
-    // Marketplace: detail per order
-    let marketplaceNet = 0;
+    // Marketplace: detail per order — pendapatanBersih sekarang = LABA/RUGI final
+    let marketplaceLaba = 0;       // sudah = Kotor - Fee - BiayaProses - HPP
     let marketplaceHpp = 0;
     let marketplaceFee = 0;
     let marketplaceKotor = 0;
+    let marketplaceBiayaProses = 0;
     const breakdownPerToko: any[] = [];
     const tokoSet = new Set<string>();
 
@@ -232,15 +233,16 @@ function LabaRugi({ periode }: { periode: Periode }) {
       const mpFiltered = f(mpOrders, 'tanggal');
 
       // Group by toko
-      const byToko = new Map<string, { net: number; hpp: number; fee: number; kotor: number; count: number; marketplace: string }>();
+      const byToko = new Map<string, { laba: number; hpp: number; fee: number; kotor: number; biayaProses: number; count: number; marketplace: string }>();
       for (const o of mpFiltered) {
         const key = o.tokoNama || 'Unknown';
         tokoSet.add(key);
-        const exist = byToko.get(key) || { net: 0, hpp: 0, fee: 0, kotor: 0, count: 0, marketplace: o.marketplace || '' };
-        exist.net += o.pendapatanBersih || 0;
-        exist.hpp += o.totalHPP || 0;
-        exist.fee += o.totalBiaya || 0;
+        const exist = byToko.get(key) || { laba: 0, hpp: 0, fee: 0, kotor: 0, biayaProses: 0, count: 0, marketplace: o.marketplace || '' };
         exist.kotor += o.pendapatanKotor || 0;
+        exist.fee += (o.totalBiaya || 0) + (o.biayaPemrosesan || 0);
+        exist.biayaProses += o.biayaPemrosesan || 0;
+        exist.hpp += o.totalHPP || 0;
+        exist.laba += o.pendapatanBersih || 0;   // ← udah laba/rugi final (Kotor - Fee - BiayaProses - HPP)
         exist.count++;
         exist.marketplace = o.marketplace || exist.marketplace;
         byToko.set(key, exist);
@@ -251,10 +253,11 @@ function LabaRugi({ periode }: { periode: Periode }) {
         ? Array.from(byToko.values())
         : [byToko.get(filterToko)].filter(Boolean) as any[];
 
-      marketplaceNet = filteredByToko.reduce((s, t) => s + t.net, 0);
-      marketplaceHpp = filteredByToko.reduce((s, t) => s + t.hpp, 0);
-      marketplaceFee = filteredByToko.reduce((s, t) => s + t.fee, 0);
       marketplaceKotor = filteredByToko.reduce((s, t) => s + t.kotor, 0);
+      marketplaceFee = filteredByToko.reduce((s, t) => s + t.fee, 0);
+      marketplaceBiayaProses = filteredByToko.reduce((s, t) => s + t.biayaProses, 0);
+      marketplaceHpp = filteredByToko.reduce((s, t) => s + t.hpp, 0);
+      marketplaceLaba = filteredByToko.reduce((s, t) => s + t.laba, 0);
 
       for (const [nama, d] of byToko) {
         breakdownPerToko.push({
@@ -262,17 +265,18 @@ function LabaRugi({ periode }: { periode: Periode }) {
           marketplace: d.marketplace,
           pendapatanKotor: d.kotor,
           fee: d.fee,
-          pendapatanBersih: d.net,
+          pendapatanBersih: d.laba,          // ← laba/rugi final
           hpp: d.hpp,
-          labaKotor: d.net - d.hpp,
+          labaKotor: d.laba,                 // ← sama, udah net
           orderCount: d.count,
         });
       }
     } catch { }
 
-    const p = kasirTotal + marketplaceNet;
-    const totalHpp = marketplaceHpp; // HPP dari marketplace
-    // HPP dari Master SKU untuk Kasir (jika ada)
+    // ── Final Laba Rugi ──
+    // Pendapatan = Kasir + Marketplace GROSS
+    const totalPendapatan = kasirTotal + marketplaceKotor;
+    // HPP: dari Master SKU untuk Kasir + HPP Marketplace
     let hppKasir = 0;
     try {
       const skuData = JSON.parse(localStorage.getItem('mma_sku_data') || '[]');
@@ -280,15 +284,18 @@ function LabaRugi({ periode }: { periode: Periode }) {
       for (const s of skuData) { if (s.sku && s.hargaBaru > 0) hargaMap.set(s.sku, s.hargaBaru); }
       for (const t of filteredPenjualan) { hppKasir += (hargaMap.get(t.sku) || 0) * (t.qty || 1); }
     } catch {}
-    const hpp = hppKasir + totalHpp;
-
+    const totalHppAll = hppKasir + marketplaceHpp;
+    // Biaya = operasional + opex + fee marketplace (fee + biaya proses)
     const b = f(biaya, 'tanggal').reduce((s: number, b2: any) => s + (b2.jumlah || 0), 0);
     const o = f(opex, 'tanggal').reduce((s: number, o2: any) => s + (o2.total || 0), 0);
-    const labaKotor = p - hpp;
+    const totalBiaya = b + o + marketplaceFee;
+    // Laba/Rugi = Pendapatan Gross - HPP - Biaya
+    const labaKotor = totalPendapatan - totalHppAll - marketplaceFee;
     const labaBersih = labaKotor - b - o;
     return {
-      pendapatan: p, hargaPokok: hpp, biayaOperasional: b, biayaLain: o, labaKotor, labaBersih,
-      feeMarketplace: marketplaceFee, hppMarketplace: totalHpp,
+      pendapatan: totalPendapatan, hargaPokok: totalHppAll, biayaOperasional: b, biayaLain: o + marketplaceFee,
+      labaKotor, labaBersih,
+      feeMarketplace: marketplaceFee, hppMarketplace: marketplaceHpp,
       breakdownPerToko, tokoList: Array.from(tokoSet).sort(),
     };
   }, [mounted, periode, filterToko]);
