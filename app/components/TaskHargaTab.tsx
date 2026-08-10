@@ -68,6 +68,9 @@ function calcSuggestedPrice(hargaBeli: number, potonganMP: number, biayaTetap: n
   return Math.round((hargaBeli * (1 + keuntungan / 100) + biayaTetap) / (1 - potonganMP / 100));
 }
 
+const DEFAULT_KEUNTUNGAN = 20;
+const DEFAULT_BIAYA_TETAP = 1250;
+
 const MP_POTONGAN: Record<string, number> = {
   Shopee: 10,
   Tokopedia: 8,
@@ -115,110 +118,124 @@ export default function TaskHargaTab() {
   const [searchSku, setSearchSku] = useState('');
   const [viewMode, setViewMode] = useState<'tasks' | 'history' | 'performa'>('tasks');
 
-  /* ── Auto-generate tasks when SKU hargaBaru changes ── */
-  const generateTasks = useCallback(() => {
-    // Collect all unique marketplace stores from SKU statusUploadToko
-    const tokoMap = new Map<string, { tokoNama: string; marketplace: string }>();
-    const tokoSkus = new Map<string, Set<string>>(); // tokoKey -> set of SKU codes
+  /* ── Settings ── */
+  const [showSettings, setShowSettings] = useState(false);
+  const [settings, setSettings] = useState(() => {
+    if (typeof window === 'undefined') return { keuntungan: DEFAULT_KEUNTUNGAN, biayaTetap: DEFAULT_BIAYA_TETAP };
+    try {
+      const raw = localStorage.getItem('mma_taskharga_settings');
+      return raw ? JSON.parse(raw) : { keuntungan: DEFAULT_KEUNTUNGAN, biayaTetap: DEFAULT_BIAYA_TETAP };
+    } catch { return { keuntungan: DEFAULT_KEUNTUNGAN, biayaTetap: DEFAULT_BIAYA_TETAP }; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('mma_taskharga_settings', JSON.stringify(settings)); } catch { }
+  }, [settings]);
 
-    for (const sku of skus) {
-      if (!sku.statusUploadToko || sku.statusUploadToko === 'nan') continue;
-      const parts = sku.statusUploadToko.split('|');
-      for (const part of parts) {
-        const trimmed = part.trim();
-        if (!trimmed) continue;
-        const idx = trimmed.indexOf('—');
-        if (idx === -1) continue;
-        const mp = trimmed.slice(0, idx).trim();
-        const nama = trimmed.slice(idx + 1).trim();
-        if (!mp || !nama) continue;
-        const key = `${mp}|${nama}`;
-        if (!tokoMap.has(key)) {
-          tokoMap.set(key, { tokoNama: nama, marketplace: mp });
-        }
-        if (!tokoSkus.has(key)) tokoSkus.set(key, new Set());
-        tokoSkus.get(key)!.add(sku.sku);
-      }
+  /* ── Generate task untuk SATU SKU saja (dipicu dari SkuTab save) ── */
+  const generateTaskForSku = useCallback((skuCode: string) => {
+    const skuItem = skus.find(s => s.sku === skuCode);
+    if (!skuItem || skuItem.aktif !== 1) return 0;
+    if (!skuItem.statusUploadToko || skuItem.statusUploadToko === 'nan') return 0;
+
+    // Parse toko dari statusUploadToko
+    const tokoList: { tokoNama: string; marketplace: string; key: string }[] = [];
+    const parts = skuItem.statusUploadToko.split('|');
+    for (const part of parts) {
+      const trimmed = part.trim();
+      if (!trimmed) continue;
+      const idx = trimmed.indexOf('—');
+      if (idx === -1) continue;
+      const mp = trimmed.slice(0, idx).trim();
+      const nama = trimmed.slice(idx + 1).trim();
+      if (!mp || !nama) continue;
+      const key = `${mp}|${nama}`;
+      tokoList.push({ tokoNama: nama, marketplace: mp, key });
     }
 
+    if (tokoList.length === 0) return 0;
+
     const newTasks: PriceTask[] = [];
-    const existingKeys = new Set(
-      tasks.filter(t => t.status === 'todo' || t.status === 'doing')
-        .map(t => `${t.sku}|${t.marketplace}|${t.tokoNama}`)
-    );
+    const masterHargaJual = skuItem.hargaJual > 0
+      ? skuItem.hargaJual
+      : calcSuggestedPrice(skuItem.hargaBaru, MP_POTONGAN[tokoList[0].marketplace] || 5, settings.biayaTetap, settings.keuntungan);
 
-    for (const [key, toko] of tokoMap) {
-      const skuSet = tokoSkus.get(key);
-      if (!skuSet) continue;
+    for (const toko of tokoList) {
+      const taskKey = `${skuCode}|${toko.marketplace}|${toko.tokoNama}`;
 
-      for (const skuCode of skuSet) {
-        const skuItem = skus.find(s => s.sku === skuCode);
-        if (!skuItem || skuItem.aktif !== 1) continue;
+      // Skip kalau sudah ada task todo/doing untuk kombinasi ini
+      const alreadyExists = tasks.some(
+        t => t.sku === skuCode && t.marketplace === toko.marketplace &&
+          t.tokoNama === toko.tokoNama && (t.status === 'todo' || t.status === 'doing')
+      );
+      if (alreadyExists) continue;
 
-        const taskKey = `${skuCode}|${toko.marketplace}|${toko.tokoNama}`;
-        if (existingKeys.has(taskKey)) continue;
+      // Cek history terakhir
+      const lastHistory = history
+        .filter(h => h.sku === skuCode && h.marketplace === toko.marketplace && h.tokoNama === toko.tokoNama)
+        .sort((a, b) => b.tanggal.localeCompare(a.tanggal))[0];
+      const lastAppliedPrice = lastHistory ? lastHistory.hargaJualBaru : 0;
 
-        // Check if there's already a recent completed task for this combination
-        const recentDone = tasks.find(
-          t => t.sku === skuCode && t.marketplace === toko.marketplace &&
-            t.tokoNama === toko.tokoNama && t.status === 'done' &&
-            t.hargaBeliSaatIni === skuItem.hargaBaru
-        );
-        if (recentDone) continue;
-
-        // Check history - if last price matches current, skip
-        const lastHistory = history
-          .filter(h => h.sku === skuCode && h.marketplace === toko.marketplace && h.tokoNama === toko.tokoNama)
-          .sort((a, b) => b.tanggal.localeCompare(a.tanggal))[0];
-
-        if (lastHistory && lastHistory.hargaJualBaru === skuItem.hargaJual && lastHistory.hargaBeliSaatItu === skuItem.hargaBaru) {
-          continue; // No change needed
-        }
-
-        const potongan = MP_POTONGAN[toko.marketplace] || 5;
-        const suggestedPrice = calcSuggestedPrice(skuItem.hargaBaru, potongan, 1250, 20);
-
-        // Only create task if suggested price differs from current hargaJual
-        if (Math.abs(suggestedPrice - skuItem.hargaJual) < 100 && lastHistory) continue;
-
-        newTasks.push({
-          id: generateId('task'),
-          sku: skuItem.sku,
-          namaProduk: skuItem.nama,
-          tokoId: key,
-          tokoNama: toko.tokoNama,
-          marketplace: toko.marketplace,
-          hargaJualLama: skuItem.hargaJual,
-          hargaJualBaru: suggestedPrice,
-          hargaBeliSaatIni: skuItem.hargaBaru,
-          status: 'todo',
-          assignedTo: '',
-          assignedId: '',
-          createdAt: nowISO(),
-          completedAt: null,
-          completedBy: null,
-          hargaJualFinal: null,
-          catatan: '',
-        });
+      // Skip kalau harga di toko sudah = master & harga beli sama
+      if (lastAppliedPrice === masterHargaJual && lastHistory && lastHistory.hargaBeliSaatItu === skuItem.hargaBaru) {
+        continue;
       }
+
+      // Skip kalau sudah ada task done untuk state ini
+      const alreadyDone = tasks.some(
+        t => t.sku === skuCode && t.marketplace === toko.marketplace &&
+          t.tokoNama === toko.tokoNama && t.status === 'done' &&
+          t.hargaJualFinal === masterHargaJual && t.hargaBeliSaatIni === skuItem.hargaBaru
+      );
+      if (alreadyDone) continue;
+
+      newTasks.push({
+        id: generateId('task'),
+        sku: skuItem.sku,
+        namaProduk: skuItem.nama,
+        tokoId: toko.key,
+        tokoNama: toko.tokoNama,
+        marketplace: toko.marketplace,
+        hargaJualLama: lastAppliedPrice || skuItem.hargaJual,
+        hargaJualBaru: masterHargaJual,
+        hargaBeliSaatIni: skuItem.hargaBaru,
+        status: 'todo',
+        assignedTo: '',
+        assignedId: '',
+        createdAt: nowISO(),
+        completedAt: null,
+        completedBy: null,
+        hargaJualFinal: null,
+        catatan: '',
+      });
     }
 
     if (newTasks.length > 0) {
       setTasks(prev => [...newTasks, ...prev]);
     }
     return newTasks.length;
-  }, [skus, tasks, history]);
+  }, [skus, tasks, history, settings]);
 
-  /* ── Auto generate on mount & when skus change ── */
-  const [hasGenerated, setHasGenerated] = useState(false);
+  /* ── Listen event dari SkuTab: setiap kali user save SKU ── */
   useEffect(() => {
-    if (skus.length > 0 && !hasGenerated) {
-      setHasGenerated(true);
-      // Delay to let tasks load from storage first
-      const timer = setTimeout(() => generateTasks(), 500);
-      return () => clearTimeout(timer);
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { sku: string };
+      if (detail?.sku) {
+        generateTaskForSku(detail.sku);
+      }
+    };
+    window.addEventListener('sku-saved', handler);
+    return () => window.removeEventListener('sku-saved', handler);
+  }, [generateTaskForSku]);
+
+  /* ── Full scan manual (tombol "Scan Semua SKU") ── */
+  const generateTasks = useCallback(() => {
+    let totalNew = 0;
+    for (const sku of skus) {
+      if (sku.aktif !== 1) continue;
+      totalNew += generateTaskForSku(sku.sku);
     }
-  }, [skus.length, hasGenerated, generateTasks]);
+    return totalNew;
+  }, [skus, generateTaskForSku]);
 
   /* ── Task actions ── */
   const [detailTask, setDetailTask] = useState<PriceTask | null>(null);
@@ -385,12 +402,18 @@ export default function TaskHargaTab() {
               if (count === 0) alert('✅ Tidak ada task baru. Semua harga sudah sinkron.');
               else alert(`✅ ${count} task baru berhasil dibuat!`);
             }}
-            className="rounded-xl bg-emerald-500 px-3 py-1.5 text-sm font-semibold text-white hover:bg-emerald-700 transition"
-            title="Generate task dari Master SKU"
+            className="rounded-xl bg-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-300 transition"
+            title="Scan ulang semua SKU (manual)"
           >
-            🔄 Generate Tasks
+            🔍 Scan Semua SKU
           </button>
         </div>
+      </div>
+
+      {/* Info: task auto-generated saat save SKU */}
+      <div className="mt-2 rounded-xl bg-blue-50 border border-blue-100 px-3 py-2 text-xs text-blue-700">
+        💡 <strong>Task otomatis dibuat</strong> setiap kali kamu menyimpan SKU di tab Master SKU. 
+        Cukup edit harga jual di Master SKU → task langsung muncul di sini untuk tiap toko marketplace.
       </div>
 
       {/* ── View Mode Tabs ── */}
@@ -477,9 +500,21 @@ export default function TaskHargaTab() {
                 <p className="text-4xl">📋</p>
                 <p className="mt-2 text-sm text-slate-400">
                   {tasks.length === 0
-                    ? 'Belum ada task. Klik "Generate Tasks" untuk membuat task dari Master SKU.'
+                    ? 'Belum ada task. Edit & simpan SKU di tab Master SKU, task akan otomatis muncul di sini.'
                     : 'Tidak ada task dengan filter ini.'}
                 </p>
+                {tasks.length === 0 && (
+                  <button
+                    onClick={() => {
+                      const count = generateTasks();
+                      if (count === 0) alert('✅ Semua harga sudah sinkron. Tidak ada task baru.');
+                      else alert(`✅ ${count} task berhasil dibuat!`);
+                    }}
+                    className="mt-3 rounded-xl bg-brand-500 px-4 py-1.5 text-xs font-semibold text-white hover:bg-brand-700"
+                  >
+                    🔍 Scan Semua SKU Sekarang
+                  </button>
+                )}
               </div>
             ) : (
               filteredTasks.map(task => (
@@ -857,7 +892,7 @@ export default function TaskHargaTab() {
                   <span className="font-semibold text-slate-700">Rp {completeForm.task.hargaBeliSaatIni.toLocaleString('id-ID')}</span>
                 </div>
                 <div className="flex justify-between text-sm mt-1">
-                  <span className="text-emerald-600 font-semibold">Disarankan</span>
+                  <span className="text-emerald-600 font-semibold">💰 Master SKU (hargaJual)</span>
                   <span className="font-bold text-emerald-600">Rp {completeForm.task.hargaJualBaru.toLocaleString('id-ID')}</span>
                 </div>
               </div>

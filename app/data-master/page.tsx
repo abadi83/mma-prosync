@@ -178,6 +178,10 @@ function SkuTab() {
     if(editId){setSkus(skus.map(x=>x.id===editId?item:x));}
     else{setSkus([item,...skus]);}
     setShowForm(false);
+    // ── Trigger Task Harga: auto-buat task hanya untuk SKU ini ──
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('sku-saved', { detail: { sku: f.sku } }));
+    }
   };
   const del=()=>{if(deleteId){setSkus(skus.filter(x=>x.id!==deleteId));setDeleteId(null);}};
 
@@ -247,6 +251,17 @@ function SkuTab() {
         }
       }
       setSkus(Array.from(skuMap.values()));
+
+      // ── Trigger Task Harga untuk setiap SKU yang diupload ──
+      if (typeof window !== 'undefined') {
+        const triggeredSkus = new Set<string>();
+        for (const item of incoming) {
+          if (!triggeredSkus.has(item.sku)) {
+            triggeredSkus.add(item.sku);
+            window.dispatchEvent(new CustomEvent('sku-saved', { detail: { sku: item.sku } }));
+          }
+        }
+      }
 
       const parts:string[]=[];
       if(updated>0)parts.push(`${updated} diupdate`);
