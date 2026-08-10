@@ -639,18 +639,24 @@ function InputKeuangan() {
 
         // Konversi ke MpOrder + hitung HPP dari Master SKU
         const skuHppMap = new Map<string, number>();
+        let skuMapSize = 0;
         try {
           const skuData = JSON.parse(localStorage.getItem('mma_sku_data') || '[]');
-          for (const s of skuData) { if (s.sku && s.hargaBaru > 0) skuHppMap.set(s.sku, s.hargaBaru); }
+          for (const s of skuData) { if (s.sku && s.hargaBaru > 0) { skuHppMap.set(String(s.sku).trim(), s.hargaBaru); skuMapSize++; } }
         } catch { }
 
         const newOrders: MpOrder[] = [];
+        let totalHppAll = 0, matchedSku = 0, unmatchedSku = 0;
+        const unmatchedList: string[] = [];
         for (const [orderId, o] of orderMap) {
           let totalHPP = 0;
           for (const item of o.items) {
-            const hpp = skuHppMap.get(item.sku) || 0;
-            totalHPP += hpp * item.qty;
+            const cleanSku = String(item.sku).trim();
+            const hpp = skuHppMap.get(cleanSku);
+            if (hpp !== undefined && hpp > 0) { totalHPP += hpp * item.qty; matchedSku++; }
+            else if (cleanSku) { unmatchedSku++; if (!unmatchedList.includes(cleanSku)) unmatchedList.push(cleanSku); }
           }
+          totalHppAll += totalHPP;
           const netRevenue = o.laba || o.penghasilan;
           newOrders.push({
             id: `mp-${Date.now()}-${orderId.slice(-6)}`,
@@ -692,9 +698,14 @@ function InputKeuangan() {
         } catch { }
 
         const totalNet = newOrders.reduce((s,o) => s + o.pendapatanBersih, 0);
-        const totalHppAll = newOrders.reduce((s,o) => s + o.totalHPP, 0);
         setSuccess(true); setErr('');
-        alert(`✅ ${newOrders.length} order diupload (${mpObj.marketplace}).\nNet Revenue: Rp ${totalNet.toLocaleString('id-ID')}\nTotal HPP: Rp ${totalHppAll.toLocaleString('id-ID')}\nLaba Kotor: Rp ${(totalNet-totalHppAll).toLocaleString('id-ID')}`);
+        const hppMsg = totalHppAll > 0
+          ? `\n✅ HPP: Rp ${totalHppAll.toLocaleString('id-ID')} (${matchedSku} SKU matched dari ${skuMapSize} di Master)`
+          : '\n⚠️ HPP: Rp 0 — tidak ada SKU yang match dengan Master Data!';
+        const unmatchedMsg = unmatchedSku > 0
+          ? `\n⚠️ ${unmatchedSku} SKU tidak ditemukan di Master: ${unmatchedList.slice(0,5).join(', ')}${unmatchedList.length>5?'...':''}`
+          : '';
+        alert(`✅ ${newOrders.length} order diupload (${mpObj.marketplace}).\nNet Revenue: Rp ${totalNet.toLocaleString('id-ID')}${hppMsg}\nLaba Kotor: Rp ${(totalNet-totalHppAll).toLocaleString('id-ID')}${unmatchedMsg}`);
         setTimeout(() => setSuccess(false), 5000);
       } catch { setErr('Gagal membaca file. Pastikan format Excel benar.'); }
       setUploading(false);
@@ -815,6 +826,9 @@ function InputKeuangan() {
           </div>
         </div>
       )}
+
+      {/* Riwayat Upload Marketplace (detail per order + HPP) */}
+      <UploadHistory />
     </div>
   );
 }
@@ -832,6 +846,88 @@ function RiwayatEntry() {
         <p className="text-4xl mb-2">📜</p>
         <p className="text-sm">Riwayat entry akan ditampilkan di sini.</p>
         <p className="text-xs mt-1">Gunakan tab Input Operasional & Input Keuangan untuk mencatat data baru.</p>
+      </div>
+    </div>
+  );
+}
+
+/* ── Upload History: tampilkan detail order marketplace + HPP match ── */
+function UploadHistory() {
+  const [orders, setOrders] = useState<MpOrder[]>([]);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('mma_marketplace_orders');
+      if (stored) setOrders(JSON.parse(stored));
+    } catch { }
+  }, []);
+
+  const toggle = (id: string) => {
+    setExpanded(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  };
+
+  if (orders.length === 0) return null;
+
+  const totalNet = orders.reduce((s, o) => s + o.pendapatanBersih, 0);
+  const totalHpp = orders.reduce((s, o) => s + o.totalHPP, 0);
+
+  return (
+    <div className="mt-5">
+      <div className="flex items-center justify-between">
+        <p className="text-sm font-bold text-slate-700">📊 Riwayat Upload Marketplace</p>
+        <div className="flex gap-3 text-xs">
+          <span>Net: <strong className="text-emerald-600">Rp {totalNet.toLocaleString('id-ID')}</strong></span>
+          <span>HPP: <strong className="text-red-500">Rp {totalHpp.toLocaleString('id-ID')}</strong></span>
+          <span>Laba: <strong className={totalNet-totalHpp>=0?'text-brand-600':'text-red-600'}>Rp {(totalNet-totalHpp).toLocaleString('id-ID')}</strong></span>
+        </div>
+      </div>
+      <div className="mt-2 overflow-x-auto rounded-xl border border-slate-100">
+        <table className="w-full text-left text-xs">
+          <thead><tr className="bg-brand-50 text-[10px] uppercase text-brand-500">
+            {['No. Pesanan','Tgl','MP','Net','HPP','Laba','SKU','Detail'].map(c => <th key={c} className="px-2 py-2 font-semibold whitespace-nowrap">{c}</th>)}
+          </tr></thead>
+          <tbody className="divide-y divide-slate-50 bg-white">
+            {orders.slice(0, 50).map(o => {
+              const laba = o.pendapatanBersih - o.totalHPP;
+              const isOpen = expanded.has(o.id);
+              return (
+                <React.Fragment key={o.id}>
+                  <tr className={`cursor-pointer hover:bg-brand-50/30 ${isOpen?'bg-brand-50/50':''}`} onClick={() => toggle(o.id)}>
+                    <td className="px-2 py-2 font-mono text-[10px] text-slate-600">{o.noPesanan}</td>
+                    <td className="px-2 py-2 text-[10px]">{o.tanggal}</td>
+                    <td className="px-2 py-2 font-medium">{o.marketplace}</td>
+                    <td className="px-2 py-2 font-semibold text-emerald-600">Rp {o.pendapatanBersih.toLocaleString('id-ID')}</td>
+                    <td className="px-2 py-2 text-red-500">{o.totalHPP>0?`Rp ${o.totalHPP.toLocaleString('id-ID')}`:'⚠️ 0'}</td>
+                    <td className="px-2 py-2 font-bold" style={{color: laba>=0?'#059669':'#dc2626'}}>Rp {laba.toLocaleString('id-ID')}</td>
+                    <td className="px-2 py-2 text-slate-400">{o.items.length} SKU</td>
+                    <td className="px-2 py-2 text-[10px] text-brand-500">{isOpen?'▲':'▼'}</td>
+                  </tr>
+                  {isOpen && (
+                    <tr key={`det-${o.id}`}>
+                      <td colSpan={8} className="px-3 py-2 bg-slate-50/50">
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-1 text-[10px] mb-2">
+                          <div>Fee Admin: <strong>Rp {o.feeAdmin.toLocaleString('id-ID')}</strong></div>
+                          <div>Fee Layanan: <strong>Rp {o.feeLayanan.toLocaleString('id-ID')}</strong></div>
+                          <div>Ongkir: <strong>Rp {o.ongkirAktual.toLocaleString('id-ID')}</strong></div>
+                          <div>Subsidi: <strong>Rp {o.subsidiOngkir.toLocaleString('id-ID')}</strong></div>
+                        </div>
+                        <p className="text-[10px] font-semibold text-slate-500 mb-1">SKU:</p>
+                        {o.items.map((item, idx) => (
+                          <div key={idx} className="flex gap-2 text-[10px] py-0.5">
+                            <span className="font-mono text-brand-700 w-16 truncate">{item.sku||'-'}</span>
+                            <span className="text-slate-600 flex-1 truncate">{item.nama||'-'}</span>
+                            <span className="text-slate-400">x{item.qty} @Rp {item.hargaJual.toLocaleString('id-ID')}</span>
+                          </div>
+                        ))}
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
     </div>
   );
