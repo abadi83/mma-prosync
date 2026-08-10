@@ -76,16 +76,24 @@ export default function LaporanPage() {
     return { list, grandTotal, orderCount: selesai.length };
   }, [allRows]);
 
-  // Laba Rugi: HANYA dari Penjualan Kasir
+  // Laba Rugi: Penjualan Kasir + Pendapatan Bersih Marketplace - HPP - Biaya
   const labaRugiData = useMemo(() => {
     const pendapatan = penjualanFiltered.reduce((s: number, t: any) => s + (t.total || 0), 0);
+    // Tambah pendapatan bersih marketplace dari upload Excel
+    let marketplaceNet = 0;
+    try {
+      const mpIncome = JSON.parse(localStorage.getItem('mma_marketplace_income') || '[]');
+      const mpFiltered = filterByPeriode(mpIncome, 'tanggal', periode);
+      marketplaceNet = mpFiltered.reduce((s: number, e: any) => s + (e.pendapatanBersih || 0), 0);
+    } catch { }
+    const totalPendapatan = pendapatan + marketplaceNet;
     const biayaOps = biayaFiltered.reduce((s: number, b: any) => s + (b.jumlah || 0), 0);
     const opexTotal = opexFiltered.reduce((s: number, o: any) => s + (o.total || 0), 0);
     const pembayaranPO = paymentsFiltered.reduce((s: number, p: any) => s + (p.jumlahDibayar || 0), 0);
-    const labaKotor = pendapatan - pembayaranPO;
+    const labaKotor = totalPendapatan - pembayaranPO;
     const labaBersih = labaKotor - biayaOps - opexTotal;
-    return { pendapatan, hargaPokok: pembayaranPO, biayaOperasional: biayaOps, biayaLain: opexTotal, labaKotor, labaBersih };
-  }, [penjualanFiltered, biayaFiltered, opexFiltered, paymentsFiltered]);
+    return { pendapatan: totalPendapatan, hargaPokok: pembayaranPO, biayaOperasional: biayaOps, biayaLain: opexTotal, labaKotor, labaBersih };
+  }, [penjualanFiltered, biayaFiltered, opexFiltered, paymentsFiltered, periode]);
 
   // Arus Kas real
   const arusKasData = useMemo(() => {
@@ -203,8 +211,15 @@ function LabaRugi({ periode }: { periode: Periode }) {
     const f = (list: any[], field: string) => filterByPeriode(list, field, periode);
     const filteredPenjualan = f(penjualan, 'tanggal');
 
-    // Pendapatan kotor
-    const p = filteredPenjualan.reduce((s: number, t: any) => s + (t.total || 0), 0);
+    // Pendapatan: Kasir + Marketplace Net Income
+    const kasirTotal = filteredPenjualan.reduce((s: number, t: any) => s + (t.total || 0), 0);
+    let marketplaceNet = 0;
+    try {
+      const mpIncome = JSON.parse(localStorage.getItem('mma_marketplace_income') || '[]');
+      const mpFiltered = f(mpIncome, 'tanggal');
+      marketplaceNet = mpFiltered.reduce((s: number, e: any) => s + (e.pendapatanBersih || 0), 0);
+    } catch { }
+    const p = kasirTotal + marketplaceNet;
 
     // HPP: dari Master Data SKU — pakai hargaBaru (harga beli terbaru per SKU)
     let hpp = 0;
@@ -238,9 +253,18 @@ function ArusKas({ periode }: { periode: Periode }) {
     const f = (list: any[], field: string) => filterByPeriode(list, field, periode);
     const saldoAwal = modal.reduce((s: number, m: any) => s + (m.jumlah || 0), 0);
     const kasKecil = (() => { try { const kk = JSON.parse(localStorage.getItem('mma_kas_kecil') || '[]'); return kk.reduce((s: number, e: any) => s + (e.jenis === 'masuk' ? e.jumlah : -e.jumlah), 0); } catch { return 0; } })();
+    // Marketplace income
+    let mpNet = 0;
+    try {
+      const mpIncome = JSON.parse(localStorage.getItem('mma_marketplace_income') || '[]');
+      mpNet = f(mpIncome, 'tanggal').reduce((s: number, e: any) => s + (e.pendapatanBersih || 0), 0);
+    } catch { }
     return {
       saldoAwal: saldoAwal + kasKecil,
-      pemasukan: [{ sumber: 'Penjualan', jumlah: f(penjualan, 'tanggal').reduce((s: number, t: any) => s + (t.total || 0), 0) }],
+      pemasukan: [
+        { sumber: 'Penjualan Kasir', jumlah: f(penjualan, 'tanggal').reduce((s: number, t: any) => s + (t.total || 0), 0) },
+        { sumber: 'Pendapatan Bersih Marketplace', jumlah: mpNet },
+      ],
       pengeluaran: [
         { sumber: 'Pembayaran PO', jumlah: f(payments, 'tanggalBayar').reduce((s: number, p2: any) => s + p2.jumlahDibayar, 0) },
         { sumber: 'Biaya Operasional', jumlah: f(biaya, 'tanggal').reduce((s: number, b2: any) => s + b2.jumlah, 0) },

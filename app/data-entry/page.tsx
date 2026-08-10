@@ -478,12 +478,114 @@ function InputKeuangan() {
   const [form, setForm] = useState({ tanggal: new Date().toISOString().slice(0, 10), pendapatanKotor: '', biayaIklan: '', biayaPengemasan: '', biayaPengiriman: '', catatan: '' });
   const [err, setErr] = useState('');
   const [success, setSuccess] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const mp = MARKETPLACE_TOKO.find(m => m.id === selectedMp)!;
   const pk = +form.pendapatanKotor || 0;
   const fee = Math.round(pk * mp.persenFee / 100);
   const biayaLain = (+form.biayaIklan || 0) + (+form.biayaPengemasan || 0) + (+form.biayaPengiriman || 0);
   const bersih = pk - fee - biayaLain;
+
+  /* ── Upload File Excel Laporan Keuangan Marketplace ── */
+  const uploadKeuangan = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    setUploading(true); setErr('');
+    const r = new FileReader();
+    r.onload = ev => {
+      try {
+        const data = new Uint8Array(ev.target?.result as ArrayBuffer);
+        const wb = XLSX.read(data, { type: 'array' });
+        // Cari sheet yang relevan (bisa "Sheet1", "Penghasilan", "Orders", dll)
+        let sheetName = wb.SheetNames[0];
+        for (const sn of wb.SheetNames) {
+          const lower = sn.toLowerCase();
+          if (lower.includes('penghasilan') || lower.includes('income') || lower.includes('order') || lower.includes('pesanan')) {
+            sheetName = sn; break;
+          }
+        }
+        const sheet = wb.Sheets[sheetName];
+        const raw = XLSX.utils.sheet_to_json<string[]>(sheet, { header: 1 });
+        if (raw.length < 2) { setErr('File kosong.'); setUploading(false); return; }
+        const h = raw[0].map((c: string) => String(c || '').toLowerCase().trim());
+
+        // Deteksi format: Shopee Penghasilan / Tokopedia / generic
+        const idx = (...kw: string[]) => h.findIndex(hh => kw.some(k => hh.includes(k)));
+
+        // Coba deteksi marketplace dari nama sheet atau header
+        let detectedMp = 'Marketplace';
+        const snLow = sheetName.toLowerCase();
+        if (snLow.includes('shopee') || h.some(x => x.includes('no. pesanan') && !x.includes('order'))) detectedMp = 'Shopee';
+        else if (snLow.includes('tokopedia') || h.some(x => x.includes('tokopedia'))) detectedMp = 'Tokopedia';
+        else if (snLow.includes('lazada') || h.some(x => x.includes('lazada'))) detectedMp = 'Lazada';
+        else if (snLow.includes('tiktok') || h.some(x => x.includes('tiktok'))) detectedMp = 'TikTok Shop';
+
+        const iTanggal = idx('tanggal', 'waktu pesanan dibuat', 'created time', 'order date', 'date');
+        // Kolom pendapatan: cari "harga awal", "total pembayaran", "pendapatan kotor", "gross"
+        const iPendapatan = idx('harga awal', 'total pembayaran', 'total amount', 'gross revenue', 'gross amount', 'unitprice');
+        // Kolom fee/biaya: "biaya layanan", "fee", "komisi", "biaya admin"
+        const iFee = idx('biaya layanan', 'biaya admin', 'fee', 'komisi', 'service fee', 'commission');
+        // Kolom biaya pengiriman
+        const iKirim = idx('biaya pengiriman', 'ongkir', 'shipping fee', 'ongkos kirim');
+        // Kolom biaya iklan
+        const iIklan = idx('biaya iklan', 'ad fee', 'advertising', 'iklan');
+        // Kolom pendapatan bersih
+        const iBersih = idx('pendapatan bersih', 'net income', 'total pendapatan', 'net revenue', 'estimated');
+        // Kolom marketplace store
+        const iToko = idx('nama toko', 'store name', 'shop name');
+
+        if (iPendapatan < 0) { setErr('Kolom pendapatan tidak ditemukan. Header: ' + h.slice(0, 8).join(', ')); setUploading(false); return; }
+
+        const newEntries: KeuEntry[] = [];
+        for (let i = 1; i < raw.length; i++) {
+          const row = raw[i]; if (!row || row.length < 2) continue;
+          // Skip header rows
+          const firstCell = String(row[0] || '').toLowerCase().trim();
+          if (firstCell.includes('tanggal') || firstCell.includes('no. pesanan') || firstCell.includes('waktu') || firstCell === '') continue;
+
+          const pendapatanKotor = parseRp(row[iPendapatan] || '0');
+          if (pendapatanKotor <= 0) continue;
+          const feeMarketplace = iFee >= 0 ? parseRp(row[iFee] || '0') : 0;
+          const biayaPengiriman = iKirim >= 0 ? parseRp(row[iKirim] || '0') : 0;
+          const biayaIklan = iIklan >= 0 ? parseRp(row[iIklan] || '0') : 0;
+          const pendapatanBersih = iBersih >= 0 ? parseRp(row[iBersih] || '0') : pendapatanKotor - feeMarketplace - biayaPengiriman - biayaIklan;
+          const tanggal = iTanggal >= 0 ? String(row[iTanggal] || '').trim().slice(0, 10) : new Date().toISOString().slice(0, 10);
+          const namaToko = iToko >= 0 ? String(row[iToko] || '').trim() : '';
+
+          newEntries.push({
+            id: `up-${Date.now()}-${i}`,
+            tanggal: tanggal || new Date().toISOString().slice(0, 10),
+            marketplaceId: MARKETPLACE_TOKO.find(m => m.marketplace === detectedMp)?.id || 'mp-1',
+            marketplaceNama: namaToko || `${detectedMp} — MITRA MULIA ABADI`,
+            pendapatanKotor,
+            feeMarketplace,
+            biayaIklan,
+            biayaPengemasan: 0,
+            biayaPengiriman,
+            pendapatanBersih,
+            catatan: `Upload ${file.name}`,
+          });
+        }
+
+        if (newEntries.length === 0) { setErr('Tidak ada data valid ditemukan.'); setUploading(false); return; }
+        setEntries(p => [...newEntries, ...p]);
+
+        // Simpan ke localStorage untuk Laba Rugi
+        try {
+          const existing = JSON.parse(localStorage.getItem('mma_marketplace_income') || '[]');
+          localStorage.setItem('mma_marketplace_income', JSON.stringify([...newEntries, ...existing]));
+        } catch { }
+
+        setSuccess(true);
+        setErr('');
+        alert(`✅ ${newEntries.length} baris berhasil diupload dari ${file.name} (${detectedMp}).`);
+        setTimeout(() => setSuccess(false), 4000);
+      } catch { setErr('Gagal membaca file. Pastikan format Excel benar.'); }
+      setUploading(false);
+    };
+    r.onerror = () => { setErr('Gagal membaca file.'); setUploading(false); };
+    r.readAsArrayBuffer(file);
+  };
 
   const save = () => {
     if (pk <= 0) { setErr('Pendapatan kotor wajib diisi.'); return; }
@@ -499,7 +601,17 @@ function InputKeuangan() {
     <div>
       <div className="mb-1 h-1 w-16 rounded-full bg-gradient-to-r from-brand-500 to-brand-300" />
       <h2 className="text-lg font-bold text-slate-800 sm:text-xl">💰 Input Data Keuangan</h2>
-      <p className="mt-1 text-sm text-slate-500">Catat pendapatan & biaya per marketplace. Fee marketplace dihitung otomatis.</p>
+      <p className="mt-1 text-sm text-slate-500">Input manual atau upload file Excel laporan keuangan marketplace (Shopee, Tokopedia, dll).</p>
+
+      {/* Upload Excel */}
+      <div className="mt-3 rounded-xl border-2 border-dashed border-emerald-200 bg-emerald-50/40 p-4">
+        <p className="text-xs font-semibold text-emerald-700 mb-2">📤 Upload File Excel Laporan Marketplace</p>
+        <p className="text-[11px] text-slate-500 mb-3">Upload file Penghasilan/Income dari Shopee, Tokopedia, Lazada, TikTok → otomatis masuk Laba Rugi.</p>
+        <label className={`cursor-pointer inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-white transition ${uploading ? 'bg-slate-400' : 'bg-emerald-500 hover:bg-emerald-600'}`}>
+          {uploading ? '⏳ Memproses...' : '📥 Upload Excel'}
+          <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" onChange={uploadKeuangan} className="hidden" disabled={uploading} />
+        </label>
+      </div>
 
       {err && <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{err}</p>}
       {success && <p className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-600">✅ Data keuangan tersimpan.</p>}
