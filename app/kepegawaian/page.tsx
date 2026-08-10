@@ -9,6 +9,7 @@ interface Pegawai {
   id: string;
   nama: string;
   nik: string;
+  username: string;      // untuk login akun
   jabatan: string;
   departemen: string;
   tanggalMasuk: string;
@@ -110,14 +111,14 @@ const TABS_PEGAWAI: { key: Tab; label: string; icon: string }[] = [
 
 /* ── Mock Data ── */
 const MOCK_PEGAWAI: Pegawai[] = [
-  { id: 'pg-1', nama: 'Andi Pratama', nik: 'MMA-001', jabatan: 'Kepala Gudang', departemen: 'Warehouse', tanggalMasuk: '2024-01-15', status: 'Aktif', noHp: '0812-3456-7890', email: 'andi@mma.id', roles: ['admin', 'hr', 'warehouse', 'logistik', 'inventory'] },
-  { id: 'pg-2', nama: 'Siti Nurhaliza', nik: 'MMA-002', jabatan: 'Admin Penjualan', departemen: 'Sales', tanggalMasuk: '2024-02-01', status: 'Aktif', noHp: '0812-3456-7891', email: 'siti@mma.id', roles: ['sales', 'pegawai'] },
-  { id: 'pg-3', nama: 'Budi Santoso', nik: 'MMA-003', jabatan: 'Staff Picking & Logistik', departemen: 'Warehouse', tanggalMasuk: '2024-03-10', status: 'Aktif', noHp: '0812-3456-7892', email: 'budi@mma.id', roles: ['warehouse', 'logistik', 'pegawai'] },
-  { id: 'pg-4', nama: 'Rina Marlina', nik: 'MMA-004', jabatan: 'Staff Packing', departemen: 'Warehouse', tanggalMasuk: '2024-03-15', status: 'Cuti', noHp: '0812-3456-7893', email: 'rina@mma.id', roles: ['warehouse', 'pegawai'] },
-  { id: 'pg-5', nama: 'Doni Kusuma', nik: 'MMA-005', jabatan: 'Driver & Logistik', departemen: 'Logistik', tanggalMasuk: '2024-04-01', status: 'Aktif', noHp: '0812-3456-7894', email: 'doni@mma.id', roles: ['logistik', 'pegawai'] },
-  { id: 'pg-6', nama: 'Ayu Lestari', nik: 'MMA-006', jabatan: 'Kasir', departemen: 'Sales', tanggalMasuk: '2024-05-20', status: 'Aktif', noHp: '0812-3456-7895', email: 'ayu@mma.id', roles: ['sales', 'pegawai'] },
-  { id: 'pg-7', nama: 'Eko Prasetyo', nik: 'MMA-007', jabatan: 'Staff QC & Inventory', departemen: 'Warehouse', tanggalMasuk: '2024-06-01', status: 'Nonaktif', noHp: '0812-3456-7896', email: 'eko@mma.id', roles: ['warehouse', 'inventory'] },
-  { id: 'pg-8', nama: 'Dewi Sartika', nik: 'MMA-008', jabatan: 'Admin Keuangan', departemen: 'Finance', tanggalMasuk: '2024-06-15', status: 'Aktif', noHp: '0812-3456-7897', email: 'dewi@mma.id', roles: ['finance', 'purchasing', 'pegawai'] },
+  { id: 'pg-1', nama: 'Andi Pratama', nik: 'MMA-001', username: 'andi', jabatan: 'Kepala Gudang', departemen: 'Warehouse', tanggalMasuk: '2024-01-15', status: 'Aktif', noHp: '0812-3456-7890', email: 'andi@mma.id', roles: ['admin', 'hr', 'warehouse', 'logistik', 'inventory'] },
+  { id: 'pg-2', nama: 'Siti Nurhaliza', nik: 'MMA-002', username: 'siti', jabatan: 'Admin Penjualan', departemen: 'Sales', tanggalMasuk: '2024-02-01', status: 'Aktif', noHp: '0812-3456-7891', email: 'siti@mma.id', roles: ['sales', 'pegawai'] },
+  { id: 'pg-3', nama: 'Budi Santoso', nik: 'MMA-003', username: 'budi', jabatan: 'Staff Picking & Logistik', departemen: 'Warehouse', tanggalMasuk: '2024-03-10', status: 'Aktif', noHp: '0812-3456-7892', email: 'budi@mma.id', roles: ['warehouse', 'logistik', 'pegawai'] },
+  { id: 'pg-4', nama: 'Rina Marlina', nik: 'MMA-004', username: 'rina', jabatan: 'Staff Packing', departemen: 'Warehouse', tanggalMasuk: '2024-03-15', status: 'Cuti', noHp: '0812-3456-7893', email: 'rina@mma.id', roles: ['warehouse', 'pegawai'] },
+  { id: 'pg-5', nama: 'Doni Kusuma', nik: 'MMA-005', username: 'doni', jabatan: 'Driver & Logistik', departemen: 'Logistik', tanggalMasuk: '2024-04-01', status: 'Aktif', noHp: '0812-3456-7894', email: 'doni@mma.id', roles: ['logistik', 'pegawai'] },
+  { id: 'pg-6', nama: 'Ayu Lestari', nik: 'MMA-006', username: 'ayu', jabatan: 'Kasir', departemen: 'Sales', tanggalMasuk: '2024-05-20', status: 'Aktif', noHp: '0812-3456-7895', email: 'ayu@mma.id', roles: ['sales', 'pegawai'] },
+  { id: 'pg-7', nama: 'Eko Prasetyo', nik: 'MMA-007', username: 'eko', jabatan: 'Staff QC & Inventory', departemen: 'Warehouse', tanggalMasuk: '2024-06-01', status: 'Nonaktif', noHp: '0812-3456-7896', email: 'eko@mma.id', roles: ['warehouse', 'inventory'] },
+  { id: 'pg-8', nama: 'Dewi Sartika', nik: 'MMA-008', username: 'dewi', jabatan: 'Admin Keuangan', departemen: 'Finance', tanggalMasuk: '2024-06-15', status: 'Aktif', noHp: '0812-3456-7897', email: 'dewi@mma.id', roles: ['finance', 'purchasing', 'pegawai'] },
 ];
 
 function generateAbsensi(pegawai: Pegawai[]): AbsensiRecord[] {
@@ -205,7 +206,7 @@ export default function KepegawaianPage() {
   });
 
   // Simpan ke localStorage setiap kali pegawai berubah
-  useEffect(() => { try { localStorage.setItem('mma_pegawai_data', JSON.stringify(pegawai)); } catch {} }, [pegawai]);
+  useEffect(() => { try { localStorage.setItem('mma_pegawai_data', JSON.stringify(pegawai)); window.dispatchEvent(new Event('refresh-akun')); } catch {} }, [pegawai]);
   const [absensi, setAbsensi] = useState<AbsensiRecord[]>(() => generateAbsensi(MOCK_PEGAWAI));
   const [kpi] = useState<KpiRecord[]>(() => generateKpi(MOCK_PEGAWAI));
   const [izinList, setIzinList] = useState<IzinRecord[]>(() => {
@@ -488,6 +489,7 @@ function DaftarPegawai({ pegawai, setPegawai }: { pegawai: Pegawai[]; setPegawai
           </div>
           <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
             <div><span className="text-slate-400 text-xs">NIK</span><p className="font-semibold">{selected.nik}</p></div>
+            <div><span className="text-slate-400 text-xs">Username</span><p className="font-mono text-xs text-purple-600">{selected.username || '-'}</p></div>
             <div><span className="text-slate-400 text-xs">Jabatan</span><p className="font-semibold">{selected.jabatan}</p></div>
             <div><span className="text-slate-400 text-xs">Departemen</span><p className="font-semibold">{selected.departemen}</p></div>
             <div><span className="text-slate-400 text-xs">Status</span><p className={`font-semibold ${selected.status === 'Aktif' ? 'text-emerald-600' : selected.status === 'Cuti' ? 'text-amber-600' : 'text-red-600'}`}>{selected.status}</p></div>

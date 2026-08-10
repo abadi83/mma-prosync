@@ -43,64 +43,70 @@ export default function PengaturanPage() {
 }
 
 /* ═══════════════════════════════════════════════════════════════════ */
-/* AKUN & ROLE — Daftar akun, hak akses, tambah/edit/hapus          */
+/* AKUN & ROLE — Disamakan dengan Daftar Pegawai (HR)               */
 /* ═══════════════════════════════════════════════════════════════════ */
 
-const ROLES = ['Admin', 'Manajer', 'Kasir', 'Gudang', 'Keuangan', 'Viewer'] as const;
-type Role = typeof ROLES[number];
+interface PegawaiAkun {
+  id: string; nama: string; nik: string; username: string;
+  jabatan: string; departemen: string; status: string; roles: string[];
+}
 
-const ROLE_COLORS: Record<Role, string> = {
-  Admin: 'bg-red-100 text-red-700',
-  Manajer: 'bg-purple-100 text-purple-700',
-  Kasir: 'bg-emerald-100 text-emerald-700',
-  Gudang: 'bg-amber-100 text-amber-700',
-  Keuangan: 'bg-blue-100 text-blue-700',
-  Viewer: 'bg-slate-100 text-slate-600',
+const ROLE_LABELS_AKUN: Record<string, string> = {
+  admin: '👑 Admin', hr: '👥 HR', finance: '💰 Finance', purchasing: '📦 Purchasing',
+  warehouse: '🏭 Warehouse', logistik: '🚛 Logistik', inventory: '📋 Inventory',
+  sales: '🛒 Sales', pegawai: '👤 Pegawai',
 };
-
-const ROLE_HAK: Record<Role, string> = {
-  Admin: 'Semua akses — master, transaksi, laporan, pengaturan, akun',
-  Manajer: 'Semua kecuali kelola akun — transaksi, laporan, master data',
-  Kasir: 'Kasir / penjualan — input transaksi, lihat stok',
-  Gudang: 'Inventory & operasional — stok opname, barang masuk/keluar',
-  Keuangan: 'Keuangan & laporan — input keuangan, lihat laporan',
-  Viewer: 'Lihat saja — tidak bisa edit atau transaksi',
-};
-
-interface AkunItem { id: string; nama: string; username: string; role: Role; aktif: boolean; }
-
-const INITIAL_AKUN: AkunItem[] = [
-  { id:'a-1', nama:'Bapak Arif', username:'arif', role:'Admin', aktif:true },
-  { id:'a-2', nama:'Siti Kasir', username:'siti', role:'Kasir', aktif:true },
-  { id:'a-3', nama:'Budi Gudang', username:'budi', role:'Gudang', aktif:true },
-  { id:'a-4', nama:'Dewi Finance', username:'dewi', role:'Keuangan', aktif:false },
-];
 
 function AkunTab() {
-  const [akun, setAkun] = useState<AkunItem[]>(INITIAL_AKUN);
-  const [showForm, setShowForm] = useState(false);
-  const [editId, setEditId] = useState<string|null>(null);
-  const [delId, setDelId] = useState<string|null>(null);
-  const [f, setF] = useState({nama:'',username:'',password:'',role:'Kasir' as Role});
-  const [err, setErr] = useState('');
+  const [pegawaiList, setPegawaiList] = useState<PegawaiAkun[]>([]);
+  const [resetPwId, setResetPwId] = useState<string | null>(null);
+  const [newPassword, setNewPassword] = useState('');
+  const [pwErr, setPwErr] = useState('');
+  const [pwSuccess, setPwSuccess] = useState(false);
+  const [search, setSearch] = useState('');
 
-  const openAdd=()=>{setF({nama:'',username:'',password:'',role:'Kasir'});setErr('');setShowForm(true);setEditId(null);};
-  const openEdit=(a:AkunItem)=>{setF({nama:a.nama,username:a.username,password:'',role:a.role});setErr('');setEditId(a.id);setShowForm(true);};
+  // Load dari localStorage yg sama dengan Daftar Pegawai (HR)
+  useEffect(() => {
+    const load = () => {
+      try {
+        const stored = localStorage.getItem('mma_pegawai_data');
+        if (stored) { setPegawaiList(JSON.parse(stored)); return; }
+      } catch { }
+      setPegawaiList([]);
+    };
+    load();
+    window.addEventListener('storage', load);
+    window.addEventListener('refresh-akun', load);
+    return () => {
+      window.removeEventListener('storage', load);
+      window.removeEventListener('refresh-akun', load);
+    };
+  }, []);
 
-  const save=()=>{
-    if(!f.nama||!f.username){setErr('Nama dan Username wajib.');return;}
-    if(!editId&&!f.password){setErr('Password wajib untuk akun baru.');return;}
-    if(editId){
-      setAkun(p=>p.map(a=>a.id===editId?{...a,nama:f.nama,username:f.username,role:f.role}:a));
-    }else{
-      if(akun.find(a=>a.username===f.username)){setErr('Username sudah digunakan.');return;}
-      setAkun(p=>[...p,{id:`a-${Date.now()}`,nama:f.nama,username:f.username,role:f.role,aktif:true}]);
-    }
-    setShowForm(false);
+  const toggleAktif = (id: string) => {
+    setPegawaiList(prev => {
+      const updated = prev.map(p => p.id === id ? { ...p, status: p.status === 'Aktif' ? 'Nonaktif' : 'Aktif' } : p);
+      try { localStorage.setItem('mma_pegawai_data', JSON.stringify(updated)); } catch { }
+      return updated;
+    });
   };
 
-  const toggleAktif=(id:string)=>setAkun(p=>p.map(a=>a.id===id?{...a,aktif:!a.aktif}:a));
-  const hapus=()=>{if(delId){setAkun(p=>p.filter(a=>a.id!==delId));setDelId(null);}};
+  const handleResetPassword = () => {
+    setPwErr('');
+    if (!newPassword || newPassword.length < 4) { setPwErr('Password minimal 4 karakter.'); return; }
+    try {
+      const existing = JSON.parse(localStorage.getItem('mma_pegawai_passwords') || '{}');
+      existing[resetPwId!] = newPassword;
+      localStorage.setItem('mma_pegawai_passwords', JSON.stringify(existing));
+      setPwSuccess(true);
+      setTimeout(() => { setResetPwId(null); setNewPassword(''); setPwSuccess(false); }, 2000);
+    } catch { setPwErr('Gagal menyimpan password.'); }
+  };
+
+  const filtered = pegawaiList.filter(p =>
+    !search || p.nama.toLowerCase().includes(search.toLowerCase()) || p.nik.toLowerCase().includes(search.toLowerCase())
+  );
+  const totalAktif = pegawaiList.filter(p => p.status === 'Aktif').length;
 
   return (
     <div>
@@ -108,61 +114,52 @@ function AkunTab() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-bold text-slate-800 sm:text-xl">🔑 Akun & Hak Akses</h2>
-          <p className="mt-1 text-sm text-slate-500">{akun.length} akun terdaftar</p>
+          <p className="mt-1 text-sm text-slate-500">{pegawaiList.length} akun • {totalAktif} aktif</p>
+          <p className="text-xs text-purple-500 mt-0.5">📌 Data dari Daftar Pegawai (HR) — edit di tab Kepegawaian</p>
         </div>
-        <button onClick={openAdd} className="rounded-xl bg-brand-500 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700">+ Tambah Akun</button>
       </div>
 
-      {/* Role legend */}
+      <div className="mt-3"><input type="text" placeholder="🔍 Cari nama / NIK..." value={search} onChange={e => setSearch(e.target.value)} className="rounded-xl border px-3 py-1.5 text-xs text-slate-600 focus:border-brand-500 focus:outline-none w-56" /></div>
+
       <div className="mt-3 flex flex-wrap gap-1.5">
-        {ROLES.map(r=>(<span key={r} className={`rounded-full px-2 py-0.5 text-xs font-semibold cursor-help ${ROLE_COLORS[r]}`} title={ROLE_HAK[r]}>{r}</span>))}
+        {Object.entries(ROLE_LABELS_AKUN).map(([key, label]) => (<span key={key} className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">{label}</span>))}
       </div>
 
-      {/* Form modal */}
-      {showForm&&(<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30"><div className="w-80 rounded-2xl bg-white p-6 shadow-xl">
-        <p className="text-lg font-bold text-slate-800">{editId?'✏️ Edit Akun':'➕ Tambah Akun'}</p>
-        {err&&<p className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{err}</p>}
-        <div className="mt-3 space-y-2">
-          <input value={f.nama} onChange={e=>setF({...f,nama:e.target.value})} placeholder="Nama lengkap" className="w-full rounded-xl border px-3 py-2 text-sm focus:border-brand-500 focus:outline-none" />
-          <input value={f.username} onChange={e=>setF({...f,username:e.target.value})} placeholder="Username" className="w-full rounded-xl border px-3 py-2 text-sm focus:border-brand-500 focus:outline-none" />
-          {!editId&&<input type="password" value={f.password} onChange={e=>setF({...f,password:e.target.value})} placeholder="Password (min. 6 karakter)" className="w-full rounded-xl border px-3 py-2 text-sm focus:border-brand-500 focus:outline-none" />}
-          <select value={f.role} onChange={e=>setF({...f,role:e.target.value as Role})} className="w-full rounded-xl border bg-white px-3 py-2 text-sm focus:border-brand-500 focus:outline-none">
-            {ROLES.map(r=><option key={r} value={r}>{r}</option>)}
-          </select>
-          {f.role&&<p className="text-xs text-slate-400 mt-1">{ROLE_HAK[f.role]}</p>}
-        </div>
-        <div className="mt-4 flex justify-end gap-2"><button onClick={()=>setShowForm(false)} className="rounded-xl bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-600">Batal</button><button onClick={save} className="rounded-xl bg-brand-500 px-4 py-2 text-sm font-semibold text-white">{editId?'Update':'Simpan'}</button></div>
-      </div></div>)}
-
-      {/* Tabel Akun */}
       <div className="mt-4 overflow-x-auto rounded-xl border border-slate-100">
         <table className="w-full text-left text-sm">
-          <thead><tr className="bg-brand-50 text-xs uppercase text-brand-500">{['Nama','Username','Role','Hak Akses','Status','Aksi'].map(c=><th key={c} className="px-3 py-3 font-semibold">{c}</th>)}</tr></thead>
+          <thead><tr className="bg-brand-50 text-xs uppercase text-brand-500">{['NIK','Nama','Username','Jabatan','Roles','Status','Aksi'].map(c => <th key={c} className="px-3 py-3 font-semibold">{c}</th>)}</tr></thead>
           <tbody className="divide-y divide-slate-50 bg-white">
-            {akun.map(a=>(
-              <tr key={a.id} className={!a.aktif?'opacity-50':''}>
-                <td className="px-3 py-3 font-medium text-slate-800">{a.nama}</td>
-                <td className="px-3 py-3 text-slate-600">{a.username}</td>
-                <td className="px-3 py-3"><span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${ROLE_COLORS[a.role]}`}>{a.role}</span></td>
-                <td className="px-3 py-3 text-xs text-slate-400 max-w-[200px] truncate">{ROLE_HAK[a.role]}</td>
-                <td className="px-3 py-3">
-                  <button onClick={()=>toggleAktif(a.id)} className={`rounded-full px-2 py-0.5 text-xs font-semibold transition ${a.aktif?'bg-emerald-100 text-emerald-700 hover:bg-red-100 hover:text-red-700':'bg-red-100 text-red-700 hover:bg-emerald-100 hover:text-emerald-700'}`}>
-                    {a.aktif?'✅ Aktif':'❌ Nonaktif'}
-                  </button>
-                </td>
-                <td className="px-3 py-3">
-                  <div className="flex gap-1">
-                    <button onClick={()=>openEdit(a)} className="rounded-lg bg-brand-100 px-2 py-1 text-xs font-semibold text-brand-700 hover:bg-brand-200">✏️</button>
-                    <button onClick={()=>setDelId(a.id)} className="rounded-lg bg-red-100 px-2 py-1 text-xs font-semibold text-red-600 hover:bg-red-200">🗑️</button>
-                  </div>
-                </td>
+            {filtered.map(p => (
+              <tr key={p.id} className={p.status !== 'Aktif' ? 'opacity-50' : ''}>
+                <td className="px-3 py-3 font-mono text-xs text-slate-500">{p.nik}</td>
+                <td className="px-3 py-3 font-medium text-slate-800">{p.nama}</td>
+                <td className="px-3 py-3 text-slate-600 font-mono text-xs">{p.username || '-'}</td>
+                <td className="px-3 py-3 text-xs text-slate-600">{p.jabatan}</td>
+                <td className="px-3 py-3"><div className="flex flex-wrap gap-0.5 max-w-[180px]">{p.roles?.slice(0,3).map(r => (<span key={r} className="rounded-full bg-purple-100 px-1.5 py-0.5 text-[9px] font-semibold text-purple-700">{ROLE_LABELS_AKUN[r]||r}</span>))}{p.roles?.length>3&&<span className="text-[9px] text-slate-400">+{p.roles.length-3}</span>}</div></td>
+                <td className="px-3 py-3"><button onClick={() => toggleAktif(p.id)} className={`rounded-full px-2 py-0.5 text-xs font-semibold transition ${p.status==='Aktif'?'bg-emerald-100 text-emerald-700 hover:bg-red-100 hover:text-red-700':'bg-red-100 text-red-700 hover:bg-emerald-100 hover:text-emerald-700'}`}>{p.status==='Aktif'?'✅ Aktif':'❌ Nonaktif'}</button></td>
+                <td className="px-3 py-3"><button onClick={() => { setResetPwId(p.id); setNewPassword(''); setPwErr(''); setPwSuccess(false); }} className="rounded-lg bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-700 hover:bg-amber-200">🔒 Reset PW</button></td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
 
-      {delId&&<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30"><div className="w-80 rounded-2xl bg-white p-6 shadow-xl"><p className="text-lg font-bold text-slate-800">Konfirmasi Hapus</p><p className="mt-2 text-sm text-slate-600">Yakin hapus akun ini? Data tidak bisa dikembalikan.</p><div className="mt-4 flex justify-end gap-2"><button onClick={()=>setDelId(null)} className="rounded-xl bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-600">Batal</button><button onClick={hapus} className="rounded-xl bg-red-500 px-4 py-2 text-sm font-semibold text-white">Hapus</button></div></div></div>}
+      {resetPwId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={() => setResetPwId(null)}>
+          <div className="w-80 rounded-2xl bg-white p-6 shadow-xl" onClick={e => e.stopPropagation()}>
+            <p className="text-lg font-bold text-slate-800">🔒 Reset Password</p>
+            <p className="mt-1 text-sm text-slate-500">{pegawaiList.find(p => p.id === resetPwId)?.nama}</p>
+            {pwSuccess ? (
+              <div className="mt-4 rounded-xl bg-emerald-50 p-4 text-center"><p className="text-emerald-700 font-semibold">✅ Password berhasil direset!</p><p className="text-xs text-emerald-500 mt-1">Password: <strong className="font-mono">{newPassword}</strong></p><button onClick={() => { setResetPwId(null); setNewPassword(''); setPwSuccess(false); }} className="mt-3 rounded-xl bg-emerald-100 px-4 py-1.5 text-sm font-semibold text-emerald-700">Tutup</button></div>
+            ) : (
+              <>
+                <div className="mt-3"><label className="flex flex-col gap-1"><span className="text-xs font-semibold text-slate-600">Password Baru</span><input type="text" value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder="Minimal 4 karakter" className="w-full rounded-xl border px-3 py-2 text-sm font-mono focus:border-amber-500 focus:outline-none" /></label>{pwErr && <p className="text-sm text-red-500 mt-1">{pwErr}</p>}</div>
+                <div className="mt-4 flex justify-end gap-2"><button onClick={() => { setResetPwId(null); setNewPassword(''); }} className="rounded-xl bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-600">Batal</button><button onClick={handleResetPassword} className="rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600">💾 Simpan</button></div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
