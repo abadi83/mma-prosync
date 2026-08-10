@@ -606,7 +606,7 @@ function InputKeuangan() {
             const nama = iProduk >= 0 ? String(row[iProduk] || '').trim() : '';
             const qty = iQty >= 0 ? (parseInt(String(row[iQty] || '0')) || 1) : 1;
             const harga = iHargaJual >= 0 ? parseRp(row[iHargaJual] || '0') : 0;
-            if (sku || nama) lastOrder.items.push({ sku, nama, qty, hargaJual: harga });
+            if (sku || nama) lastOrder.items.push({ sku, nama, qty, hargaJual: harga, hpp: 0 });
             continue;
           }
 
@@ -637,7 +637,7 @@ function InputKeuangan() {
             id: orderId, tanggal, penghasilan, laba: laba || penghasilan,
             totalBiaya, feeAdmin, feeLayanan, ongkirAktual, subsidiOngkir,
             biayaPemrosesan, premiProteksi, biayaAMS, biayaTransaksi, komisi,
-            items: (sku || nama) ? [{ sku, nama, qty, hargaJual: harga }] : [],
+            items: (sku || nama) ? [{ sku, nama, qty, hargaJual: harga, hpp: 0 }] : [],
           });
         }
 
