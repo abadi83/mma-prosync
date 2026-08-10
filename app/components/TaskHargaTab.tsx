@@ -874,7 +874,7 @@ export default function TaskHargaTab() {
                   ['Diselesaikan Oleh', detailTask.completedBy || '-'],
                   ['Harga Final', detailTask.hargaJualFinal ? `Rp ${detailTask.hargaJualFinal.toLocaleString('id-ID')}` : '-'],
                   ['Catatan', detailTask.catatan || '-'],
-                ].filter(Boolean).map(([label, val]) => (
+                ].filter((x): x is [string, string] => x !== null).map(([label, val]) => (
                   <div key={label as string} className="flex flex-col">
                     <span className="text-xs text-slate-400">{label}</span>
                     <span className="font-medium text-slate-800 text-xs">{val}</span>
