@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 type Tab = 'profil' | 'password' | 'toko' | 'akun' | 'data';
 
