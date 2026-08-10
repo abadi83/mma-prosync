@@ -56,6 +56,25 @@ interface IzinRecord {
 
 const IZIN_STORAGE = 'mma_izin_records';
 
+/* ── Gaji / Payroll ── */
+interface GajiRecord {
+  id: string;
+  pegawaiId: string;
+  pegawaiNama: string;
+  nik: string;
+  periode: string;        // YYYY-MM
+  gajiPokok: number;
+  tunjangan: number;
+  potongan: number;
+  lembur: number;
+  bonus: number;
+  totalGaji: number;      // gajiPokok + tunjangan + lembur + bonus - potongan
+  status: 'draft' | 'dibayar';
+  tanggalBayar: string;
+  catatan: string;
+}
+const GAJI_STORAGE = 'mma_gaji_records';
+
 /* ── Role Labels ── */
 const ROLE_LABELS: Record<string, string> = {
   admin: '👑 Admin',
@@ -70,12 +89,13 @@ const ROLE_LABELS: Record<string, string> = {
 };
 
 /* ── Tabs ── */
-type Tab = 'daftar' | 'absensi' | 'rekap' | 'kpi' | 'face' | 'izin' | 'approval';
+type Tab = 'daftar' | 'absensi' | 'rekap' | 'kpi' | 'face' | 'izin' | 'approval' | 'gaji';
 
 const TABS_ADMIN: { key: Tab; label: string; icon: string }[] = [
   { key: 'daftar', label: 'Daftar Pegawai', icon: '👥' },
   { key: 'absensi', label: 'Absensi', icon: '📋' },
   { key: 'rekap', label: 'Rekap Absensi', icon: '📊' },
+  { key: 'gaji', label: 'Gaji / Payroll', icon: '💰' },
   { key: 'approval', label: 'Approval Izin', icon: '✅' },
   { key: 'kpi', label: 'KPI Pegawai', icon: '🎯' },
   { key: 'face', label: 'Face Absensi', icon: '🤳' },
@@ -304,6 +324,7 @@ export default function KepegawaianPage() {
         {tab === 'absensi' && <AbsensiHarian pegawai={isAdmin ? pegawai : myPegawai} absensi={myAbsensi} isAdmin={isAdmin} />}
         {tab === 'rekap' && isAdmin && <RekapAbsensi pegawai={pegawai} absensi={absensiWithAlfa} />}
         {tab === 'approval' && isAdmin && <ApprovalIzin izinList={izinList} setIzinList={setIzinList} pegawai={pegawai} />}
+        {tab === 'gaji' && isAdmin && <GajiTab pegawai={pegawai} />}
         {tab === 'izin' && !isAdmin && <FormIzin pegawai={myPegawai[0]} izinList={myIzin} setIzinList={setIzinList} />}
         {tab === 'kpi' && <KpiPegawai pegawai={isAdmin ? pegawai : myPegawai} kpi={isAdmin ? kpi : myKpi} />}
         {tab === 'face' && <FaceAttendance pegawai={(isAdmin ? pegawai : myPegawai).filter(p => p.status === 'Aktif').map(p => ({ id: p.id, nama: p.nama, nik: p.nik }))} isAdmin={isAdmin} />}
@@ -327,6 +348,7 @@ function DaftarPegawai({ pegawai, setPegawai }: { pegawai: Pegawai[]; setPegawai
   const [newPassword, setNewPassword] = useState('');
   const [pwErr, setPwErr] = useState('');
   const [pwSuccess, setPwSuccess] = useState(false);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
 
   // All available roles
   const ALL_ROLES = ['admin', 'hr', 'finance', 'purchasing', 'warehouse', 'logistik', 'inventory', 'sales', 'pegawai'];
@@ -451,6 +473,13 @@ function DaftarPegawai({ pegawai, setPegawai }: { pegawai: Pegawai[]; setPegawai
                     title="Reset password pegawai"
                   >
                     🔒 Reset PW
+                  </button>
+                  <button
+                    onClick={() => setDeleteId(selected.id)}
+                    className="rounded-lg bg-red-100 px-3 py-1 text-xs font-semibold text-red-600 hover:bg-red-200"
+                    title="Hapus pegawai"
+                  >
+                    🗑️ Hapus
                   </button>
                 </>
               )}
@@ -578,6 +607,29 @@ function DaftarPegawai({ pegawai, setPegawai }: { pegawai: Pegawai[]; setPegawai
                 </div>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Modal Konfirmasi Hapus */}
+      {deleteId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
+          <div className="w-80 rounded-2xl bg-white p-6 shadow-xl">
+            <p className="text-lg font-bold text-slate-800">🗑️ Hapus Pegawai</p>
+            <p className="mt-2 text-sm text-slate-600">
+              Yakin hapus <strong>{pegawai.find(p => p.id === deleteId)?.nama}</strong>?
+            </p>
+            <p className="text-xs text-slate-400 mt-1">Data absensi & KPI pegawai ini akan tetap tersimpan.</p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button onClick={() => setDeleteId(null)}
+                className="rounded-xl bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-600">Batal</button>
+              <button onClick={() => {
+                setPegawai(prev => prev.filter(p => p.id !== deleteId));
+                if (selected?.id === deleteId) setSelected(null);
+                setDeleteId(null);
+              }}
+                className="rounded-xl bg-red-500 px-4 py-2 text-sm font-semibold text-white">Hapus</button>
+            </div>
           </div>
         </div>
       )}
@@ -1192,6 +1244,173 @@ function ApprovalIzin({ izinList, setIzinList, pegawai }: { izinList: IzinRecord
             ))}
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════ */
+/* GAJI / PAYROLL                                                     */
+/* ═══════════════════════════════════════════════════════════════════ */
+function GajiTab({ pegawai }: { pegawai: Pegawai[] }) {
+  const pegawaiAktif = pegawai.filter(p => p.status === 'Aktif');
+  const [gajiList, setGajiList] = useState<GajiRecord[]>(() => {
+    if (typeof window === 'undefined') return [];
+    try { const raw = localStorage.getItem(GAJI_STORAGE); return raw ? JSON.parse(raw) : []; }
+    catch { return []; }
+  });
+  const [showForm, setShowForm] = useState(false);
+  const [editId, setEditId] = useState<string | null>(null);
+  const [filterPeriode, setFilterPeriode] = useState(new Date().toISOString().slice(0, 7));
+  const [filterPegawai, setFilterPegawai] = useState('semua');
+  const [form, setForm] = useState({
+    pegawaiId: '', periode: new Date().toISOString().slice(0, 7),
+    gajiPokok: '', tunjangan: '', potongan: '', lembur: '', bonus: '', catatan: ''
+  });
+  const [err, setErr] = useState('');
+
+  useEffect(() => { try { localStorage.setItem(GAJI_STORAGE, JSON.stringify(gajiList)); } catch { } }, [gajiList]);
+
+  const filtered = gajiList.filter(g => {
+    if (filterPeriode && g.periode !== filterPeriode) return false;
+    if (filterPegawai !== 'semua' && g.pegawaiId !== filterPegawai) return false;
+    return true;
+  });
+
+  const openAdd = () => {
+    setForm({ pegawaiId: pegawaiAktif[0]?.id || '', periode: new Date().toISOString().slice(0, 7), gajiPokok: '', tunjangan: '', potongan: '', lembur: '', bonus: '', catatan: '' });
+    setErr(''); setShowForm(true); setEditId(null);
+  };
+  const openEdit = (g: GajiRecord) => {
+    setForm({ pegawaiId: g.pegawaiId, periode: g.periode, gajiPokok: String(g.gajiPokok), tunjangan: String(g.tunjangan), potongan: String(g.potongan), lembur: String(g.lembur), bonus: String(g.bonus), catatan: g.catatan });
+    setErr(''); setEditId(g.id); setShowForm(true);
+  };
+
+  const save = () => {
+    if (!form.pegawaiId || !form.periode) { setErr('Pegawai & Periode wajib diisi.'); return; }
+    const gp = +form.gajiPokok || 0;
+    const tj = +form.tunjangan || 0;
+    const pt = +form.potongan || 0;
+    const lb = +form.lembur || 0;
+    const bn = +form.bonus || 0;
+    const total = gp + tj + lb + bn - pt;
+    const p = pegawai.find(x => x.id === form.pegawaiId);
+    const item: GajiRecord = {
+      id: editId || `gaji-${Date.now()}`,
+      pegawaiId: form.pegawaiId, pegawaiNama: p?.nama || '', nik: p?.nik || '',
+      periode: form.periode, gajiPokok: gp, tunjangan: tj, potongan: pt, lembur: lb, bonus: bn,
+      totalGaji: total, status: 'draft', tanggalBayar: '', catatan: form.catatan,
+    };
+    if (editId) setGajiList(prev => prev.map(x => x.id === editId ? item : x));
+    else setGajiList(prev => [item, ...prev]);
+    setShowForm(false);
+  };
+
+  const bayarGaji = (id: string) => {
+    setGajiList(prev => prev.map(g => g.id === id ? { ...g, status: 'dibayar' as const, tanggalBayar: new Date().toISOString().slice(0, 10) } : g));
+  };
+
+  const hapusGaji = (id: string) => {
+    if (!confirm('Hapus data gaji ini?')) return;
+    setGajiList(prev => prev.filter(g => g.id !== id));
+  };
+
+  const rekapPeriode = useMemo(() => {
+    const map = new Map<string, { totalGaji: number; totalPokok: number; totalTunjangan: number; totalLembur: number; totalBonus: number; totalPotongan: number; jmlPegawai: number; dibayar: number }>();
+    for (const g of gajiList) {
+      const exist = map.get(g.periode) || { totalGaji: 0, totalPokok: 0, totalTunjangan: 0, totalLembur: 0, totalBonus: 0, totalPotongan: 0, jmlPegawai: 0, dibayar: 0 };
+      exist.totalGaji += g.totalGaji;
+      exist.totalPokok += g.gajiPokok;
+      exist.totalTunjangan += g.tunjangan;
+      exist.totalLembur += g.lembur;
+      exist.totalBonus += g.bonus;
+      exist.totalPotongan += g.potongan;
+      exist.jmlPegawai++;
+      if (g.status === 'dibayar') exist.dibayar++;
+      map.set(g.periode, exist);
+    }
+    return Array.from(map.entries()).sort((a, b) => b[0].localeCompare(a[0]));
+  }, [gajiList]);
+
+  const totalAll = gajiList.reduce((s, g) => s + g.totalGaji, 0);
+  const totalDibayar = gajiList.filter(g => g.status === 'dibayar').reduce((s, g) => s + g.totalGaji, 0);
+  const allPeriods = Array.from(new Set(gajiList.map(g => g.periode))).sort().reverse();
+
+  return (
+    <div>
+      <div className="mb-1 h-1 w-16 rounded-full bg-gradient-to-r from-emerald-500 to-emerald-300" />
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div><h2 className="text-lg font-bold text-slate-800 sm:text-xl">💰 Gaji / Payroll</h2><p className="text-sm text-slate-500">{gajiList.length} record • {pegawaiAktif.length} pegawai aktif</p></div>
+        <button onClick={openAdd} className="rounded-xl bg-emerald-500 px-4 py-1.5 text-sm font-semibold text-white hover:bg-emerald-700">+ Input Gaji</button>
+      </div>
+      <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="rounded-xl bg-slate-50 p-3 text-center"><p className="text-2xl font-bold text-slate-700">{gajiList.length}</p><p className="text-xs text-slate-500">Record</p></div>
+        <div className="rounded-xl bg-emerald-50 p-3 text-center"><p className="text-2xl font-bold text-emerald-600">Rp {totalAll.toLocaleString('id-ID')}</p><p className="text-xs text-emerald-500">Total Gaji</p></div>
+        <div className="rounded-xl bg-blue-50 p-3 text-center"><p className="text-2xl font-bold text-blue-600">Rp {totalDibayar.toLocaleString('id-ID')}</p><p className="text-xs text-blue-500">Sudah Dibayar</p></div>
+        <div className="rounded-xl bg-amber-50 p-3 text-center"><p className="text-2xl font-bold text-amber-600">Rp {(totalAll-totalDibayar).toLocaleString('id-ID')}</p><p className="text-xs text-amber-500">Belum Dibayar</p></div>
+      </div>
+      <div className="mt-4 flex flex-wrap gap-2">
+        <select value={filterPeriode} onChange={e => setFilterPeriode(e.target.value)} className="rounded-xl border bg-white px-3 py-1.5 text-xs font-semibold text-slate-600">
+          <option value="">📅 Semua Periode</option>
+          {allPeriods.map(p => <option key={p} value={p}>{p}</option>)}
+        </select>
+        <select value={filterPegawai} onChange={e => setFilterPegawai(e.target.value)} className="rounded-xl border bg-white px-3 py-1.5 text-xs font-semibold text-slate-600">
+          <option value="semua">👥 Semua Pegawai</option>
+          {pegawaiAktif.map(p => <option key={p.id} value={p.id}>{p.nama}</option>)}
+        </select>
+      </div>
+      <div className="mt-3 overflow-x-auto rounded-xl border border-slate-100">
+        <table className="w-full text-left text-[10px]">
+          <thead><tr className="bg-emerald-50 text-[10px] uppercase text-emerald-600">
+            {['Periode','NIK','Nama','Pokok','Tunjangan','Lembur','Bonus','Potongan','TOTAL','Status','Aksi'].map(c => <th key={c} className="px-1.5 py-2 font-semibold whitespace-nowrap">{c}</th>)}
+          </tr></thead>
+          <tbody className="divide-y divide-slate-50 bg-white">
+            {filtered.length===0 ? <tr><td colSpan={11} className="py-10 text-center text-slate-400">Belum ada data gaji. Klik "+ Input Gaji".</td></tr> :
+            filtered.map(g => (
+              <tr key={g.id} className={`hover:bg-emerald-50/30 ${g.status==='dibayar'?'bg-emerald-50/20':''}`}>
+                <td className="px-1.5 py-2 font-mono">{g.periode}</td>
+                <td className="px-1.5 py-2 text-slate-500">{g.nik}</td>
+                <td className="px-1.5 py-2 font-semibold text-slate-700">{g.pegawaiNama}</td>
+                <td className="px-1.5 py-2">Rp {g.gajiPokok.toLocaleString('id-ID')}</td>
+                <td className="px-1.5 py-2 text-blue-600">{g.tunjangan>0?`+${g.tunjangan.toLocaleString('id-ID')}`:'-'}</td>
+                <td className="px-1.5 py-2 text-amber-600">{g.lembur>0?`+${g.lembur.toLocaleString('id-ID')}`:'-'}</td>
+                <td className="px-1.5 py-2 text-purple-600">{g.bonus>0?`+${g.bonus.toLocaleString('id-ID')}`:'-'}</td>
+                <td className="px-1.5 py-2 text-red-500">{g.potongan>0?`-${g.potongan.toLocaleString('id-ID')}`:'-'}</td>
+                <td className="px-1.5 py-2 font-bold">Rp {g.totalGaji.toLocaleString('id-ID')}</td>
+                <td className="px-1.5 py-2"><span className={`rounded-full px-2 py-0.5 text-[9px] font-semibold ${g.status==='dibayar'?'bg-emerald-100 text-emerald-700':'bg-amber-100 text-amber-700'}`}>{g.status==='dibayar'?`✅ ${g.tanggalBayar}`:'📝 Draft'}</span></td>
+                <td className="px-1.5 py-2"><div className="flex gap-0.5">
+                  {g.status==='draft'&&<button onClick={()=>bayarGaji(g.id)} className="rounded-md bg-emerald-100 px-1.5 py-0.5 text-[9px] font-semibold text-emerald-700 hover:bg-emerald-200">✅ Bayar</button>}
+                  <button onClick={()=>openEdit(g)} className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[9px] font-semibold text-slate-600 hover:bg-slate-200">✏️</button>
+                  <button onClick={()=>hapusGaji(g.id)} className="rounded-md bg-red-50 px-1.5 py-0.5 text-[9px] font-semibold text-red-500 hover:bg-red-100">🗑️</button>
+                </div></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {showForm&&(<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 overflow-y-auto py-8"><div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl mx-4">
+        <p className="text-lg font-bold text-slate-800">{editId?'✏️ Edit Gaji':'💰 Input Gaji Baru'}</p>
+        {err&&<p className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{err}</p>}
+        <div className="mt-4 grid grid-cols-2 gap-3">
+          <label className="flex flex-col gap-1 col-span-2"><span className="text-xs font-semibold text-slate-600">Pegawai</span>
+            <select value={form.pegawaiId} onChange={e=>setForm({...form,pegawaiId:e.target.value})} className="rounded-xl border px-2 py-1.5 text-sm focus:border-emerald-500 focus:outline-none bg-white">{pegawaiAktif.map(p=><option key={p.id} value={p.id}>{p.nama} ({p.nik})</option>)}</select></label>
+          <label className="flex flex-col gap-1"><span className="text-xs font-semibold text-slate-600">Periode</span><input type="month" value={form.periode} onChange={e=>setForm({...form,periode:e.target.value})} className="rounded-xl border px-2 py-1.5 text-sm focus:border-emerald-500 focus:outline-none" /></label>
+          <label className="flex flex-col gap-1"><span className="text-xs font-semibold text-slate-600">Gaji Pokok</span><input type="number" value={form.gajiPokok} onChange={e=>setForm({...form,gajiPokok:e.target.value})} className="rounded-xl border px-2 py-1.5 text-sm focus:border-emerald-500 focus:outline-none" /></label>
+          <label className="flex flex-col gap-1"><span className="text-xs font-semibold text-slate-600">Tunjangan</span><input type="number" value={form.tunjangan} onChange={e=>setForm({...form,tunjangan:e.target.value})} className="rounded-xl border px-2 py-1.5 text-sm focus:border-emerald-500 focus:outline-none" /></label>
+          <label className="flex flex-col gap-1"><span className="text-xs font-semibold text-slate-600">Lembur</span><input type="number" value={form.lembur} onChange={e=>setForm({...form,lembur:e.target.value})} className="rounded-xl border px-2 py-1.5 text-sm focus:border-emerald-500 focus:outline-none" /></label>
+          <label className="flex flex-col gap-1"><span className="text-xs font-semibold text-slate-600">Bonus</span><input type="number" value={form.bonus} onChange={e=>setForm({...form,bonus:e.target.value})} className="rounded-xl border px-2 py-1.5 text-sm focus:border-emerald-500 focus:outline-none" /></label>
+          <label className="flex flex-col gap-1"><span className="text-xs font-semibold text-slate-600">Potongan</span><input type="number" value={form.potongan} onChange={e=>setForm({...form,potongan:e.target.value})} className="rounded-xl border px-2 py-1.5 text-sm focus:border-emerald-500 focus:outline-none" /></label>
+          <label className="flex flex-col gap-1 col-span-2"><span className="text-xs font-semibold text-slate-600">Catatan</span><input type="text" value={form.catatan} onChange={e=>setForm({...form,catatan:e.target.value})} placeholder="THR, bonus, dll" className="rounded-xl border px-2 py-1.5 text-sm focus:border-emerald-500 focus:outline-none" /></label>
+        </div>
+        <div className="mt-3 rounded-xl bg-slate-50 p-3 text-xs"><p className="text-slate-500">Preview Total:</p><p className="text-lg font-bold text-emerald-600">Rp {((+form.gajiPokok||0)+(+form.tunjangan||0)+(+form.lembur||0)+(+form.bonus||0)-(+form.potongan||0)).toLocaleString('id-ID')}</p></div>
+        <div className="mt-4 flex justify-end gap-2"><button onClick={()=>setShowForm(false)} className="rounded-xl bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-600">Batal</button><button onClick={save} className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-white">{editId?'Update':'Simpan'}</button></div>
+      </div></div>)}
+      {rekapPeriode.length>0&&(<div className="mt-5"><h3 className="text-sm font-bold text-slate-700 mb-2">📊 Rekap Payroll per Periode</h3>
+        <div className="overflow-x-auto rounded-xl border border-slate-100"><table className="w-full text-left text-[10px]">
+          <thead><tr className="bg-slate-100 text-slate-500">{['Periode','Pegawai','Pokok','Tunjangan','Lembur','Bonus','Potongan','Total','Dibayar'].map(c=><th key={c} className="px-2 py-2 font-semibold whitespace-nowrap">{c}</th>)}</tr></thead>
+          <tbody className="divide-y divide-slate-50 bg-white">{rekapPeriode.map(([periode,d])=>(
+            <tr key={periode} className="hover:bg-slate-50"><td className="px-2 py-2 font-mono font-semibold">{periode}</td><td className="px-2 py-2">{d.jmlPegawai} org</td><td className="px-2 py-2">Rp {d.totalPokok.toLocaleString('id-ID')}</td><td className="px-2 py-2 text-blue-600">Rp {d.totalTunjangan.toLocaleString('id-ID')}</td><td className="px-2 py-2 text-amber-600">Rp {d.totalLembur.toLocaleString('id-ID')}</td><td className="px-2 py-2 text-purple-600">Rp {d.totalBonus.toLocaleString('id-ID')}</td><td className="px-2 py-2 text-red-500">−Rp {d.totalPotongan.toLocaleString('id-ID')}</td><td className="px-2 py-2 font-bold">Rp {d.totalGaji.toLocaleString('id-ID')}</td><td className="px-2 py-2"><span className="text-emerald-600">{d.dibayar}/{d.jmlPegawai}</span></td></tr>
+          ))}</tbody></table></div></div>
       )}
     </div>
   );
