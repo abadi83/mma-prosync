@@ -720,7 +720,6 @@ function InputKeuangan() {
             pendapatanKotor: o.pendapatanKotor, feeMarketplace: o.totalBiaya, biayaIklan: 0, biayaPengemasan: 0,
             biayaPengiriman: o.ongkirAktual, pendapatanBersih: o.pendapatanBersih, biayaProses: o.biayaPemrosesan, totalHPP: o.totalHPP, catatan: o.catatan,
           }));
-          }));
           const existingOld = JSON.parse(localStorage.getItem('mma_marketplace_income') || '[]');
           localStorage.setItem('mma_marketplace_income', JSON.stringify([...summary, ...existingOld]));
         } catch { }
