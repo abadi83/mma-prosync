@@ -611,7 +611,7 @@ function InputKeuangan() {
         if (iPenghasilan < 0) { setErr('Kolom pendapatan tidak ditemukan. Header: ' + h.slice(0, 8).join(', ')); setUploading(false); return; }
 
         // Kumpulkan data per order (handle multi-SKU)
-        const orderMap = new Map<string, { id: string; tanggal: string; penghasilan: number; laba: number; totalBiaya: number; feeAdmin: number; feeLayanan: number; ongkirAktual: number; subsidiOngkir: number; biayaPemrosesan: number; premiProteksi: number; biayaAMS: number; biayaTransaksi: number; komisi: number; items: MpOrderItem[] }>();
+        const orderMap = new Map<string, { id: string; tanggal: string; totalHargaProduk: number; penghasilan: number; laba: number; totalBiaya: number; feeAdmin: number; feeLayanan: number; ongkirAktual: number; subsidiOngkir: number; biayaPemrosesan: number; premiProteksi: number; biayaAMS: number; biayaTransaksi: number; komisi: number; items: MpOrderItem[] }>();
 
         for (let i = 1; i < raw.length; i++) {
           const row = raw[i]; if (!row || row.length < 2) continue;
@@ -628,10 +628,11 @@ function InputKeuangan() {
             continue;
           }
 
-          // Baris INDUK
+          // Baris INDUK — Total Harga Produk hanya dari kolom ini (baris induk)
+          const totalHargaProduk = iHargaJual >= 0 ? parseRp(row[iHargaJual] || '0') : 0;
           const penghasilan = parseRp(row[iPenghasilan] || '0');
           const laba = iLaba >= 0 ? parseRp(row[iLaba] || '0') : penghasilan;
-          if (penghasilan <= 0 && laba <= 0) continue;
+          if (penghasilan <= 0 && laba <= 0 && totalHargaProduk <= 0) continue;
 
           const tanggal = iTanggal >= 0 ? String(row[iTanggal] || '').trim().slice(0, 10) : '';
           const totalBiaya = iTotalBiaya >= 0 ? parseRp(row[iTotalBiaya] || '0') : 0;
@@ -652,7 +653,8 @@ function InputKeuangan() {
           const harga = iHargaJual >= 0 ? parseRp(row[iHargaJual] || '0') : 0;
 
           orderMap.set(orderId, {
-            id: orderId, tanggal, penghasilan, laba: laba || penghasilan,
+            id: orderId, tanggal, totalHargaProduk,
+            penghasilan, laba: laba || penghasilan,
             totalBiaya, feeAdmin, feeLayanan, ongkirAktual, subsidiOngkir,
             biayaPemrosesan, premiProteksi, biayaAMS, biayaTransaksi, komisi,
             items: (sku || nama) ? [{ sku, nama, qty, hargaJual: harga, hpp: 0 }] : [],
@@ -689,9 +691,9 @@ function InputKeuangan() {
           totalHPP = itemsWithHpp.reduce((s, it) => s + (it.hpp * it.qty), 0);
           totalHppAll += totalHPP;
 
-          // ── Kotor = GROSS (total penjualan dari item, tanpa dikurangi apapun) ──
-          const grossRevenue = itemsWithHpp.reduce((s, it) => s + (it.hargaJual * it.qty), 0) || o.penghasilan || 0;
-          // ── Bersih = Kotor - Fee - Biaya Proses - HPP ──
+          // ── Kotor = Total Harga Produk dari kolom Excel (baris INDUK) ──
+          const grossRevenue = o.totalHargaProduk || o.penghasilan || 0;
+          // ── Laba Bersih = Kotor - Fee - HPP ──
           const totalBiayaFinal = (o.totalBiaya || 0) + (o.biayaPemrosesan || 0);
           const labaFinal = grossRevenue - totalBiayaFinal - totalHPP;
 
