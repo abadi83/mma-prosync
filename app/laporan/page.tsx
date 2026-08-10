@@ -60,7 +60,7 @@ export default function LaporanPage() {
     // Hanya order yang sudah selesai (Dikirim / Selesai / delivered)
     const selesai = allRows.filter(r =>
       r.statusPesanan === 'Selesai' || r.statusPesanan === 'delivered' ||
-      r.statusProses === 'Dikirim' || r.statusProses === 'Selesai'
+      r.statusProses === 'Dikirim'
     );
     // Group by marketplace
     const byMp = new Map<string, { total: number; count: number }>();
