@@ -698,26 +698,6 @@ function InputKeuangan() {
     r.readAsArrayBuffer(file);
   };
 
-        if (newEntries.length === 0) { setErr('Tidak ada data valid ditemukan.'); setUploading(false); return; }
-        setEntries(p => [...newEntries, ...p]);
-
-        // Simpan ke localStorage untuk Laba Rugi
-        try {
-          const existing = JSON.parse(localStorage.getItem('mma_marketplace_income') || '[]');
-          localStorage.setItem('mma_marketplace_income', JSON.stringify([...newEntries, ...existing]));
-        } catch { }
-
-        setSuccess(true);
-        setErr('');
-        alert(`✅ ${newEntries.length} baris berhasil diupload dari ${file.name} (${detectedMp}).`);
-        setTimeout(() => setSuccess(false), 4000);
-      } catch { setErr('Gagal membaca file. Pastikan format Excel benar.'); }
-      setUploading(false);
-    };
-    r.onerror = () => { setErr('Gagal membaca file.'); setUploading(false); };
-    r.readAsArrayBuffer(file);
-  };
-
   const save = () => {
     if (pk <= 0) { setErr('Pendapatan kotor wajib diisi.'); return; }
     setEntries(p => [{ id: `keu-${Date.now()}`, tanggal: form.tanggal, marketplaceId: mp.id, marketplaceNama: mp.nama, pendapatanKotor: pk, feeMarketplace: fee, biayaIklan: +form.biayaIklan || 0, biayaPengemasan: +form.biayaPengemasan || 0, biayaPengiriman: +form.biayaPengiriman || 0, pendapatanBersih: bersih, catatan: form.catatan }, ...p]);
