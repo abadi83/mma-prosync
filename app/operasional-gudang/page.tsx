@@ -54,7 +54,7 @@ export default function OperasionalGudangPage() {
 /* AGREGASI DASHBOARD                                                */
 /* ═══════════════════════════════════════════════════════════════════ */
 function AgregasiDashboard() {
-  const { allRows, addRows, updateStatusPicking } = useAgregasi();
+  const { allRows, addRows, updateStatusPicking, clearRows } = useAgregasi();
   const [uploading, setUploading] = useState(false);
   const [err, setErr] = useState('');
   const [filterMp, setFilterMp] = useState('semua');
@@ -190,6 +190,7 @@ function AgregasiDashboard() {
         <div className="flex gap-2">
           <label className={`cursor-pointer rounded-xl px-3 py-1.5 text-sm font-semibold text-white transition ${uploading?'bg-slate-400':'bg-emerald-500 hover:bg-emerald-600'}`}>{uploading?'⏳':'📦 Upload Picking'}<input ref={pickingRef} type="file" accept=".xlsx,.xls" onChange={uploadPicking} className="hidden" disabled={uploading} /></label>
           <label className={`cursor-pointer rounded-xl px-3 py-1.5 text-sm font-semibold text-white transition ${uploading?'bg-slate-400':'bg-brand-500 hover:bg-brand-700'}`}>{uploading?'⏳':'📥 Upload Order'}<input ref={fileRef} type="file" accept=".xlsx,.xls" onChange={upload} className="hidden" disabled={uploading} /></label>
+          <button onClick={() => { if (confirm('⚠️ Hapus SEMUA data agregasi? Data tidak bisa dikembalikan.')) { clearRows(); alert('✅ Data agregasi direset.'); } }} className="rounded-xl px-3 py-1.5 text-sm font-semibold text-red-600 bg-red-50 hover:bg-red-100 transition">🗑 Reset</button>
         </div>
       </div>
       {err&&<p className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{err}</p>}
