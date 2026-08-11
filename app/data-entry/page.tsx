@@ -566,23 +566,45 @@ function InputKeuangan() {
       try {
         const data = new Uint8Array(ev.target?.result as ArrayBuffer);
         const wb = XLSX.read(data, { type: 'array' });
-        // ── Coba SEMUA sheet, cari yang ada keyword Lazada ──
+        // ── Baca RAW cells langsung (hindari masalah merged cells) ──
         let raw: string[][] = [];
         let foundSheet = '';
         for (const sn of wb.SheetNames) {
           const sheet = wb.Sheets[sn];
-          const r = XLSX.utils.sheet_to_json<string[]>(sheet, { header: 1 });
-          if (r.length < 2) continue;
-          for (let rowIdx = 0; rowIdx < Math.min(5, r.length); rowIdx++) {
-            const rowStr = (r[rowIdx] || []).map(c => String(c || '').toLowerCase().trim()).join(' ');
-            if (rowStr.includes('nama biaya') || rowStr.includes('nomor pesanan') || rowStr.includes('omset penjualan')) {
-              raw = r; foundSheet = sn; break;
+          // Coba baca dengan sheet_to_json dulu
+          let r = XLSX.utils.sheet_to_json<string[]>(sheet, { header: 1, defval: '', blankrows: false });
+          // Kalau cuma 1 kolom, coba baca ulang dengan raw values
+          if (r.length > 0 && r[0] && r[0].length <= 1) {
+            // Baca manual dari cell references
+            const ref = sheet['!ref'];
+            if (ref) {
+              const range = XLSX.utils.decode_range(ref);
+              const manualRows: string[][] = [];
+              for (let rowIdx = range.s.r; rowIdx <= range.e.r; rowIdx++) {
+                const row: string[] = [];
+                for (let colIdx = range.s.c; colIdx <= range.e.c; colIdx++) {
+                  const cellAddr = XLSX.utils.encode_cell({ r: rowIdx, c: colIdx });
+                  const cell = sheet[cellAddr];
+                  row.push(cell ? String(cell.v ?? cell.w ?? '') : '');
+                }
+                if (row.some(c => c.trim())) manualRows.push(row);
+              }
+              if (manualRows.length > 0) r = manualRows;
+            }
+          }
+          if (r.length >= 2) {
+            // Cek apakah ini sheet Lazada
+            for (let rowIdx = 0; rowIdx < Math.min(5, r.length); rowIdx++) {
+              const rowStr = (r[rowIdx] || []).map(c => String(c || '').toLowerCase().trim()).join(' ');
+              if (rowStr.includes('nama biaya') || rowStr.includes('nomor pesanan') || rowStr.includes('omset penjualan')) {
+                raw = r; foundSheet = sn; break;
+              }
             }
           }
           if (foundSheet) break;
         }
         if (!foundSheet) {
-          raw = XLSX.utils.sheet_to_json<string[]>(wb.Sheets[wb.SheetNames[0]], { header: 1 });
+          raw = XLSX.utils.sheet_to_json<string[]>(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' });
         }
         if (raw.length < 2) { setErr('File kosong atau tidak ada data. Sheet ditemukan: ' + (foundSheet || 'tidak ada')); setUploading(false); return; }
         const h = raw[0].map((c: string) => String(c || '').toLowerCase().trim());
