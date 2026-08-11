@@ -99,6 +99,19 @@ export function LabaRugiReport({ data, periode, extra }: Props) {
             Rp {Math.abs(labaBersih).toLocaleString('id-ID')}
           </span>
         </div>
+
+        {/* ── Persentase ── */}
+        <div className="flex flex-wrap gap-2 px-4 py-3 bg-slate-50/50">
+          <span className="rounded-full bg-red-100 px-3 py-1 text-[10px] font-semibold text-red-700">
+            🛒 Fee/Omset: {data.pendapatan > 0 ? ((data.biayaOperasional + data.biayaLain) / data.pendapatan * 100).toFixed(1) : '0'}%
+          </span>
+          <span className="rounded-full bg-purple-100 px-3 py-1 text-[10px] font-semibold text-purple-700">
+            📦 HPP/Omset: {data.pendapatan > 0 ? (data.hargaPokok / data.pendapatan * 100).toFixed(1) : '0'}%
+          </span>
+          <span className={`rounded-full px-3 py-1 text-[10px] font-semibold ${labaBersih >= 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+            📈 Margin: {data.pendapatan > 0 ? (labaBersih / data.pendapatan * 100).toFixed(1) : '0'}%
+          </span>
+        </div>
       </div>
 
       {/* ── Marketplace Fee & HPP Breakdown ── */}

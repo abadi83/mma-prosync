@@ -1239,6 +1239,18 @@ function UploadHistory() {
             <p className={`text-[10px] ${totalNet >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>Kotor − Fee − HPP</p>
           </div>
         </div>
+        {/* ── Persentase ── */}
+        <div className="mt-2 flex flex-wrap gap-2 text-[10px]">
+          <span className="rounded-full bg-red-100 px-3 py-1 font-semibold text-red-700">
+            🛒 Fee/Omset: {totalKotor > 0 ? ((totalFee / totalKotor) * 100).toFixed(1) : '0'}%
+          </span>
+          <span className="rounded-full bg-purple-100 px-3 py-1 font-semibold text-purple-700">
+            📦 HPP/Omset: {totalKotor > 0 ? ((totalHpp / totalKotor) * 100).toFixed(1) : '0'}%
+          </span>
+          <span className={`rounded-full px-3 py-1 font-semibold ${totalNet >= 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+            📈 Margin: {totalKotor > 0 ? ((totalNet / totalKotor) * 100).toFixed(1) : '0'}%
+          </span>
+        </div>
       </div>
 
       {/* Tabel Utama */}
