@@ -8,7 +8,7 @@ import { useAgregasi } from '@/app/context/AgregasiContext';
 import { ExportButton } from '@/app/components/ExportButton';
 
 type JenisLaporan = 'laba-rugi' | 'arus-kas' | 'stok' | 'omset';
-type Periode = 'minggu' | 'bulan' | 'tahun';
+type Periode = 'minggu' | 'bulan' | 'tahun' | 'custom';
 
 // Helper: baca data real dari localStorage
 function getRealData() {
@@ -26,7 +26,13 @@ function getRealData() {
   } catch { return { penjualan: [], payments: [], biaya: [], opex: [], modal: [], keuanganManual: [], mpIncome: [] }; }
 }
 
-function filterByPeriode(list: any[], dateField: string, periode: Periode): any[] {
+function filterByPeriode(list: any[], dateField: string, periode: Periode, customStart?: string, customEnd?: string): any[] {
+  if (periode === 'custom' && customStart && customEnd) {
+    return list.filter((item: any) => {
+      const d = item[dateField] || item.tanggal || '';
+      return d >= customStart && d <= customEnd;
+    });
+  }
   const now = new Date();
   let start = new Date();
   if (periode === 'minggu') start.setDate(now.getDate() - 7);
@@ -40,6 +46,7 @@ const PERIODE_LABELS: Record<Periode, string> = {
   minggu: 'Minggu Ini',
   bulan: 'Bulan Ini',
   tahun: 'Tahun Ini',
+  custom: '📅 Custom',
 };
 
 export default function LaporanPage() {
@@ -47,6 +54,8 @@ export default function LaporanPage() {
   const [periode, setPeriode] = useState<Periode>('bulan');
   const [mounted, setMounted] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [customStart, setCustomStart] = useState(new Date().toISOString().slice(0, 10));
+  const [customEnd, setCustomEnd] = useState(new Date().toISOString().slice(0, 10));
 
   useEffect(() => { setMounted(true); }, []);
 
@@ -64,10 +73,10 @@ export default function LaporanPage() {
 
   const realData = useMemo(() => (mounted ? getRealData() : { penjualan: [], payments: [], biaya: [], opex: [], modal: [], keuanganManual: [], mpIncome: [] }), [mounted, refreshKey]);
 
-  const penjualanFiltered = useMemo(() => filterByPeriode(realData.penjualan, 'tanggal', periode), [realData, periode]);
-  const paymentsFiltered = useMemo(() => filterByPeriode(realData.payments, 'tanggalBayar', periode), [realData, periode]);
-  const biayaFiltered = useMemo(() => filterByPeriode(realData.biaya, 'tanggal', periode), [realData, periode]);
-  const opexFiltered = useMemo(() => filterByPeriode(realData.opex, 'tanggal', periode), [realData, periode]);
+  const penjualanFiltered = useMemo(() => filterByPeriode(realData.penjualan, 'tanggal', periode, customStart, customEnd), [realData, periode, customStart, customEnd]);
+  const paymentsFiltered = useMemo(() => filterByPeriode(realData.payments, 'tanggalBayar', periode, customStart, customEnd), [realData, periode, customStart, customEnd]);
+  const biayaFiltered = useMemo(() => filterByPeriode(realData.biaya, 'tanggal', periode, customStart, customEnd), [realData, periode, customStart, customEnd]);
+  const opexFiltered = useMemo(() => filterByPeriode(realData.opex, 'tanggal', periode, customStart, customEnd), [realData, periode, customStart, customEnd]);
 
   // ── Data Omset Marketplace dari Agregasi (Operasional Gudang) ──
   const { allRows } = useAgregasi();
@@ -100,7 +109,7 @@ export default function LaporanPage() {
     let marketplaceKotor = 0;
     try {
       const mpOrders = JSON.parse(localStorage.getItem('mma_marketplace_orders') || '[]');
-      const mpFiltered = filterByPeriode(mpOrders, 'tanggal', periode);
+      const mpFiltered = filterByPeriode(mpOrders, 'tanggal', periode, customStart, customEnd);
       marketplaceNet = mpFiltered.reduce((s: number, o: any) => s + (o.pendapatanBersih || 0), 0);
       marketplaceHpp = mpFiltered.reduce((s: number, o: any) => s + (o.totalHPP || 0), 0);
       marketplaceKotor = mpFiltered.reduce((s: number, o: any) => s + (o.pendapatanKotor || 0), 0);
@@ -108,7 +117,7 @@ export default function LaporanPage() {
     // Manual entries
     let manualKotor = 0, manualNet = 0, manualFee = 0;
     try {
-      const manual = filterByPeriode(realData.keuanganManual, 'tanggal', periode);
+      const manual = filterByPeriode(realData.keuanganManual, 'tanggal', periode, customStart, customEnd);
       manualKotor = manual.reduce((s: number, e: any) => s + (e.pendapatanKotor || 0), 0);
       manualNet = manual.reduce((s: number, e: any) => s + (e.pendapatanBersih || 0), 0);
       manualFee = manual.reduce((s: number, e: any) => s + (e.feeMarketplace || 0), 0);
@@ -116,7 +125,7 @@ export default function LaporanPage() {
     // MP Income ringkasan
     let incKotor = 0, incNet = 0;
     try {
-      const inc = filterByPeriode(realData.mpIncome, 'tanggal', periode);
+      const inc = filterByPeriode(realData.mpIncome, 'tanggal', periode, customStart, customEnd);
       incKotor = inc.reduce((s: number, e: any) => s + (e.pendapatanKotor || 0), 0);
       incNet = inc.reduce((s: number, e: any) => s + (e.pendapatanBersih || 0), 0);
     } catch { }
@@ -128,7 +137,7 @@ export default function LaporanPage() {
     const labaKotor = totalPendapatan - totalHPP - manualFee;
     const labaBersih = labaKotor - biayaOps - opexTotal;
     return { pendapatan: totalPendapatan, hargaPokok: totalHPP, biayaOperasional: biayaOps, biayaLain: opexTotal + manualFee, labaKotor, labaBersih };
-  }, [penjualanFiltered, biayaFiltered, opexFiltered, paymentsFiltered, periode, realData]);
+  }, [penjualanFiltered, biayaFiltered, opexFiltered, paymentsFiltered, periode, realData, customStart, customEnd]);
 
   // Arus Kas real
   const arusKasData = useMemo(() => {
@@ -215,6 +224,15 @@ export default function LaporanPage() {
             {label}
           </button>
         ))}
+        {periode === 'custom' && (
+          <div className="flex items-center gap-2 ml-2">
+            <input type="date" value={customStart} onChange={e => setCustomStart(e.target.value)}
+              className="rounded-xl border px-2 py-1 text-xs text-slate-600" />
+            <span className="text-xs text-slate-400">s/d</span>
+            <input type="date" value={customEnd} onChange={e => setCustomEnd(e.target.value)}
+              className="rounded-xl border px-2 py-1 text-xs text-slate-600" />
+          </div>
+        )}
         <ExportButton
           filename={`laporan-${jenis}-${periode}`}
           headers={exportHeaders}
@@ -224,9 +242,9 @@ export default function LaporanPage() {
 
       {/* Konten Laporan */}
       <section className="card-blue">
-        {jenis === 'laba-rugi' && <LabaRugi periode={periode} />}
+        {jenis === 'laba-rugi' && <LabaRugi periode={periode} customStart={customStart} customEnd={customEnd} />}
         {jenis === 'omset' && <OmsetTab data={omsetData} />}
-        {jenis === 'arus-kas' && <ArusKas periode={periode} />}
+        {jenis === 'arus-kas' && <ArusKas periode={periode} customStart={customStart} customEnd={customEnd} />}
         {jenis === 'stok' && <LaporanStok periode={periode} />}
       </section>
     </main>
@@ -237,7 +255,7 @@ export default function LaporanPage() {
 /* Sub-komponen per jenis laporan                                     */
 /* ================================================================== */
 
-function LabaRugi({ periode }: { periode: Periode }) {
+function LabaRugi({ periode, customStart, customEnd }: { periode: Periode; customStart?: string; customEnd?: string }) {
   const [mounted, setMounted] = useState(false);
   const [filterToko, setFilterToko] = useState<string>('semua');
   const [localRefresh, setLocalRefresh] = useState(0);
@@ -257,7 +275,7 @@ function LabaRugi({ periode }: { periode: Periode }) {
   const data = useMemo(() => {
     if (!mounted) return { pendapatan: 0, hargaPokok: 0, biayaOperasional: 0, biayaLain: 0, labaKotor: 0, labaBersih: 0, feeMarketplace: 0, hppMarketplace: 0, breakdownPerToko: [] as any[], tokoList: [] as string[] };
     const { penjualan, biaya, opex } = getRealData();
-    const f = (list: any[], field: string) => filterByPeriode(list, field, periode);
+    const f = (list: any[], field: string) => filterByPeriode(list, field, periode, customStart, customEnd);
 
     // Pendapatan Kasir
     const filteredPenjualan = f(penjualan, 'tanggal');
@@ -388,7 +406,7 @@ function LabaRugi({ periode }: { periode: Periode }) {
       feeMarketplace: marketplaceFee, hppMarketplace: marketplaceHpp,
       breakdownPerToko, tokoList: Array.from(tokoSet).sort(),
     };
-  }, [mounted, periode, filterToko, localRefresh]);
+  }, [mounted, periode, filterToko, localRefresh, customStart, customEnd]);
 
   return (
     <div>
@@ -434,13 +452,13 @@ function LabaRugi({ periode }: { periode: Periode }) {
   );
 }
 
-function ArusKas({ periode }: { periode: Periode }) {
+function ArusKas({ periode, customStart, customEnd }: { periode: Periode; customStart?: string; customEnd?: string }) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => { setMounted(true); }, []);
   const data = useMemo(() => {
     if (!mounted) return { saldoAwal: 0, pemasukan: [], pengeluaran: [] };
     const { penjualan, payments, biaya, opex, modal } = getRealData();
-    const f = (list: any[], field: string) => filterByPeriode(list, field, periode);
+    const f = (list: any[], field: string) => filterByPeriode(list, field, periode, customStart, customEnd);
     const saldoAwal = modal.reduce((s: number, m: any) => s + (m.jumlah || 0), 0);
     const kasKecil = (() => { try { const kk = JSON.parse(localStorage.getItem('mma_kas_kecil') || '[]'); return kk.reduce((s: number, e: any) => s + (e.jenis === 'masuk' ? e.jumlah : -e.jumlah), 0); } catch { return 0; } })();
     // Marketplace income (upload + manual)
@@ -465,7 +483,7 @@ function ArusKas({ periode }: { periode: Periode }) {
         { sumber: 'OPEX', jumlah: f(opex, 'tanggal').reduce((s: number, o2: any) => s + o2.total, 0) },
       ],
     };
-  }, [mounted, periode]);
+  }, [mounted, periode, customStart, customEnd]);
   return <ArusKasReport data={data} periode={PERIODE_LABELS[periode]} />;
 }
 
