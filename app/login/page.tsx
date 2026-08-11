@@ -14,62 +14,58 @@ export default function LoginPage() {
     if (!email || !password) { setError('Email dan password wajib diisi.'); return; }
 
     setLoading(true);
-    // Simulasi login — ganti dengan API call nanti
-    setTimeout(() => {
-      if (email === 'demo@mma.id' && password === 'demo123') {
-        const nama = 'Bapak Arif';
-        const role = 'admin';
-        const roles = ['admin', 'hr', 'finance', 'purchasing', 'warehouse', 'logistik', 'inventory', 'sales'];
-        document.cookie = 'auth_token=demo_token;path=/;max-age=86400;SameSite=Lax';
-        document.cookie = `user_name=${encodeURIComponent(nama)};path=/;max-age=86400;SameSite=Lax`;
+    // ── Default admin (selalu bisa) ──
+    if (email === 'demo@mma.id' && password === 'demo123') {
+      const nama = 'Administrator';
+      const role = 'admin';
+      const roles = ['admin', 'hr', 'finance', 'purchasing', 'warehouse', 'logistik', 'inventory', 'sales'];
+      document.cookie = 'auth_token=demo_token;path=/;max-age=86400;SameSite=Lax';
+      document.cookie = `user_name=${encodeURIComponent(nama)};path=/;max-age=86400;SameSite=Lax`;
+      document.cookie = `user_role=${role};path=/;max-age=86400;SameSite=Lax`;
+      document.cookie = `user_roles=${roles.join(',')};path=/;max-age=86400;SameSite=Lax`;
+      document.cookie = 'user_pegawai_id=;path=/;max-age=86400;SameSite=Lax';
+      try { localStorage.setItem('mma_user_session', JSON.stringify({ nama, role, roles, pegawaiId: '' })); } catch {}
+      window.location.href = '/';
+      return;
+    }
+
+    // ── Cek semua pegawai dari database (mma_pegawai_data) ──
+    try {
+      const pegawaiData: any[] = JSON.parse(localStorage.getItem('mma_pegawai_data') || '[]');
+      const pwStore = JSON.parse(localStorage.getItem('mma_pegawai_passwords') || '{}');
+
+      for (const p of pegawaiData) {
+        // Match by email atau username
+        const matchEmail = p.email && p.email.toLowerCase() === email.toLowerCase();
+        const matchUsername = p.username && p.username.toLowerCase() === email.toLowerCase();
+        if (!matchEmail && !matchUsername) continue;
+
+        // Password: custom > default 'pegawai123'
+        const customPw = pwStore[p.id] || pwStore[p.nik];
+        const validPassword = (customPw && password === customPw) || password === 'pegawai123';
+
+        if (!validPassword) {
+          setError('Password salah untuk ' + (p.nama || email));
+          setLoading(false);
+          return;
+        }
+
+        // Login sukses!
+        const role = p.roles?.includes('admin') ? 'admin' : 'pegawai';
+        const roles = p.roles || ['pegawai'];
+        document.cookie = 'auth_token=pegawai_token;path=/;max-age=86400;SameSite=Lax';
+        document.cookie = `user_name=${encodeURIComponent(p.nama)};path=/;max-age=86400;SameSite=Lax`;
         document.cookie = `user_role=${role};path=/;max-age=86400;SameSite=Lax`;
         document.cookie = `user_roles=${roles.join(',')};path=/;max-age=86400;SameSite=Lax`;
-        document.cookie = 'user_pegawai_id=;path=/;max-age=86400;SameSite=Lax';
-        try { localStorage.setItem('mma_user_session', JSON.stringify({ nama, role, roles, pegawaiId: '' })); } catch {}
+        document.cookie = `user_pegawai_id=${p.id};path=/;max-age=86400;SameSite=Lax`;
+        try { localStorage.setItem('mma_user_session', JSON.stringify({ nama: p.nama, role, roles, pegawaiId: p.id })); } catch {}
         window.location.href = '/';
-      } else {
-        // Cek pegawai dengan multi-role
-        const pegawaiList = [
-          { nama: 'Andi Pratama', nik: 'MMA-001', email: 'andi@mma.id', roles: ['admin','hr','warehouse','logistik','inventory'] },
-          { nama: 'Budi Santoso', nik: 'MMA-003', email: 'budi@mma.id', roles: ['warehouse','logistik','pegawai'] },
-          { nama: 'Doni Kusuma', nik: 'MMA-005', email: 'doni@mma.id', roles: ['logistik','pegawai'] },
-          { nama: 'Dewi Sartika', nik: 'MMA-008', email: 'dewi@mma.id', roles: ['finance','purchasing','pegawai'] },
-        ];
-        const pegawaiMatch = pegawaiList.find(p => p.email === email);
-        if (pegawaiMatch && password === 'pegawai123') {
-          const role = pegawaiMatch.roles.includes('admin') ? 'admin' : 'pegawai';
-          document.cookie = 'auth_token=pegawai_token;path=/;max-age=86400;SameSite=Lax';
-          document.cookie = `user_name=${encodeURIComponent(pegawaiMatch.nama)};path=/;max-age=86400;SameSite=Lax`;
-          document.cookie = `user_role=${role};path=/;max-age=86400;SameSite=Lax`;
-          document.cookie = `user_roles=${pegawaiMatch.roles.join(',')};path=/;max-age=86400;SameSite=Lax`;
-          document.cookie = `user_pegawai_id=${pegawaiMatch.nik};path=/;max-age=86400;SameSite=Lax`;
-          try { localStorage.setItem('mma_user_session', JSON.stringify({ nama: pegawaiMatch.nama, role, roles: pegawaiMatch.roles, pegawaiId: pegawaiMatch.nik })); } catch {}
-          window.location.href = '/';
-        } else if (pegawaiMatch) {
-          // Cek password khusus pegawai dari localStorage
-          try {
-            const pwStore = JSON.parse(localStorage.getItem('mma_pegawai_passwords') || '{}');
-            const customPw = pwStore[pegawaiMatch.nik];
-            if (customPw && password === customPw) {
-              const role = pegawaiMatch.roles.includes('admin') ? 'admin' : 'pegawai';
-              document.cookie = 'auth_token=pegawai_token;path=/;max-age=86400;SameSite=Lax';
-              document.cookie = `user_name=${encodeURIComponent(pegawaiMatch.nama)};path=/;max-age=86400;SameSite=Lax`;
-              document.cookie = `user_role=${role};path=/;max-age=86400;SameSite=Lax`;
-              document.cookie = `user_roles=${pegawaiMatch.roles.join(',')};path=/;max-age=86400;SameSite=Lax`;
-              document.cookie = `user_pegawai_id=${pegawaiMatch.nik};path=/;max-age=86400;SameSite=Lax`;
-              try { localStorage.setItem('mma_user_session', JSON.stringify({ nama: pegawaiMatch.nama, role, roles: pegawaiMatch.roles, pegawaiId: pegawaiMatch.nik })); } catch {}
-              window.location.href = '/';
-              return;
-            }
-          } catch {}
-          setError('Email atau password salah.');
-          setLoading(false);
-        } else {
-          setError('Email atau password salah.');
-          setLoading(false);
-        }
+        return;
       }
-    }, 800);
+    } catch {}
+
+    setError('Email atau password salah. Coba demo@mma.id / demo123');
+    setLoading(false);
   };
 
   return (
