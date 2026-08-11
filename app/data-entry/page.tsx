@@ -57,8 +57,9 @@ interface MpOrder {
   items: MpOrderItem[];
   // HPP (dihitung dari Master SKU)
   totalHPP: number;
-  labaKotor: number; // pendapatanBersih - totalHPP
+  labaKotor: number;
   catatan: string;
+  statusPesanan: string;  // Dikonfirmasi / Selesai / Retur / Dibatalkan
 }
 interface ShopeeOrder {
   id: string;
@@ -752,6 +753,7 @@ function InputKeuangan() {
               items: itemsWithHpp, totalHPP,
               labaKotor: labaFinal,
               catatan: `Upload Lazada ${file.name}`,
+              statusPesanan: '',
             });
           }
 
@@ -809,6 +811,8 @@ function InputKeuangan() {
         const iBiayaAMS = idx('biaya admin ams', 'biaya ams', 'ams fee', 'admin ams');
         const iBiayaTransaksi = idx('biaya transaksi penjual', 'biaya transaksi', 'transaction fee', 'biaya trans');
         const iKomisi = idx('komisi', 'commission', 'biaya komisi');
+        // ── Status Pesanan (kolom AB / Q) ──
+        const iStatusPesanan = idx('status pesanan', 'status order', 'status');
 
         if (iPenghasilan < 0) {
           setErr('Kolom pendapatan tidak ditemukan.\n\nHeader (' + h.length + ' kolom):\n' + h.slice(0, 14).join(', ') + (h.length > 14 ? '...' : '') + '\n\n⚠️ Jika ini file Lazada, pilih Marketplace: Lazada sebelum upload.');
@@ -816,7 +820,7 @@ function InputKeuangan() {
         }
 
         // Kumpulkan data per order (handle multi-SKU)
-        const orderMap = new Map<string, { id: string; tanggal: string; totalHargaProduk: number; penghasilan: number; laba: number; totalBiaya: number; feeAdmin: number; feeLayanan: number; ongkirAktual: number; subsidiOngkir: number; biayaPemrosesan: number; premiProteksi: number; biayaAMS: number; biayaTransaksi: number; komisi: number; items: MpOrderItem[] }>();
+        const orderMap = new Map<string, { id: string; tanggal: string; totalHargaProduk: number; penghasilan: number; laba: number; totalBiaya: number; feeAdmin: number; feeLayanan: number; ongkirAktual: number; subsidiOngkir: number; biayaPemrosesan: number; premiProteksi: number; biayaAMS: number; biayaTransaksi: number; komisi: number; statusPesanan: string; items: MpOrderItem[] }>();
 
         for (let i = 1; i < raw.length; i++) {
           const row = raw[i]; if (!row || row.length < 2) continue;
@@ -850,6 +854,7 @@ function InputKeuangan() {
           const biayaAMS = iBiayaAMS >= 0 ? parseRp(row[iBiayaAMS] || '0') : 0;
           const biayaTransaksi = iBiayaTransaksi >= 0 ? parseRp(row[iBiayaTransaksi] || '0') : 0;
           const komisi = iKomisi >= 0 ? parseRp(row[iKomisi] || '0') : 0;
+          const status = iStatusPesanan >= 0 ? String(row[iStatusPesanan] || '').trim() : '';
 
           // SKU baris pertama (INDUK juga bisa punya produk)
           const sku = iSku >= 0 ? String(row[iSku] || '').trim() : '';
@@ -862,6 +867,7 @@ function InputKeuangan() {
             penghasilan, laba: laba || penghasilan,
             totalBiaya, feeAdmin, feeLayanan, ongkirAktual, subsidiOngkir,
             biayaPemrosesan, premiProteksi, biayaAMS, biayaTransaksi, komisi,
+            statusPesanan: status,
             items: (sku || nama) ? [{ sku, nama, qty, hargaJual: harga, hpp: 0 }] : [],
           });
         }
@@ -929,8 +935,9 @@ function InputKeuangan() {
             komisi: o.komisi,
             items: itemsWithHpp,
             totalHPP,
-            labaKotor: labaFinal,                                 // ← sama dengan pendapatanBersih
+            labaKotor: labaFinal,
             catatan: `Upload ${file.name}`,
+            statusPesanan: o.statusPesanan || '',
           });
         }
 
@@ -1146,6 +1153,7 @@ function UploadHistory() {
   const [orders, setOrders] = useState<MpOrder[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [showAllSku, setShowAllSku] = useState(false);
+  const [filterStatus, setFilterStatus] = useState('semua');
 
   useEffect(() => {
     const loadOrders = () => {
@@ -1176,6 +1184,18 @@ function UploadHistory() {
   const totalKotor = orders.reduce((s, o) => s + o.pendapatanKotor, 0);    // GROSS
   const totalFee = orders.reduce((s, o) => s + (o.totalBiaya || 0), 0);   // udah total semua fee
   const totalBiayaProses = orders.reduce((s, o) => s + (o.biayaPemrosesan || 0), 0);
+
+  // Status list for filter
+  const statusList = Array.from(new Set(orders.map(o => o.statusPesanan || '').filter(Boolean))).sort();
+
+  // Filter by status
+  const filteredOrders = filterStatus === 'semua'
+    ? orders
+    : filterStatus === 'nonretur'
+      ? orders.filter(o => !o.statusPesanan?.toLowerCase().includes('retur') && !o.statusPesanan?.toLowerCase().includes('dibatalkan'))
+      : filterStatus === 'retur'
+        ? orders.filter(o => o.statusPesanan?.toLowerCase().includes('retur') || o.statusPesanan?.toLowerCase().includes('dibatalkan'))
+        : orders.filter(o => o.statusPesanan === filterStatus);
 
   // Kumpulkan semua SKU unik dengan HPP
   const skuSummary = new Map<string, { nama: string; totalQty: number; totalHpp: number; hppUnit: number; muncul: number }>();
@@ -1253,15 +1273,29 @@ function UploadHistory() {
         </div>
       </div>
 
+      {/* ── Status Filter ── */}
+      {statusList.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 mt-3">
+          <span className="text-[10px] font-semibold text-slate-500">📋 Status:</span>
+          <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
+            className="rounded-lg border bg-white px-3 py-1.5 text-[10px] font-semibold text-slate-600">
+            <option value="semua">Semua Status</option>
+            <option value="nonretur">✅ Non-Retur (Normal)</option>
+            <option value="retur">🔴 Retur / Dibatalkan</option>
+            {statusList.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </div>
+      )}
+
       {/* Tabel Utama */}
       <div className="rounded-xl border border-slate-100 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead><tr className="bg-brand-50 text-[10px] uppercase text-brand-500">
-              {['No. Pesanan','Tgl','MP','Kotor','Fee','B.Proses','HPP','Laba/Rugi','SKU'].map(c => <th key={c} className="px-2 py-2 font-semibold whitespace-nowrap">{c}</th>)}
+              {['No. Pesanan','Tgl','MP','Status','Kotor','Fee','B.Proses','HPP','Laba/Rugi','SKU'].map(c => <th key={c} className="px-2 py-2 font-semibold whitespace-nowrap">{c}</th>)}
             </tr></thead>
             <tbody className="divide-y divide-slate-50 bg-white">
-              {orders.slice(0, 100).map(o => {
+              {filteredOrders.slice(0, 100).map(o => {
                 const grossMargin = o.pendapatanKotor - o.totalHPP;  // margin kotor per SKU (sebelum fee)
                 const isOpen = expanded.has(o.id);
                 return (
@@ -1270,6 +1304,11 @@ function UploadHistory() {
                       <td className="px-2 py-2 font-mono text-[10px] text-slate-600 max-w-[100px] truncate">{o.noPesanan}</td>
                       <td className="px-2 py-2 text-[10px] whitespace-nowrap">{o.tanggal}</td>
                       <td className="px-2 py-2 font-medium text-[10px]">{o.marketplace}</td>
+                      <td className="px-2 py-2 text-[10px]">
+                        {o.statusPesanan ? (
+                          <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${o.statusPesanan.toLowerCase().includes('retur') || o.statusPesanan.toLowerCase().includes('dibatalkan') ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}>{o.statusPesanan}</span>
+                        ) : '-'}
+                      </td>
                       <td className="px-2 py-2 text-[10px]">Rp {o.pendapatanKotor.toLocaleString('id-ID')}</td>
                       <td className="px-2 py-2 text-[10px] text-red-500">−{o.totalBiaya.toLocaleString('id-ID')}</td>
                       <td className="px-2 py-2 text-[10px] text-amber-600">{o.biayaPemrosesan > 0 ? `−${o.biayaPemrosesan.toLocaleString('id-ID')}` : '-'}</td>
@@ -1280,7 +1319,7 @@ function UploadHistory() {
                     {/* ── EXPANDED DETAIL ROW ── */}
                     {isOpen && (
                       <tr key={`det-${o.id}`}>
-                        <td colSpan={10} className="px-4 py-3 bg-slate-50/70 border-t border-slate-100">
+                        <td colSpan={11} className="px-4 py-3 bg-slate-50/70 border-t border-slate-100">
                           {/* Fee Breakdown */}
                           <div className="mb-3">
                             <p className="text-[11px] font-bold text-slate-600 mb-2">💰 Rincian Biaya (per ORDER — paket):</p>
