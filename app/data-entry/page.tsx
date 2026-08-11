@@ -660,6 +660,7 @@ function InputKeuangan() {
             noPesanan: string; tanggal: string; items: { sku: string; nama: string; qty: number; hargaJual: number }[];
             omset: number; komisi: number; freeShipping: number; promosi: number;
             processingFee: number; biayaTransaksi: number; diskon: number; wht: number;
+            statusPesanan: string;
           }>();
 
           for (let i = 1; i < raw.length; i++) {
@@ -675,7 +676,8 @@ function InputKeuangan() {
 
             if (!orderMapLazada.has(key)) {
               const tgl = iTanggalTransaksi >= 0 ? String(row[iTanggalTransaksi] || '').trim().slice(0, 10) : '';
-              orderMapLazada.set(key, { noPesanan: key, tanggal: tgl, items: [], omset: 0, komisi: 0, freeShipping: 0, promosi: 0, processingFee: 0, biayaTransaksi: 0, diskon: 0, wht: 0 });
+              const st = iStatusPesanan >= 0 ? String(row[iStatusPesanan] || '').trim() : '';
+              orderMapLazada.set(key, { noPesanan: key, tanggal: tgl, items: [], omset: 0, komisi: 0, freeShipping: 0, promosi: 0, processingFee: 0, biayaTransaksi: 0, diskon: 0, wht: 0, statusPesanan: st });
             }
             const order = orderMapLazada.get(key)!;
 
@@ -739,7 +741,9 @@ function InputKeuangan() {
             totalHPP = itemsWithHpp.reduce((s, it) => s + (it.hpp * it.qty), 0);
             totalHppAll += totalHPP;
 
-            const labaFinal = gross - totalFeeLazada - totalHPP;
+            const isRetur = o.statusPesanan?.toLowerCase().includes('retur') || o.statusPesanan?.toLowerCase().includes('dibatalkan');
+            const effectiveHpp = isRetur ? 0 : totalHPP;
+            const labaFinal = gross - totalFeeLazada - effectiveHpp;
             newOrders.push({
               id: `mp-${Date.now()}-${orderId.slice(-6)}`, noPesanan: orderId,
               tanggal: o.tanggal || new Date().toISOString().slice(0, 10),
@@ -750,10 +754,10 @@ function InputKeuangan() {
               feeAdmin: o.komisi, feeLayanan: 0, ongkirAktual: o.freeShipping, subsidiOngkir: 0,
               biayaPemrosesan: o.processingFee, premiProteksi: 0, biayaAMS: 0,
               biayaTransaksi: o.biayaTransaksi, komisi: 0,
-              items: itemsWithHpp, totalHPP,
+              items: itemsWithHpp, totalHPP: effectiveHpp,
               labaKotor: labaFinal,
               catatan: `Upload Lazada ${file.name}`,
-              statusPesanan: '',
+              statusPesanan: o.statusPesanan || '',
             });
           }
 
@@ -904,15 +908,18 @@ function InputKeuangan() {
 
           // ── Kotor = Total Harga Produk dari kolom H/I Excel (baris INDUK, SUDAH total, tidak dikali qty) ──
           const grossRevenue = o.totalHargaProduk || o.penghasilan || 0;
-          // ── Total Fee = jumlah SEMUA kolom fee: M+N+Q+R+S+T+U+dll ──
+          // ── Total Fee = jumlah SEMUA kolom fee ──
           const totalFeeAll = (o.feeAdmin || 0) + (o.feeLayanan || 0) + (o.komisi || 0)
             + (o.biayaPemrosesan || 0) + (o.biayaTransaksi || 0)
             + (o.ongkirAktual || 0) - (o.subsidiOngkir || 0)
             + (o.premiProteksi || 0) + (o.biayaAMS || 0);
-          // Kalau individual fee kosong, fallback ke kolom "Total Biaya"
           const totalBiayaFinal = totalFeeAll > 0 ? totalFeeAll : (o.totalBiaya || 0);
-          // ── Laba Bersih = Kotor - Total Fee - HPP (sebelum OPEX) ──
-          const labaFinal = grossRevenue - totalBiayaFinal - totalHPP;
+
+          // ── Deteksi Retur ──
+          const isRetur = o.statusPesanan?.toLowerCase().includes('retur') || o.statusPesanan?.toLowerCase().includes('dibatalkan');
+          // Retur: HPP gak dihitung (barang balik ke stok). Normal: HPP dihitung.
+          const effectiveHpp = isRetur ? 0 : totalHPP;
+          const labaFinal = grossRevenue - totalBiayaFinal - effectiveHpp;
 
           newOrders.push({
             id: `mp-${Date.now()}-${orderId.slice(-6)}`,
@@ -934,7 +941,7 @@ function InputKeuangan() {
             biayaTransaksi: o.biayaTransaksi,
             komisi: o.komisi,
             items: itemsWithHpp,
-            totalHPP,
+            totalHPP: effectiveHpp,           // Retur = 0, Normal = totalHPP
             labaKotor: labaFinal,
             catatan: `Upload ${file.name}`,
             statusPesanan: o.statusPesanan || '',
