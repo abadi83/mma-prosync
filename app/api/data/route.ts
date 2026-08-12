@@ -4,6 +4,9 @@ import path from 'path';
 
 export const dynamic = 'force-dynamic';
 
+// Increase body size limit for large SKU data (4700+ items = ~2MB)
+export const maxDuration = 60;
+
 const DATA_DIR = path.join(process.cwd(), 'data');
 
 // Pastikan folder data ada
@@ -12,7 +15,6 @@ if (!fs.existsSync(DATA_DIR)) {
 }
 
 function getFilePath(key: string): string {
-  // Sanitasi key untuk mencegah path traversal
   const safeKey = key.replace(/[^a-zA-Z0-9_-]/g, '_');
   return path.join(DATA_DIR, `${safeKey}.json`);
 }
@@ -30,7 +32,10 @@ function readData(key: string): any {
 
 function writeData(key: string, data: any): void {
   const filePath = getFilePath(key);
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
+  // Tulis atomik: temp dulu, lalu rename
+  const tmpPath = filePath + '.tmp';
+  fs.writeFileSync(tmpPath, JSON.stringify(data), 'utf-8');
+  fs.renameSync(tmpPath, filePath);
 }
 
 /**
@@ -58,9 +63,13 @@ export async function POST(request: Request) {
     if (!key) {
       return NextResponse.json({ error: 'Field key wajib.' }, { status: 400 });
     }
+    if (!Array.isArray(data)) {
+      return NextResponse.json({ error: 'Field data harus array.' }, { status: 400 });
+    }
     writeData(key, data);
-    return NextResponse.json({ success: true, key });
-  } catch {
+    return NextResponse.json({ success: true, key, count: data.length });
+  } catch (err: any) {
+    console.error('POST /api/data error:', err?.message);
     return NextResponse.json({ error: 'Gagal menyimpan data.' }, { status: 500 });
   }
 }

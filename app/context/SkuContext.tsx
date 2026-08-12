@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 
 export interface SkuItem {
   id: string;
@@ -23,26 +23,27 @@ export interface SkuItem {
 }
 
 const SKU_STORAGE = 'mma_sku_data';
+const SKU_TIMESTAMP = 'mma_sku_timestamp';
+const SYNC_INTERVAL = 30000; // 30 detik auto-sync
 
-const DEFAULT_SKU: SkuItem[] = [
-  { id:'p-1',sku:'BTJ-001',nama:'Besi AS SENTAL ST-41 5mm x 6meter',grade:'A',kodeSupplierVarian:'',statusEditGambar:'UNEDITED',statusUploadToko:'Shopee — MITRA MULIA ABADI | Lazada — MITRA MULIA ABADI',supplier:'',kategori:'Material',satuan:'pcs',hargaModalLama:14100,hargaBaru:14100,hargaJual:25690,stok:12,minStok:5,aktif:1,perubahanHargaBeli:'+100.00%'},
-  { id:'p-2',sku:'BB-8-D',nama:'Amplas Duco Grit 1500',grade:'A',kodeSupplierVarian:'',statusEditGambar:'UNEDITED',statusUploadToko:'Shopee — MITRA MULIA ABADI',supplier:'',kategori:'TOOLS',satuan:'pcs',hargaModalLama:1200,hargaBaru:1200,hargaJual:1500,stok:120,minStok:20,aktif:1,perubahanHargaBeli:'0.00%'},
-  { id:'p-3',sku:'200825',nama:'Downlight Endora 6W Putih',grade:'A',kodeSupplierVarian:'',statusEditGambar:'UNEDITED',statusUploadToko:'Shopee — MITRA MULIA ABADI | Tokopedia — Berkah Abadi',supplier:'',kategori:'ELECTRICT',satuan:'pcs',hargaModalLama:11750,hargaBaru:11750,hargaJual:20899,stok:45,minStok:10,aktif:1,perubahanHargaBeli:'0.00%'},
-  { id:'p-4',sku:'AU-5-A',nama:'Gagang Gergaji Triplek',grade:'A',kodeSupplierVarian:'',statusEditGambar:'UNEDITED',statusUploadToko:'Shopee — MITRA MULIA ABADI',supplier:'',kategori:'TOOLS',satuan:'pcs',hargaModalLama:13750,hargaBaru:13750,hargaJual:15950,stok:30,minStok:5,aktif:1,perubahanHargaBeli:'+8.20%'},
-  { id:'p-5',sku:'200115-2pcs',nama:'Grendel Selot Pintu PVC 2pcs',grade:'A',kodeSupplierVarian:'',statusEditGambar:'UNEDITED',statusUploadToko:'Shopee — MITRA MULIA ABADI | Lazada — MITRA MULIA ABADI',supplier:'',kategori:'Pintu',satuan:'set',hargaModalLama:3000,hargaBaru:3000,hargaJual:6776,stok:3,minStok:15,aktif:1,perubahanHargaBeli:'+100.00%'},
-  { id:'p-6',sku:'200959',nama:'Kran Angsa 8005 Tongkat',grade:'A',kodeSupplierVarian:'',statusEditGambar:'UNEDITED',statusUploadToko:'Shopee — MITRA MULIA ABADI',supplier:'',kategori:'WATERING',satuan:'pcs',hargaModalLama:50000,hargaBaru:50000,hargaJual:95402,stok:18,minStok:5,aktif:1,perubahanHargaBeli:'+5.26%'},
-  { id:'p-7',sku:'200946',nama:'Kunci Pintu Besar HPP 01',grade:'A',kodeSupplierVarian:'',statusEditGambar:'UNEDITED',statusUploadToko:'Shopee — MITRA MULIA ABADI',supplier:'',kategori:'DOORING',satuan:'pcs',hargaModalLama:47500,hargaBaru:47500,hargaJual:74000,stok:22,minStok:5,aktif:1,perubahanHargaBeli:'0.00%'},
-  { id:'p-8',sku:'200046-1PCS',nama:'Paku Seng 3 Inch',grade:'A',kodeSupplierVarian:'',statusEditGambar:'UNEDITED',statusUploadToko:'Shopee — MITRA MULIA ABADI',supplier:'',kategori:'TOOLS',satuan:'pcs',hargaModalLama:172,hargaBaru:172,hargaJual:415,stok:500,minStok:100,aktif:1,perubahanHargaBeli:'0.00%'},
-  { id:'p-9',sku:'BC-1-C',nama:'Skrup Roofing 12x50',grade:'A',kodeSupplierVarian:'',statusEditGambar:'UNEDITED',statusUploadToko:'Shopee — MITRA MULIA ABADI',supplier:'',kategori:'TOOLS',satuan:'pcs',hargaModalLama:150,hargaBaru:150,hargaJual:240,stok:1000,minStok:200,aktif:1,perubahanHargaBeli:'0.00%'},
-  { id:'p-10',sku:'STOP-1INCH',nama:'Stop Kran PVC Jumbo 1"',grade:'A',kodeSupplierVarian:'',statusEditGambar:'UNEDITED',statusUploadToko:'Shopee — MITRA MULIA ABADI',supplier:'',kategori:'PLUMBING',satuan:'pcs',hargaModalLama:11500,hargaBaru:11500,hargaJual:22434,stok:35,minStok:10,aktif:1,perubahanHargaBeli:'+100.00%'},
-  { id:'p-11',sku:'IT-211-GP',nama:'Tarikan Laci IGM 4" CP/GP',grade:'A',kodeSupplierVarian:'',statusEditGambar:'UNEDITED',statusUploadToko:'Shopee — MITRA MULIA ABADI',supplier:'',kategori:'',satuan:'pcs',hargaModalLama:3500,hargaBaru:3500,hargaJual:7697,stok:60,minStok:10,aktif:1,perubahanHargaBeli:'+100.00%'},
-  { id:'p-12',sku:'200010',nama:'Stop Kran Kuningan 3/4" Ball Valve',grade:'A',kodeSupplierVarian:'',statusEditGambar:'UNEDITED',statusUploadToko:'Lazada — MITRA MULIA ABADI',supplier:'',kategori:'PLUMBING',satuan:'pcs',hargaModalLama:36455,hargaBaru:36455,hargaJual:65000,stok:25,minStok:5,aktif:1,perubahanHargaBeli:'0.00%'},
-];
+const DEFAULT_SKU: SkuItem[] = [];
 
-function loadFromStorage(): SkuItem[] {
-  if (typeof window === 'undefined') return DEFAULT_SKU;
-  try { const raw = localStorage.getItem(SKU_STORAGE); return raw ? JSON.parse(raw) : DEFAULT_SKU; }
-  catch { return DEFAULT_SKU; }
+/* ── Helper: baca localStorage ── */
+function loadLocal(): { data: SkuItem[] | null; ts: number } {
+  if (typeof window === 'undefined') return { data: null, ts: 0 };
+  try {
+    const raw = localStorage.getItem(SKU_STORAGE);
+    const ts = parseInt(localStorage.getItem(SKU_TIMESTAMP) || '0', 10);
+    return { data: raw ? JSON.parse(raw) : null, ts };
+  } catch { return { data: null, ts: 0 }; }
+}
+
+/* ── Helper: simpan ke localStorage ── */
+function saveLocal(data: SkuItem[]) {
+  try {
+    localStorage.setItem(SKU_STORAGE, JSON.stringify(data));
+    localStorage.setItem(SKU_TIMESTAMP, String(Date.now()));
+  } catch {}
 }
 
 interface SkuContextType {
@@ -50,6 +51,9 @@ interface SkuContextType {
   setSkus: React.Dispatch<React.SetStateAction<SkuItem[]>>;
   getSku: (skuCode: string) => SkuItem | undefined;
   updateStok: (skuCode: string, delta: number) => void;
+  syncStatus: 'idle' | 'syncing' | 'error';
+  lastSync: Date | null;
+  forceSync: () => Promise<void>;
 }
 
 const SkuContext = createContext<SkuContextType>({
@@ -57,67 +61,130 @@ const SkuContext = createContext<SkuContextType>({
   setSkus: () => {},
   getSku: () => undefined,
   updateStok: () => {},
+  syncStatus: 'idle',
+  lastSync: null,
+  forceSync: async () => {},
 });
 
 export function SkuProvider({ children }: { children: React.ReactNode }) {
   const [skus, setSkus] = useState<SkuItem[]>(DEFAULT_SKU);
-  const [isHydrated, setIsHydrated] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'error'>('idle');
+  const [lastSync, setLastSync] = useState<Date | null>(null);
+  const isHydrated = useRef(false);
+  const localVersion = useRef(0);
+  const serverVersion = useRef(0);
+  const syncTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Load data: localStorage (utama) → server API (cadangan) → DEFAULT
-  useEffect(() => {
-    async function load() {
-      // 1. Coba dari localStorage dulu (sumber utama) — APAPUN isinya
-      const stored = loadFromStorage();
-      if (stored && stored.length > 0) {
-        // Pakai localStorage SELALU — hanya skip kalau kosong
-        setSkus(stored);
-        setIsHydrated(true);
-        // Sync ke server di background
-        try {
-          fetch('/api/data', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ key: SKU_STORAGE, data: stored }),
-          }).catch(() => {});
-        } catch {}
-        return;
+  /* ── Fungsi: tarik data dari server ── */
+  const pullFromServer = useCallback(async (): Promise<SkuItem[] | null> => {
+    try {
+      const res = await fetch('/api/data?key=mma_sku_data&t=' + Date.now());
+      if (!res.ok) return null;
+      const json = await res.json();
+      if (json.data && Array.isArray(json.data) && json.data.length > 0) {
+        return json.data;
       }
-
-      // 2. Coba dari server API (shared data) — hanya jika localStorage kosong
-      try {
-        const res = await fetch('/api/data?key=mma_sku_data');
-        if (res.ok) {
-          const json = await res.json();
-          if (json.data && json.data.length > 0) {
-            setSkus(json.data);
-            try { localStorage.setItem(SKU_STORAGE, JSON.stringify(json.data)); } catch {}
-            setIsHydrated(true);
-            return;
-          }
-        }
-      } catch {}
-
-      // 3. Fallback ke DEFAULT (first time user)
-      setIsHydrated(true);
-    }
-    load();
+      return null;
+    } catch { return null; }
   }, []);
 
-  // Save: localStorage (cache) + server API (shared)
-  useEffect(() => {
-    if (!isHydrated) return;
-    const data = skus.slice(0, 5000);
-    // Cache lokal
-    try { localStorage.setItem(SKU_STORAGE, JSON.stringify(data)); } catch {}
-    // Sync ke server (shared)
+  /* ── Fungsi: push data ke server ── */
+  const pushToServer = useCallback(async (data: SkuItem[]) => {
     try {
-      fetch('/api/data', {
+      const res = await fetch('/api/data', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ key: 'mma_sku_data', data }),
-      }).catch(() => {});
-    } catch {}
-  }, [skus, isHydrated]);
+      });
+      return res.ok;
+    } catch { return false; }
+  }, []);
+
+  /* ── Fungsi: sync dua arah ── */
+  const syncBothWays = useCallback(async (currentSkus: SkuItem[]) => {
+    setSyncStatus('syncing');
+    try {
+      // 1. PULL: ambil data terbaru dari server
+      const serverData = await pullFromServer();
+
+      // 2. Bandingkan: pakai data yg lebih banyak (proxy kasar)
+      if (serverData && serverData.length >= currentSkus.length) {
+        // Server lebih baru/lengkap → pakai server
+        if (JSON.stringify(serverData) !== JSON.stringify(currentSkus)) {
+          setSkus(serverData);
+          saveLocal(serverData);
+          localVersion.current = Date.now();
+        }
+      } else if (currentSkus.length > 0) {
+        // Lokal lebih banyak → push ke server
+        await pushToServer(currentSkus);
+      }
+
+      serverVersion.current = Date.now();
+      setLastSync(new Date());
+      setSyncStatus('idle');
+    } catch {
+      setSyncStatus('error');
+    }
+  }, [pullFromServer, pushToServer]);
+
+  /* ── Initial load: server dulu, fallback ke localStorage ── */
+  useEffect(() => {
+    async function init() {
+      setSyncStatus('syncing');
+
+      // 1. AMBIL DARI SERVER DULU (source of truth)
+      const serverData = await pullFromServer();
+
+      if (serverData && serverData.length > 0) {
+        setSkus(serverData);
+        saveLocal(serverData);
+        localVersion.current = Date.now();
+        serverVersion.current = Date.now();
+        setLastSync(new Date());
+        setSyncStatus('idle');
+        isHydrated.current = true;
+        return;
+      }
+
+      // 2. Fallback: localStorage
+      const local = loadLocal();
+      if (local.data && local.data.length > 0) {
+        setSkus(local.data);
+        // Push ke server karena server kosong
+        await pushToServer(local.data);
+        serverVersion.current = Date.now();
+        setLastSync(new Date());
+      }
+
+      setSyncStatus('idle');
+      isHydrated.current = true;
+    }
+    init();
+  }, [pullFromServer, pushToServer]);
+
+  /* ── Auto-sync setiap 30 detik ── */
+  useEffect(() => {
+    syncTimer.current = setInterval(() => {
+      setSkus(prev => {
+        syncBothWays(prev);
+        return prev;
+      });
+    }, SYNC_INTERVAL);
+    return () => { if (syncTimer.current) clearInterval(syncTimer.current); };
+  }, [syncBothWays]);
+
+  /* ── Setiap perubahan data: save local + push server ── */
+  useEffect(() => {
+    if (!isHydrated.current) return;
+    saveLocal(skus);
+    // Debounce push ke server
+    const timer = setTimeout(() => {
+      pushToServer(skus);
+      setLastSync(new Date());
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [skus, pushToServer]);
 
   const getSku = useCallback((skuCode: string) => skus.find(s => s.sku === skuCode), [skus]);
 
@@ -125,8 +192,12 @@ export function SkuProvider({ children }: { children: React.ReactNode }) {
     setSkus(prev => prev.map(s => s.sku === skuCode ? { ...s, stok: Math.max(0, s.stok + delta) } : s));
   }, []);
 
+  const forceSync = useCallback(async () => {
+    await syncBothWays(skus);
+  }, [skus, syncBothWays]);
+
   return (
-    <SkuContext.Provider value={{ skus, setSkus, getSku, updateStok }}>
+    <SkuContext.Provider value={{ skus, setSkus, getSku, updateStok, syncStatus, lastSync, forceSync }}>
       {children}
     </SkuContext.Provider>
   );
