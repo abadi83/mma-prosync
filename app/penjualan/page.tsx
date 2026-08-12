@@ -1,7 +1,6 @@
 'use client';
 
-import React, { useState, useCallback } from 'react';
-import { mockSalesData } from '@/app/mockData';
+import React, { useState, useCallback, useEffect } from 'react';
 import { useSkus } from '@/app/context/SkuContext';
 
 type Tab = 'kasir' | 'daftar' | 'ringkasan';
@@ -17,21 +16,41 @@ interface TransaksiEntry { id: string; produk: string; jumlah: number; hargaSatu
 
 export default function PenjualanPage() {
   const [tab, setTab] = useState<Tab>('kasir');
-  const [transaksi, setTransaksi] = useState<TransaksiEntry[]>(mockSalesData.transaksi);
+  const [transaksi, setTransaksi] = useState<TransaksiEntry[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const handleCheckout = useCallback((items: CartItem[], pelanggan: string) => {
-    const today = new Date().toISOString().slice(0, 10);
-    const newTx: TransaksiEntry[] = items.map((item, i) => ({
-      id: `t-${Date.now()}-${i}`,
-      produk: item.produk,
-      jumlah: item.qty,
-      hargaSatuan: item.harga,
-      total: item.harga * item.qty,
-      pelanggan: pelanggan.trim() || 'Umum',
-      tanggal: today,
-    }));
-    setTransaksi(prev => [...newTx, ...prev]);
+  // Fetch transaksi dari API
+  const fetchTransaksi = useCallback(async () => {
+    try {
+      const res = await fetch('/api/transaksi');
+      if (res.ok) {
+        const data = await res.json();
+        setTransaksi(Array.isArray(data) ? data : []);
+      }
+    } catch {} finally { setLoading(false); }
   }, []);
+
+  useEffect(() => { fetchTransaksi(); }, [fetchTransaksi]);
+
+  const handleCheckout = useCallback(async (items: CartItem[], pelanggan: string) => {
+    // Simpan ke API per item
+    for (const item of items) {
+      try {
+        await fetch('/api/transaksi', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            produk: item.produk,
+            jumlah: item.qty,
+            hargaSatuan: item.harga,
+            pelanggan: pelanggan.trim() || 'Umum',
+          }),
+        });
+      } catch {}
+    }
+    // Refresh daftar
+    fetchTransaksi();
+  }, [fetchTransaksi]);
 
   return (
     <main className="mx-auto flex min-h-screen max-w-6xl flex-col gap-5 px-4 py-6 sm:px-6 lg:px-8">

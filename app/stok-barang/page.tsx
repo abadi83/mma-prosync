@@ -2,7 +2,6 @@
 
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { Html5Qrcode } from 'html5-qrcode';
-import { mockStockData } from '@/app/mockData';
 import { BarangMasukForm, type BarangMasukEntry } from '@/app/stok-barang/components/BarangMasukForm';
 import { BarangKeluarForm, type BarangKeluarEntry } from '@/app/stok-barang/components/BarangKeluarForm';
 import { useSkus, type SkuItem } from '@/app/context/SkuContext';
@@ -510,11 +509,24 @@ function StokOpname() {
 }
 
 function BarangMasuk() {
-  const [entries, setEntries] = useState(mockStockData.barangMasuk);
+  const [entries, setEntries] = useState<any[]>([]);
+
+  const fetchData = useCallback(async () => {
+    try {
+      const res = await fetch('/api/barang-masuk');
+      if (res.ok) setEntries(await res.json());
+    } catch {}
+  }, []);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
 
   const handleAdd = useCallback((entry: BarangMasukEntry) => {
-    setEntries((prev) => [entry, ...prev]);
-  }, []);
+    fetch('/api/barang-masuk', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(entry),
+    }).then(() => fetchData()).catch(() => {});
+  }, [fetchData]);
 
   const allEntries = entries;
 
@@ -555,11 +567,24 @@ function BarangMasuk() {
 }
 
 function BarangKeluar() {
-  const [entries, setEntries] = useState(mockStockData.barangKeluar);
+  const [entries, setEntries] = useState<any[]>([]);
+
+  const fetchData = useCallback(async () => {
+    try {
+      const res = await fetch('/api/barang-keluar');
+      if (res.ok) setEntries(await res.json());
+    } catch {}
+  }, []);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
 
   const handleAdd = useCallback((entry: BarangKeluarEntry) => {
-    setEntries((prev) => [entry, ...prev]);
-  }, []);
+    fetch('/api/barang-keluar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(entry),
+    }).then(() => fetchData()).catch(() => {});
+  }, [fetchData]);
 
   return (
     <div>
@@ -730,19 +755,28 @@ function CekStok() {
 function RiwayatMutasi() {
   const [filterTipe, setFilterTipe] = useState<'semua' | 'masuk' | 'keluar'>('semua');
   const [searchProduk, setSearchProduk] = useState('');
+  const [data, setData] = useState<any[]>([]);
 
-  const filtered = mockStockData.riwayatMutasi.filter((item) => {
-    const matchTipe = filterTipe === 'semua' || item.tipe === filterTipe;
-    const matchProduk = item.produk.toLowerCase().includes(searchProduk.toLowerCase());
-    return matchTipe && matchProduk;
-  });
+  const fetchData = useCallback(async () => {
+    try {
+      const params = new URLSearchParams();
+      if (filterTipe !== 'semua') params.set('tipe', filterTipe);
+      if (searchProduk) params.set('produk', searchProduk);
+      const res = await fetch(`/api/riwayat-mutasi?${params}`);
+      if (res.ok) setData(await res.json());
+    } catch {}
+  }, [filterTipe, searchProduk]);
 
-  const totalMasuk = mockStockData.riwayatMutasi
-    .filter((i) => i.tipe === 'masuk')
-    .reduce((sum, i) => sum + i.jumlah, 0);
-  const totalKeluar = mockStockData.riwayatMutasi
-    .filter((i) => i.tipe === 'keluar')
-    .reduce((sum, i) => sum + i.jumlah, 0);
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  const filtered = data;
+
+  const totalMasuk = data
+    .filter((i: any) => i.tipe === 'masuk')
+    .reduce((sum: number, i: any) => sum + Number(i.jumlah), 0);
+  const totalKeluar = data
+    .filter((i: any) => i.tipe === 'keluar')
+    .reduce((sum: number, i: any) => sum + Number(i.jumlah), 0);
 
   return (
     <div>
