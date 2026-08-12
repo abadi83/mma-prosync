@@ -1,8 +1,29 @@
+import { query } from '@/lib/db';
+
 interface Notif { id: string; tipe: string; pesan: string; dibaca: boolean; tanggal: string; }
-let store: Notif[] = [
-  { id:'n-1',tipe:'stok',pesan:'⚠ Stok Minyak Goreng menipis (8/10)',dibaca:false,tanggal:'2026-08-02 10:00' },
-  { id:'n-2',tipe:'penjualan',pesan:'📊 Penjualan hari ini: Rp 1.845.000',dibaca:true,tanggal:'2026-08-02 08:00' },
-];
-export async function getNotifikasi() { return store; }
-export async function markRead(id: string) { const n = store.find(x=>x.id===id); if(n) n.dibaca=true; return n; }
-export async function markAllRead() { store.forEach(n=>n.dibaca=true); }
+
+const DEFAULT_USER = 'a0a0a0a0-0000-0000-0000-000000000001';
+
+export async function getNotifikasi(userId?: string) {
+  const { rows } = await query(
+    `SELECT id, tipe, pesan, dibaca, to_char(created_at, 'YYYY-MM-DD HH24:MI') AS tanggal
+     FROM notifikasi
+     WHERE user_id = $1
+     ORDER BY created_at DESC
+     LIMIT 50`,
+    [userId || DEFAULT_USER]
+  );
+  return rows;
+}
+
+export async function markRead(id: string) {
+  const { rows } = await query(
+    'UPDATE notifikasi SET dibaca = true WHERE id = $1 RETURNING id, tipe, pesan, dibaca, to_char(created_at, \'YYYY-MM-DD HH24:MI\') AS tanggal',
+    [id]
+  );
+  return rows[0] || null;
+}
+
+export async function markAllRead(userId?: string) {
+  await query('UPDATE notifikasi SET dibaca = true WHERE user_id = $1', [userId || DEFAULT_USER]);
+}

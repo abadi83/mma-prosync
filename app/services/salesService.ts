@@ -1,17 +1,27 @@
 import type { SalesSummaryData } from '@/app/types';
-import { mockDashboardData } from '@/app/mockData';
+import { query } from '@/lib/db';
 
-/**
- * Mengambil ringkasan penjualan harian + perbandingan dengan kemarin.
- * Saat ini mengembalikan data tiruan — akan diganti query DB nyata.
- */
-export async function getSalesSummary(_tokoId: string): Promise<SalesSummaryData> {
-  // TODO: Ganti dengan query nyata ke tabel transaksi + detail_transaksi:
-  //   SELECT COALESCE(SUM(total), 0) AS today, COUNT(*) AS transactions
-  //     FROM transaksi WHERE toko_id = $1 AND tanggal::date = CURRENT_DATE;
-  //   SELECT COALESCE(SUM(total), 0) AS yesterday
-  //     FROM transaksi WHERE toko_id = $1 AND tanggal::date = CURRENT_DATE - 1;
-  //   Trend = today > yesterday ? 'up' : 'down';
+const DEFAULT_TOKO = 'a0a0a0a0-0000-0000-0000-000000000001';
 
-  return mockDashboardData.salesSummary;
+export async function getSalesSummary(tokoId?: string): Promise<SalesSummaryData> {
+  const todayResult = await query(
+    `SELECT COALESCE(SUM(total), 0)::int AS today, COUNT(*)::int AS transactions
+     FROM transaksi WHERE toko_id = $1 AND tanggal::date = CURRENT_DATE`,
+    [tokoId || DEFAULT_TOKO]
+  );
+  const yesterdayResult = await query(
+    `SELECT COALESCE(SUM(total), 0)::int AS yesterday
+     FROM transaksi WHERE toko_id = $1 AND tanggal::date = CURRENT_DATE - 1`,
+    [tokoId || DEFAULT_TOKO]
+  );
+
+  const today = todayResult.rows[0]?.today || 0;
+  const yesterday = yesterdayResult.rows[0]?.yesterday || 0;
+  const transactions = todayResult.rows[0]?.transactions || 0;
+
+  return {
+    today,
+    transactions,
+    trend: today >= yesterday ? 'up' : 'down',
+  };
 }

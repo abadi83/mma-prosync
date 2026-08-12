@@ -1,3 +1,5 @@
+import { query } from '@/lib/db';
+
 interface StokItem { nama: string; kategori: string; stok: number; nilai: number; }
 
 export interface LaporanStokResponse {
@@ -6,17 +8,23 @@ export interface LaporanStokResponse {
   items: StokItem[];
 }
 
-const MOCK: LaporanStokResponse = {
-  totalItem: 24,
-  totalNilai: 38750000,
-  items: [
-    { nama: 'Minyak Goreng', kategori: 'Rumah Tangga', stok: 8, nilai: 96000 },
-    { nama: 'Beras Premium', kategori: 'Sembako', stok: 6, nilai: 300000 },
-    { nama: 'Sabun Cuci', kategori: 'Rumah Tangga', stok: 12, nilai: 36000 },
-    { nama: 'Kopi Arabika', kategori: 'Minuman', stok: 15, nilai: 375000 },
-  ],
-};
+const DEFAULT_TOKO = 'a0a0a0a0-0000-0000-0000-000000000001';
 
-export async function getLaporanStok(_tokoId: string, _periode?: string): Promise<LaporanStokResponse> {
-  return MOCK;
+export async function getLaporanStok(tokoId?: string, _periode?: string): Promise<LaporanStokResponse> {
+  const tid = tokoId || DEFAULT_TOKO;
+
+  const { rows: items } = await query(
+    `SELECT p.nama, COALESCE(k.nama, 'Umum') AS kategori, p.stok, (p.stok * p.harga_beli)::int AS nilai
+     FROM produk p LEFT JOIN kategori k ON p.kategori_id = k.id
+     WHERE p.toko_id = $1 ORDER BY p.nama`,
+    [tid]
+  );
+
+  const totalNilai = items.reduce((sum: number, i: any) => sum + Number(i.nilai), 0);
+
+  return {
+    totalItem: items.length,
+    totalNilai,
+    items: items.map((i: any) => ({ ...i, stok: Number(i.stok), nilai: Number(i.nilai) })),
+  };
 }

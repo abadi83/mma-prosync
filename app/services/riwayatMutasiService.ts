@@ -1,4 +1,4 @@
-import { mockStockData } from '@/app/mockData';
+import { query } from '@/lib/db';
 
 export interface RiwayatMutasiItem {
   id: string;
@@ -9,17 +9,30 @@ export interface RiwayatMutasiItem {
   tanggal: string;
 }
 
+const DEFAULT_TOKO = 'a0a0a0a0-0000-0000-0000-000000000001';
+
 export async function getRiwayatMutasi(
-  _tokoId: string,
+  tokoId?: string,
   filter?: { tipe?: 'masuk' | 'keluar'; produk?: string },
 ): Promise<RiwayatMutasiItem[]> {
-  let data = mockStockData.riwayatMutasi;
+  let sql = `SELECT ms.id, p.nama AS produk, ms.tipe, ms.jumlah, COALESCE(ms.keterangan, '') AS keterangan,
+                    to_char(ms.tanggal, 'YYYY-MM-DD') AS tanggal
+             FROM mutasi_stok ms
+             JOIN produk p ON ms.produk_id = p.id
+             WHERE ms.toko_id = $1`;
+  const params: any[] = [tokoId || DEFAULT_TOKO];
+  let idx = 2;
+
   if (filter?.tipe) {
-    data = data.filter((item) => item.tipe === filter.tipe);
+    sql += ` AND ms.tipe = $${idx++}`;
+    params.push(filter.tipe);
   }
   if (filter?.produk) {
-    const q = filter.produk.toLowerCase();
-    data = data.filter((item) => item.produk.toLowerCase().includes(q));
+    sql += ` AND p.nama ILIKE $${idx++}`;
+    params.push(`%${filter.produk}%`);
   }
-  return data;
+
+  sql += ' ORDER BY ms.tanggal DESC LIMIT 200';
+  const { rows } = await query(sql, params);
+  return rows.map((r: any) => ({ ...r, jumlah: Number(r.jumlah) }));
 }

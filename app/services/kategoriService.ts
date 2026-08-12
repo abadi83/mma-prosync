@@ -1,33 +1,37 @@
+import { query } from '@/lib/db';
+
 export interface KategoriItem {
   id: string;
   nama: string;
 }
 
-let store: KategoriItem[] = [
-  { id: 'k-1', nama: 'Kebutuhan Rumah Tangga' },
-  { id: 'k-2', nama: 'Sembako' },
-  { id: 'k-3', nama: 'Minuman' },
-];
+const DEFAULT_TOKO = 'a0a0a0a0-0000-0000-0000-000000000001';
 
-export async function getKategori(): Promise<KategoriItem[]> {
-  return store;
+export async function getKategori(tokoId?: string): Promise<KategoriItem[]> {
+  const { rows } = await query(
+    'SELECT id, nama FROM kategori WHERE toko_id = $1 ORDER BY nama',
+    [tokoId || DEFAULT_TOKO]
+  );
+  return rows;
 }
 
-export async function createKategori(nama: string): Promise<KategoriItem> {
-  const item: KategoriItem = { id: `k-${Date.now()}`, nama };
-  store.push(item);
-  return item;
+export async function createKategori(nama: string, tokoId?: string): Promise<KategoriItem> {
+  const { rows } = await query(
+    'INSERT INTO kategori (toko_id, nama) VALUES ($1, $2) RETURNING id, nama',
+    [tokoId || DEFAULT_TOKO, nama]
+  );
+  return rows[0];
 }
 
 export async function updateKategori(id: string, nama: string): Promise<KategoriItem | null> {
-  const idx = store.findIndex((k) => k.id === id);
-  if (idx === -1) return null;
-  store[idx] = { ...store[idx], nama };
-  return store[idx];
+  const { rows } = await query(
+    'UPDATE kategori SET nama = $2 WHERE id = $1 RETURNING id, nama',
+    [id, nama]
+  );
+  return rows[0] || null;
 }
 
 export async function deleteKategori(id: string): Promise<boolean> {
-  const len = store.length;
-  store = store.filter((k) => k.id !== id);
-  return store.length < len;
+  const { rowCount } = await query('DELETE FROM kategori WHERE id = $1', [id]);
+  return (rowCount || 0) > 0;
 }
