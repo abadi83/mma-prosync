@@ -1036,14 +1036,59 @@ function OpexTab() {
   const [supplierNama, setSupplierNama] = useState('');
   const [tanggal, setTanggal] = useState(() => new Date().toISOString().slice(0, 10));
   const [ferr, setFerr] = useState('');
+  const [editId, setEditId] = useState<string | null>(null);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
 
   const total = useMemo(() => (+qty || 0) * (+hargaSatuan || 0), [qty, hargaSatuan]);
+
+  /* Buka form untuk edit */
+  const openEdit = (p: OpexPurchase) => {
+    setNamaItem(p.namaItem);
+    setKategori(p.kategori);
+    setQty(String(p.qty));
+    setSatuan(p.satuan);
+    setHargaSatuan(String(p.hargaSatuan));
+    setSupplierNama(p.supplierNama === '-' ? '' : p.supplierNama);
+    setTanggal(p.tanggal);
+    setEditId(p.id);
+    setFerr('');
+  };
+
+  const cancelEdit = () => {
+    setEditId(null);
+    setNamaItem(''); setQty(''); setHargaSatuan(''); setSupplierNama('');
+    setTanggal(new Date().toISOString().slice(0, 10));
+    setKategori(OPEX_KATEGORI[0]); setSatuan('pcs');
+  };
+
+  const handleDelete = () => {
+    if (!deleteId) return;
+    setPurchases(prev => prev.filter(p => p.id !== deleteId));
+    setDeleteId(null);
+  };
 
   const handleSubmit = () => {
     setFerr('');
     if (!namaItem.trim()) { setFerr('Nama item wajib diisi.'); return; }
     if (!qty || +qty <= 0) { setFerr('Jumlah harus lebih dari 0.'); return; }
     if (!hargaSatuan || +hargaSatuan <= 0) { setFerr('Harga satuan harus lebih dari 0.'); return; }
+
+    if (editId) {
+      // Update entry
+      setPurchases(prev => prev.map(p => p.id === editId ? {
+        ...p,
+        namaItem: namaItem.trim(),
+        kategori,
+        qty: +qty,
+        satuan,
+        hargaSatuan: +hargaSatuan,
+        total: +qty * +hargaSatuan,
+        supplierNama: supplierNama.trim() || '-',
+        tanggal: tanggal || new Date().toISOString().slice(0, 10),
+      } : p));
+      cancelEdit();
+      return;
+    }
 
     const purchase: OpexPurchase = {
       id: `opex-${Date.now()}`,
@@ -1082,8 +1127,8 @@ function OpexTab() {
       <p className="mt-1 text-sm text-slate-500">Catat pembelian bahan packing, ATK, kebersihan, dan perlengkapan operasional (non-SKU).</p>
 
       {/* Form */}
-      <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-        <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400">📋 Form Pembelian OPEX</p>
+      <div className={`mt-4 rounded-2xl border bg-white p-4 shadow-sm ${editId ? 'border-amber-300 bg-amber-50/30' : 'border-slate-200'}`}>
+        <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400">{editId ? '✏️ Koreksi Pembelian OPEX' : '📋 Form Pembelian OPEX'}</p>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <div className="sm:col-span-2">
             <label className="block text-xs font-semibold text-slate-600 mb-1">Nama Item *</label>
@@ -1125,9 +1170,12 @@ function OpexTab() {
           </div>
         </div>
         {ferr && <p className="mt-2 text-sm text-red-500">{ferr}</p>}
-        <button onClick={handleSubmit} className="mt-4 w-full rounded-xl bg-emerald-500 px-4 py-2.5 text-sm font-bold text-white hover:bg-emerald-700 transition sm:w-auto sm:px-8">
-          ➕ Catat OPEX
-        </button>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button onClick={handleSubmit} className={`rounded-xl px-4 py-2.5 text-sm font-bold text-white transition sm:px-8 ${editId ? 'bg-amber-500 hover:bg-amber-700' : 'bg-emerald-500 hover:bg-emerald-700'}`}>
+            {editId ? '💾 Simpan Koreksi' : '➕ Catat OPEX'}
+          </button>
+          {editId && <button onClick={cancelEdit} className="rounded-xl bg-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-300 transition">✕ Batal Edit</button>}
+        </div>
       </div>
 
       {/* Ringkasan per Kategori */}
@@ -1153,24 +1201,45 @@ function OpexTab() {
               <th className="px-3 py-3 text-center font-semibold">Qty</th>
               <th className="px-3 py-3 text-right font-semibold whitespace-nowrap">Harga</th>
               <th className="px-3 py-3 text-right font-semibold whitespace-nowrap">Total</th>
+              <th className="px-3 py-3 text-center font-semibold whitespace-nowrap">Aksi</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-50 bg-white">
             {purchases.length === 0 ? (
-              <tr><td colSpan={6} className="px-3 py-8 text-center text-sm text-slate-400">Belum ada data pembelian OPEX.</td></tr>
+              <tr><td colSpan={7} className="px-3 py-8 text-center text-sm text-slate-400">Belum ada data pembelian OPEX.</td></tr>
             ) : purchases.map(p => (
-              <tr key={p.id} className="hover:bg-slate-50 transition">
+              <tr key={p.id} className={`hover:bg-slate-50 transition ${editId === p.id ? 'bg-amber-50/50' : ''}`}>
                 <td className="px-3 py-2.5 text-xs text-slate-500">{p.tanggal}</td>
                 <td className="px-3 py-2.5 max-w-[200px] truncate font-medium text-slate-800" title={p.namaItem}>{p.namaItem}</td>
                 <td className="px-3 py-2.5 text-xs text-slate-500 hidden sm:table-cell"><span className="rounded-full bg-slate-100 px-2 py-0.5">{p.kategori}</span></td>
                 <td className="px-3 py-2.5 text-center text-slate-700">{p.qty} {p.satuan}</td>
                 <td className="px-3 py-2.5 text-right text-slate-600">Rp {p.hargaSatuan.toLocaleString('id-ID')}</td>
                 <td className="px-3 py-2.5 text-right font-bold text-slate-800">Rp {p.total.toLocaleString('id-ID')}</td>
+                <td className="px-3 py-2.5 text-center">
+                  <div className="flex justify-center gap-1">
+                    <button onClick={() => openEdit(p)} title="Koreksi / Edit" className="rounded-lg bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-700 hover:bg-amber-200 transition">✏️</button>
+                    <button onClick={() => setDeleteId(p.id)} title="Hapus" className="rounded-lg bg-red-100 px-2 py-1 text-xs font-semibold text-red-600 hover:bg-red-200 transition">🗑️</button>
+                  </div>
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+
+      {/* Konfirmasi Hapus */}
+      {deleteId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-80 rounded-2xl bg-white p-6 shadow-xl">
+            <p className="text-lg font-bold text-slate-800">🗑️ Hapus OPEX?</p>
+            <p className="mt-2 text-sm text-slate-600">Data pembelian OPEX ini akan dihapus permanen.</p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button onClick={() => setDeleteId(null)} className="rounded-xl bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-600">Batal</button>
+              <button onClick={handleDelete} className="rounded-xl bg-red-500 px-4 py-2 text-sm font-semibold text-white">Hapus</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1186,11 +1255,47 @@ function BiayaOpTab() {
   const [jumlah, setJumlah] = useState('');
   const [tanggal, setTanggal] = useState(() => new Date().toISOString().slice(0, 10));
   const [ferr, setFerr] = useState('');
+  const [editId, setEditId] = useState<string | null>(null);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+
+  const openEdit = (b: BiayaOp) => {
+    setDeskripsi(b.deskripsi);
+    setKategori(b.kategori);
+    setJumlah(String(b.jumlah));
+    setTanggal(b.tanggal);
+    setEditId(b.id);
+    setFerr('');
+  };
+
+  const cancelEdit = () => {
+    setEditId(null);
+    setDeskripsi(''); setJumlah('');
+    setTanggal(new Date().toISOString().slice(0, 10));
+    setKategori(BIAYA_KATEGORI[0]);
+  };
+
+  const handleDelete = () => {
+    if (!deleteId) return;
+    setBiayaList(prev => prev.filter(b => b.id !== deleteId));
+    setDeleteId(null);
+  };
 
   const handleSubmit = () => {
     setFerr('');
     if (!deskripsi.trim()) { setFerr('Deskripsi wajib diisi.'); return; }
     if (!jumlah || +jumlah <= 0) { setFerr('Jumlah harus lebih dari 0.'); return; }
+
+    if (editId) {
+      setBiayaList(prev => prev.map(b => b.id === editId ? {
+        ...b,
+        deskripsi: deskripsi.trim(),
+        kategori,
+        jumlah: +jumlah,
+        tanggal: tanggal || new Date().toISOString().slice(0, 10),
+      } : b));
+      cancelEdit();
+      return;
+    }
 
     const biaya: BiayaOp = {
       id: `biaya-${Date.now()}`,
@@ -1244,8 +1349,8 @@ function BiayaOpTab() {
       <p className="mt-1 text-sm text-slate-500">Catat pengeluaran harian: listrik, internet, transport, sewa, gaji, marketing, dll.</p>
 
       {/* Quick Form */}
-      <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-        <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400">💸 Catat Biaya Harian</p>
+      <div className={`mt-4 rounded-2xl border bg-white p-4 shadow-sm ${editId ? 'border-amber-300 bg-amber-50/30' : 'border-slate-200'}`}>
+        <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400">{editId ? '✏️ Koreksi Biaya' : '💸 Catat Biaya Harian'}</p>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div className="sm:col-span-2 lg:col-span-1">
             <label className="block text-xs font-semibold text-slate-600 mb-1">Deskripsi *</label>
@@ -1267,9 +1372,12 @@ function BiayaOpTab() {
           </div>
         </div>
         {ferr && <p className="mt-2 text-sm text-red-500">{ferr}</p>}
-        <button onClick={handleSubmit} className="mt-3 w-full rounded-xl bg-emerald-500 px-4 py-2.5 text-sm font-bold text-white hover:bg-emerald-700 transition sm:w-auto sm:px-8">
-          ➕ Catat Biaya
-        </button>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button onClick={handleSubmit} className={`rounded-xl px-4 py-2.5 text-sm font-bold text-white transition sm:px-8 ${editId ? 'bg-amber-500 hover:bg-amber-700' : 'bg-emerald-500 hover:bg-emerald-700'}`}>
+            {editId ? '💾 Simpan Koreksi' : '➕ Catat Biaya'}
+          </button>
+          {editId && <button onClick={cancelEdit} className="rounded-xl bg-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-300 transition">✕ Batal Edit</button>}
+        </div>
       </div>
 
       {/* Ringkasan */}
@@ -1331,22 +1439,43 @@ function BiayaOpTab() {
               <th className="px-3 py-3 font-semibold whitespace-nowrap">Deskripsi</th>
               <th className="px-3 py-3 font-semibold whitespace-nowrap hidden sm:table-cell">Kategori</th>
               <th className="px-3 py-3 text-right font-semibold whitespace-nowrap">Jumlah</th>
+              <th className="px-3 py-3 text-center font-semibold whitespace-nowrap">Aksi</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-50 bg-white">
             {biayaList.length === 0 ? (
-              <tr><td colSpan={4} className="px-3 py-8 text-center text-sm text-slate-400">Belum ada catatan biaya operasional.</td></tr>
+              <tr><td colSpan={5} className="px-3 py-8 text-center text-sm text-slate-400">Belum ada catatan biaya operasional.</td></tr>
             ) : biayaList.map(b => (
-              <tr key={b.id} className="hover:bg-slate-50 transition">
+              <tr key={b.id} className={`hover:bg-slate-50 transition ${editId === b.id ? 'bg-amber-50/50' : ''}`}>
                 <td className="px-3 py-2.5 text-xs text-slate-500">{b.tanggal}</td>
                 <td className="px-3 py-2.5 max-w-[220px] truncate font-medium text-slate-800" title={b.deskripsi}>{b.deskripsi}</td>
                 <td className="px-3 py-2.5 text-xs text-slate-500 hidden sm:table-cell"><span className="rounded-full bg-slate-100 px-2 py-0.5">{b.kategori}</span></td>
                 <td className="px-3 py-2.5 text-right font-bold text-red-600">-Rp {b.jumlah.toLocaleString('id-ID')}</td>
+                <td className="px-3 py-2.5 text-center">
+                  <div className="flex justify-center gap-1">
+                    <button onClick={() => openEdit(b)} title="Koreksi / Edit" className="rounded-lg bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-700 hover:bg-amber-200 transition">✏️</button>
+                    <button onClick={() => setDeleteId(b.id)} title="Hapus" className="rounded-lg bg-red-100 px-2 py-1 text-xs font-semibold text-red-600 hover:bg-red-200 transition">🗑️</button>
+                  </div>
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+
+      {/* Konfirmasi Hapus */}
+      {deleteId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-80 rounded-2xl bg-white p-6 shadow-xl">
+            <p className="text-lg font-bold text-slate-800">🗑️ Hapus Biaya?</p>
+            <p className="mt-2 text-sm text-slate-600">Catatan biaya ini akan dihapus permanen.</p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button onClick={() => setDeleteId(null)} className="rounded-xl bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-600">Batal</button>
+              <button onClick={handleDelete} className="rounded-xl bg-red-500 px-4 py-2 text-sm font-semibold text-white">Hapus</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
