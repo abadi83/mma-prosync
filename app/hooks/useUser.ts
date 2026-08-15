@@ -34,22 +34,6 @@ export function useUser(): UserInfo {
       return;
     }
 
-    try {
-      const stored = localStorage.getItem('mma_user_session');
-      if (stored) {
-        const session = JSON.parse(stored);
-        if (session.nama) {
-          setUser({
-            nama: session.nama || 'Pengguna',
-            role: session.role || 'admin',
-            roles: session.roles || [session.role || 'admin'],
-            pegawaiId: session.pegawaiId || '',
-          });
-          return;
-        }
-      }
-    } catch {}
-
     fetch('/api/profil')
       .then((r) => r.json())
       .then((data) => {

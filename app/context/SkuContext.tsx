@@ -3,48 +3,14 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 
 export interface SkuItem {
-  id: string;
-  sku: string;
-  nama: string;
-  grade: string;
-  kodeSupplierVarian: string;
-  statusEditGambar: string;
-  statusUploadToko: string;
-  supplier: string;
-  kategori: string;
-  satuan: string;
-  hargaModalLama: number;
-  hargaBaru: number;
-  hargaJual: number;
-  stok: number;
-  minStok: number;
-  aktif: number;
-  perubahanHargaBeli: string;
+  id: string; sku: string; nama: string; grade: string; kodeSupplierVarian: string;
+  statusEditGambar: string; statusUploadToko: string; supplier: string; kategori: string;
+  satuan: string; hargaModalLama: number; hargaBaru: number; hargaJual: number;
+  stok: number; minStok: number; aktif: number; perubahanHargaBeli: string;
 }
 
-const SKU_STORAGE = 'mma_sku_data';
-const SKU_TIMESTAMP = 'mma_sku_timestamp';
-const SYNC_INTERVAL = 30000; // 30 detik auto-sync
-
-const DEFAULT_SKU: SkuItem[] = [];
-
-/* ── Helper: baca localStorage ── */
-function loadLocal(): { data: SkuItem[] | null; ts: number } {
-  if (typeof window === 'undefined') return { data: null, ts: 0 };
-  try {
-    const raw = localStorage.getItem(SKU_STORAGE);
-    const ts = parseInt(localStorage.getItem(SKU_TIMESTAMP) || '0', 10);
-    return { data: raw ? JSON.parse(raw) : null, ts };
-  } catch { return { data: null, ts: 0 }; }
-}
-
-/* ── Helper: simpan ke localStorage ── */
-function saveLocal(data: SkuItem[]) {
-  try {
-    localStorage.setItem(SKU_STORAGE, JSON.stringify(data));
-    localStorage.setItem(SKU_TIMESTAMP, String(Date.now()));
-  } catch {}
-}
+const SYNC_INTERVAL = 30000;
+const API = '/api/sku-master';
 
 interface SkuContextType {
   skus: SkuItem[];
@@ -57,147 +23,73 @@ interface SkuContextType {
 }
 
 const SkuContext = createContext<SkuContextType>({
-  skus: [],
-  setSkus: () => {},
-  getSku: () => undefined,
-  updateStok: () => {},
-  syncStatus: 'idle',
-  lastSync: null,
-  forceSync: async () => {},
+  skus: [], setSkus: () => {}, getSku: () => undefined, updateStok: () => {},
+  syncStatus: 'idle', lastSync: null, forceSync: async () => {},
 });
 
 export function SkuProvider({ children }: { children: React.ReactNode }) {
-  const [skus, setSkus] = useState<SkuItem[]>(DEFAULT_SKU);
+  const [skus, setSkus] = useState<SkuItem[]>([]);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'error'>('idle');
   const [lastSync, setLastSync] = useState<Date | null>(null);
   const isHydrated = useRef(false);
-  const localVersion = useRef(0);
-  const serverVersion = useRef(0);
   const syncTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pendingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  /* ── Fungsi: tarik data dari server ── */
-  const pullFromServer = useCallback(async (): Promise<SkuItem[] | null> => {
-    try {
-      const res = await fetch('/api/data?key=mma_sku_data&t=' + Date.now());
-      if (!res.ok) return null;
-      const json = await res.json();
-      if (json.data && Array.isArray(json.data) && json.data.length > 0) {
-        return json.data;
-      }
-      return null;
-    } catch { return null; }
+  const fetchSku = useCallback(async () => {
+    const res = await fetch(`${API}?t=${Date.now()}`);
+    if (!res.ok) throw new Error('fetch failed');
+    return (await res.json()) as SkuItem[];
   }, []);
 
-  /* ── Fungsi: push data ke server ── */
-  const pushToServer = useCallback(async (data: SkuItem[]) => {
-    try {
-      const res = await fetch('/api/data', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key: 'mma_sku_data', data }),
-      });
-      return res.ok;
-    } catch { return false; }
-  }, []);
-
-  /* ── Fungsi: sync dua arah ── */
-  const syncBothWays = useCallback(async (currentSkus: SkuItem[]) => {
+  const load = useCallback(async () => {
     setSyncStatus('syncing');
     try {
-      // 1. PULL: ambil data terbaru dari server
-      const serverData = await pullFromServer();
-
-      // 2. Bandingkan: pakai data yg lebih banyak (proxy kasar)
-      if (serverData && serverData.length >= currentSkus.length) {
-        // Server lebih baru/lengkap → pakai server
-        if (JSON.stringify(serverData) !== JSON.stringify(currentSkus)) {
-          setSkus(serverData);
-          saveLocal(serverData);
-          localVersion.current = Date.now();
-        }
-      } else if (currentSkus.length > 0) {
-        // Lokal lebih banyak → push ke server
-        await pushToServer(currentSkus);
-      }
-
-      serverVersion.current = Date.now();
+      const data = await fetchSku();
+      setSkus(data);
       setLastSync(new Date());
       setSyncStatus('idle');
     } catch {
       setSyncStatus('error');
-    }
-  }, [pullFromServer, pushToServer]);
-
-  /* ── Initial load: server dulu, fallback ke localStorage ── */
-  useEffect(() => {
-    async function init() {
-      setSyncStatus('syncing');
-
-      // 1. AMBIL DARI SERVER DULU (source of truth)
-      const serverData = await pullFromServer();
-
-      if (serverData && serverData.length > 0) {
-        setSkus(serverData);
-        saveLocal(serverData);
-        localVersion.current = Date.now();
-        serverVersion.current = Date.now();
-        setLastSync(new Date());
-        setSyncStatus('idle');
-        isHydrated.current = true;
-        return;
-      }
-
-      // 2. Fallback: localStorage
-      const local = loadLocal();
-      if (local.data && local.data.length > 0) {
-        setSkus(local.data);
-        // Push ke server karena server kosong
-        await pushToServer(local.data);
-        serverVersion.current = Date.now();
-        setLastSync(new Date());
-      }
-
-      setSyncStatus('idle');
+    } finally {
       isHydrated.current = true;
     }
-    init();
-  }, [pullFromServer, pushToServer]);
+  }, [fetchSku]);
 
-  /* ── Auto-sync setiap 30 detik ── */
+  useEffect(() => { load(); }, [load]);
+
   useEffect(() => {
-    syncTimer.current = setInterval(() => {
-      setSkus(prev => {
-        syncBothWays(prev);
-        return prev;
-      });
-    }, SYNC_INTERVAL);
+    syncTimer.current = setInterval(() => load(), SYNC_INTERVAL);
     return () => { if (syncTimer.current) clearInterval(syncTimer.current); };
-  }, [syncBothWays]);
+  }, [load]);
 
-  /* ── Setiap perubahan data: save local + push server ── */
-  useEffect(() => {
-    if (!isHydrated.current) return;
-    saveLocal(skus);
-    // Debounce push ke server
-    const timer = setTimeout(() => {
-      pushToServer(skus);
-      setLastSync(new Date());
-    }, 1000);
-    return () => clearTimeout(timer);
-  }, [skus, pushToServer]);
+  const wrappedSetSkus: typeof setSkus = useCallback((updater) => {
+    setSkus(prev => {
+      const next = typeof updater === 'function' ? (updater as (p: SkuItem[]) => SkuItem[])(prev) : updater;
+      if (pendingTimer.current) clearTimeout(pendingTimer.current);
+      pendingTimer.current = setTimeout(() => {
+        fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(next) }).catch(() => {});
+      }, 800);
+      return next;
+    });
+  }, []);
 
   const getSku = useCallback((skuCode: string) => skus.find(s => s.sku === skuCode), [skus]);
 
-  const updateStok = useCallback((skuCode: string, delta: number) => {
-    setSkus(prev => prev.map(s => s.sku === skuCode ? { ...s, stok: Math.max(0, s.stok + delta) } : s));
-  }, []);
+  const updateStok = useCallback(async (skuCode: string, delta: number) => {
+    const item = skus.find(s => s.sku === skuCode);
+    if (!item) return;
+    const updated = { ...item, stok: Math.max(0, item.stok + delta) };
+    setSkus(prev => prev.map(s => s.sku === skuCode ? updated : s));
+    try {
+      await fetch(API, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updated) });
+      await load();
+    } catch {}
+  }, [skus, load]);
 
-  const forceSync = useCallback(async () => {
-    await syncBothWays(skus);
-  }, [skus, syncBothWays]);
+  const forceSync = useCallback(async () => { await load(); }, [load]);
 
   return (
-    <SkuContext.Provider value={{ skus, setSkus, getSku, updateStok, syncStatus, lastSync, forceSync }}>
+    <SkuContext.Provider value={{ skus, setSkus: wrappedSetSkus, getSku, updateStok, syncStatus, lastSync, forceSync }}>
       {children}
     </SkuContext.Provider>
   );

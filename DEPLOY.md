@@ -1,4 +1,6 @@
-# MMA ProSync — Deploy ke Hostinger VPS
+# MMA ProSync — Deploy ke Hostinger VPS (dengan PostgreSQL)
+
+Aplikasi sekarang menggunakan **PostgreSQL** sebagai sumber data tunggal. Semua user/browser akan melihat data yang sama secara real-time.
 
 ## 1. Siapkan VPS (sekali saja)
 
@@ -21,9 +23,43 @@ apt install -y nginx
 
 # Install Git
 apt install -y git
+
+# Install PostgreSQL 17
+apt install -y postgresql postgresql-contrib
+systemctl enable postgresql
 ```
 
-## 2. Upload project ke VPS
+## 2. Setup Database
+
+```bash
+# Ganti ke user postgres
+sudo -u postgres psql
+
+-- Buat user & database
+CREATE USER mma_admin WITH PASSWORD 'PASSWORD_KUAT_ANDA' CREATEDB;
+CREATE DATABASE mma_prosync OWNER mma_admin;
+\c mma_prosync
+GRANT ALL ON SCHEMA public TO mma_admin;
+\q
+
+# Buka pg_hba.conf agar app bisa koneksi lokal
+nano /etc/postgresql/17/main/pg_hba.conf
+# Pastikan baris ini ada:
+# local   all   all                 trust
+# host    all   all   127.0.0.1/32  trust
+# host    all   all   ::1/128       trust
+
+systemctl restart postgresql
+```
+
+Jalankan migrasi dari project:
+```bash
+cd /home/mma-prosync
+export DATABASE_URL=postgresql://mma_admin:PASSWORD_KUAT_ANDA@127.0.0.1:5432/mma_prosync
+node scripts/run-migrations.js
+```
+
+## 3. Upload project ke VPS
 
 ### Opsi A: Via Git (rekomendasi)
 ```bash
@@ -42,8 +78,7 @@ cd mma-prosync
 
 ### Opsi B: Via SCP (upload langsung)
 ```bash
-# Di laptop/local — zip & kirim
-# PowerShell:
+# Di laptop/local — zip & kirim (PowerShell)
 Compress-Archive -Path * -DestinationPath mma-prosync.zip
 scp mma-prosync.zip root@IP_VPS:/home/
 
@@ -53,7 +88,23 @@ unzip mma-prosync.zip -d mma-prosync
 cd mma-prosync
 ```
 
-## 3. Install & Build
+## 4. Environment Variables
+
+Salin `.env.example` ke `.env.local` dan isi dengan kredensial PostgreSQL:
+
+```bash
+cp .env.example .env.local
+nano .env.local
+```
+
+Contoh isi:
+```env
+NODE_ENV=production
+DATABASE_URL=postgresql://mma_admin:PASSWORD_KUAT_ANDA@127.0.0.1:5432/mma_prosync
+DEFAULT_TOKO_ID=a0a0a0a0-0000-0000-0000-000000000001
+```
+
+## 5. Install & Build
 
 ```bash
 cd /home/mma-prosync
@@ -61,7 +112,7 @@ cd /home/mma-prosync
 # Hapus build lokal Windows (jika ada)
 rm -rf .next
 
-# Install dependencies (termasuk devDependencies untuk build)
+# Install dependencies
 npm ci
 
 # Build production
@@ -71,18 +122,16 @@ npm run build
 mkdir -p logs
 ```
 
-## 4. Jalankan dengan PM2
+## 6. Jalankan dengan PM2
 
 ```bash
 # Pastikan cwd di ecosystem.config.js sudah sesuai path project di VPS
-# Default: /home/mulus/mma-prosync — ubah jika perlu
-
 pm2 start ecosystem.config.js
 pm2 save
 pm2 startup  # auto-start saat VPS reboot
 ```
 
-## 5. Setup Nginx Reverse Proxy
+## 7. Setup Nginx Reverse Proxy
 
 ```bash
 nano /etc/nginx/sites-available/mma-prosync
@@ -108,15 +157,18 @@ server {
 ```
 
 ```bash
-# Aktifkan
 ln -s /etc/nginx/sites-available/mma-prosync /etc/nginx/sites-enabled/
-nginx -t          # test config
+nginx -t
 systemctl reload nginx
 ```
 
-## 6. Selesai!
+## 8. Selesai!
 
 Buka browser: `http://IP_VPS_ANDA`
+
+Login default:
+- **Admin:** `demo@mma.id` / `demo123`
+- **Pegawai:** `andi` atau `siti` / `pegawai123`
 
 ### Perintah berguna:
 ```bash
@@ -128,8 +180,7 @@ npm run build && pm2 restart mma-prosync  # update setelah git pull
 ```
 
 ## Catatan Penting:
-- ⚠️ Tidak ada database — semua data disimpan di `localStorage` browser client
-- 🔄 Data client-side tidak dishare antar user/browser
-- 🛡️ Untuk production sebaiknya tambahkan database (Supabase/PostgreSQL)
+- ✅ Data tersimpan di PostgreSQL — tidak lagi hanya di `localStorage`.
+- 🔄 Data dishare antar user/browser secara real-time.
 - 🔒 Tambahkan SSL dengan Certbot: `apt install certbot python3-certbot-nginx && certbot --nginx`
 - 🐛 Jika muncul "Application error: a client-side exception", biasanya karena build Windows di-upload ke VPS. Pastikan selalu `rm -rf .next` dan build ulang di VPS.
