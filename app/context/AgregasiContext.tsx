@@ -89,6 +89,27 @@ export function AgregasiProvider({ children }: { children: React.ReactNode }) {
     saveToStorage(allRows);
   }, [allRows]);
 
+  // Re-hydrate saat GlobalSyncProvider menarik data dari server (user lain)
+  useEffect(() => {
+    const onSync = () => {
+      const stored = loadFromStorage();
+      if (stored.length > 0) {
+        setAllRows(prev => {
+          const map = new Map<string, AgregasiRow>();
+          for (const r of stored) map.set(`${r.noPesanan}||${r.noResi}||${r.sku}`, r);
+          for (const r of prev) map.set(`${r.noPesanan}||${r.noResi}||${r.sku}`, r);
+          return Array.from(map.values());
+        });
+      }
+    };
+    window.addEventListener('storage', onSync);
+    window.addEventListener('shared-data-updated', onSync);
+    return () => {
+      window.removeEventListener('storage', onSync);
+      window.removeEventListener('shared-data-updated', onSync);
+    };
+  }, []);
+
   const addRows = useCallback((rows: AgregasiRow[]) => {
     setAllRows(prev => {
       const existing = new Map<string, AgregasiRow>();

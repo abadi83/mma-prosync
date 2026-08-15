@@ -548,6 +548,22 @@ function InputKeuangan() {
     try { localStorage.setItem('mma_keuangan_manual', JSON.stringify(entries)); } catch { }
   }, [entries]);
 
+  // Re-read saat ada update dari user lain (GlobalSyncProvider)
+  useEffect(() => {
+    const reload = () => {
+      try {
+        const stored = localStorage.getItem('mma_keuangan_manual');
+        if (stored) setEntries(JSON.parse(stored));
+      } catch { }
+    };
+    window.addEventListener('storage', reload);
+    window.addEventListener('shared-data-updated', reload);
+    return () => {
+      window.removeEventListener('storage', reload);
+      window.removeEventListener('shared-data-updated', reload);
+    };
+  }, []);
+
   const mp = MARKETPLACE_TOKO.find(m => m.id === selectedMp)!;
   const pk = +form.pendapatanKotor || 0;
   const fee = Math.round(pk * mp.persenFee / 100);
