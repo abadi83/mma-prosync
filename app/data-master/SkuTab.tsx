@@ -117,10 +117,14 @@ export function SkuTab() {
       } else {
         const res = await fetch('/api/sku-master', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(item) });
         const json = await res.json();
+        if (!res.ok || json.error) { setFerr(json.error || 'Gagal menyimpan ke server.'); return; }
         const newItem = json.item || { ...item, id: `tmp-${Date.now()}` };
         setSkus(prev => [newItem, ...prev.filter(x => x.sku !== newItem.sku)]);
       }
-    } catch {}
+    } catch (err: any) {
+      setFerr('Gagal menyimpan ke server: ' + (err?.message || 'koneksi gagal'));
+      return;
+    }
 
     setShowForm(false);
 
@@ -191,8 +195,11 @@ export function SkuTab() {
           try {
             const res = await fetch('/api/sku-master', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newOnly) });
             const json = await res.json();
+            if (!res.ok || json.error) { setFerr('Upload gagal: ' + (json.error || 'error server')); setUploading(false); return; }
             if (json.items) setSkus(prev => [...json.items, ...prev]);
-          } catch {}
+          } catch (err: any) {
+            setFerr('Upload gagal: ' + (err?.message || 'koneksi gagal')); setUploading(false); return;
+          }
         }
         inserted = newOnly.length;
         skipped = incoming.length - newOnly.length;
@@ -200,12 +207,15 @@ export function SkuTab() {
         try {
           const res = await fetch('/api/sku-master', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(incoming) });
           const json = await res.json();
+          if (!res.ok || json.error) { setFerr('Upload gagal: ' + (json.error || 'error server')); setUploading(false); return; }
           if (json.items) {
             const map = new Map(skus.map(p => [p.sku, p]));
             for (const it of json.items) map.set(it.sku, it);
             setSkus(Array.from(map.values()));
           }
-        } catch {}
+        } catch (err: any) {
+          setFerr('Upload gagal: ' + (err?.message || 'koneksi gagal')); setUploading(false); return;
+        }
         const existingSkus = new Set(skus.map(p => p.sku));
         inserted = incoming.filter(it => !existingSkus.has(it.sku)).length;
         updated = incoming.filter(it => existingSkus.has(it.sku)).length;
