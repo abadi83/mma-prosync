@@ -3,20 +3,63 @@
 import { useEffect, useRef } from 'react';
 
 /**
- * GlobalSyncProvider — sync dua arah untuk data yang MASIH di localStorage
- * (Data Entry & operasional). Data lain sudah di PostgreSQL via API.
+ * GlobalSyncProvider — sync dua arah untuk SEMUA data yang masih di localStorage.
+ * Data yang sudah di PostgreSQL tetap via API; ini mencakup sisanya.
  *
- * Strategi merge: UNION by stringify per item, jadi appends dari 2 user
- * digabung, bukan saling menimpa.
+ * Strategi merge:
+ * - Array  → union per-kunci unik (id / noPesanan / sku)
+ * - Object → shallow merge (lokal menang per key)
+ * - Scalar → last-write-wins (lokal menang kalau berubah)
  */
 
 const SYNC_KEYS = [
-  'mma_marketplace_orders',   // Data Entry: pesanan marketplace
-  'mma_marketplace_income',   // Data Entry: ringkasan income marketplace
-  'mma_keuangan_manual',      // Data Entry: entry keuangan manual
-  'mma_agregasi_rows',        // Agregasi pesanan gudang
-  'mma_sku_data',             // SKU master (dibaca Data Entry)
-  'mma_toko_master',          // Toko marketplace legacy
+  // Data Entry & operasional
+  'mma_marketplace_orders',
+  'mma_marketplace_income',
+  'mma_keuangan_manual',
+  'mma_agregasi_rows',
+  'mma_sku_data',
+  'mma_toko_master',
+  // Keuangan & Pembelian
+  'mma_payment_history',
+  'mma_biaya_operasional',
+  'mma_opex_purchases',
+  'mma_hpp_purchases',
+  'mma_modal',
+  'mma_kas_kecil',
+  'mma_koreksi_po',
+  'mma_koreksi_refund',
+  'mma_bukti_bayar',
+  // Penjualan
+  'mma_penjualan_transaksi',
+  // Kepegawaian
+  'mma_pegawai_data',
+  'mma_pegawai_passwords',
+  'mma_izin_records',
+  'mma_gaji_records',
+  'mma_face_data',
+  // Akuntansi
+  'mma_coa',
+  'mma_jurnal_umum',
+  'mma_aset_tetap',
+  // Operasional Gudang
+  'mma_fleet_master',
+  'mma_ho_archive',
+  'mma_pengantaran_offline',
+  'mma_po_inventory_check',
+  'mma_opname_saved',
+  // Task Harga
+  'mma_price_tasks',
+  'mma_price_history',
+  'mma_taskharga_settings',
+  // Profil & Info Toko
+  'mma_profil_nama',
+  'mma_profil_email',
+  'mma_profil_telp',
+  'mma_profil_avatar',
+  'mma_nama_toko',
+  'mma_alamat_toko',
+  'mma_telepon_toko',
 ];
 
 const SYNC_INTERVAL = 5000; // 5 detik
@@ -34,23 +77,47 @@ function itemKey(key: string, item: any): string {
   if (item == null || typeof item !== 'object') return String(item);
   if (key === 'mma_agregasi_rows') return `${item.noPesanan || ''}||${item.noResi || ''}||${item.sku || ''}`;
   if (key === 'mma_marketplace_orders') return `${item.noPesanan || item.id || ''}||${item.id || ''}`;
-  if (key === 'mma_marketplace_income') return String(item.id ?? JSON.stringify(item));
-  if (key === 'mma_keuangan_manual') return String(item.id ?? JSON.stringify(item));
   if (key === 'mma_sku_data') return `${item.sku || item.id || ''}`;
-  if (key === 'mma_toko_master') return String(item.id ?? item.nama ?? JSON.stringify(item));
+  if (item.id !== undefined) return String(item.id);
   return JSON.stringify(item);
 }
 
-async function pullFromServer(key: string): Promise<any[] | null> {
+/** Merge generik: array → union, object → shallow merge, scalar → last-write-wins */
+function mergeAny(key: string, local: any, server: any): any {
+  if (Array.isArray(local) || Array.isArray(server)) {
+    return mergeUnion(key, Array.isArray(local) ? local : [], Array.isArray(server) ? server : []);
+  }
+  if (local && server && typeof local === 'object' && typeof server === 'object') {
+    return { ...server, ...local };
+  }
+  return local !== null && local !== undefined ? local : server;
+}
+
+function readLocal(key: string): any | null {
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw === null) return null;
+    return JSON.parse(raw);
+  } catch { return null; }
+}
+
+function writeLocal(key: string, value: any) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch {}
+}
+
+async function pullFromServer(key: string): Promise<any | null> {
   try {
     const res = await fetch(`/api/data?key=${key}&t=${Date.now()}`);
     if (!res.ok) return null;
     const json = await res.json();
-    return Array.isArray(json.data) ? json.data : null;
+    const d = json.data;
+    // Array kosong dianggap "tidak ada data"
+    if (Array.isArray(d) && d.length === 0) return null;
+    return d ?? null;
   } catch { return null; }
 }
 
-async function pushToServer(key: string, data: any[]): Promise<boolean> {
+async function pushToServer(key: string, data: any): Promise<boolean> {
   try {
     const res = await fetch('/api/data', {
       method: 'POST',
@@ -76,79 +143,68 @@ export function GlobalSyncProvider({ children }: { children: React.ReactNode }) 
   const initialized = useRef(false);
   const localSnapshots = useRef<Record<string, string>>({});
 
-  // Initial sync: merge server + localStorage, ambil union
+  const syncKey = async (key: string) => {
+    try {
+      const local = readLocal(key);
+      const server = await pullFromServer(key);
+
+      if (local === null && server === null) return;
+
+      if (local === null) {
+        // Hanya server punya data → terapkan ke lokal
+        writeLocal(key, server);
+        localSnapshots.current[key] = JSON.stringify(server);
+        notifyListeners(key);
+        return;
+      }
+
+      if (server === null) {
+        // Hanya lokal punya data → push
+        const localStr = JSON.stringify(local);
+        if (localSnapshots.current[key] !== localStr) {
+          await pushToServer(key, local);
+          localSnapshots.current[key] = localStr;
+        }
+        return;
+      }
+
+      // Keduanya punya data → merge (lokal menang per item)
+      const merged = mergeAny(key, local, server);
+      const localStr = JSON.stringify(local);
+      const mergedStr = JSON.stringify(merged);
+
+      if (mergedStr !== localStr) {
+        writeLocal(key, merged);
+        localSnapshots.current[key] = mergedStr;
+        notifyListeners(key);
+      } else {
+        localSnapshots.current[key] = localStr;
+      }
+
+      if (JSON.stringify(server) !== mergedStr) {
+        await pushToServer(key, merged);
+      }
+    } catch {}
+  };
+
+  // Initial sync
   useEffect(() => {
     if (initialized.current) return;
     initialized.current = true;
-
-    async function init() {
-      for (const key of SYNC_KEYS) {
-        try {
-          let local: any[] = [];
-          try {
-            const raw = localStorage.getItem(key);
-            if (raw) {
-              const parsed = JSON.parse(raw);
-              if (Array.isArray(parsed)) local = parsed;
-            }
-          } catch {}
-
-          const server = await pullFromServer(key);
-
-          let merged = local;
-          if (server && Array.isArray(server)) {
-            merged = mergeUnion(key, local, server);
-          }
-
-          if (merged.length > 0) {
-            try { localStorage.setItem(key, JSON.stringify(merged)); } catch {}
-            localSnapshots.current[key] = JSON.stringify(merged);
-            if (JSON.stringify(server || []) !== JSON.stringify(merged)) {
-              await pushToServer(key, merged);
-            }
-          } else if (server && server.length > 0) {
-            try { localStorage.setItem(key, JSON.stringify(server)); } catch {}
-            localSnapshots.current[key] = JSON.stringify(server);
-          }
-        } catch {}
-      }
+    (async () => {
+      for (const key of SYNC_KEYS) await syncKey(key);
       notifyListeners('init');
-    }
-    init();
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Polling 5 detik: tarik perubahan user lain + dorong perubahan lokal
   useEffect(() => {
     const timer = setInterval(async () => {
-      for (const key of SYNC_KEYS) {
-        try {
-          const localRaw = localStorage.getItem(key);
-          let local: any[] = [];
-          try { if (localRaw) { const p = JSON.parse(localRaw); if (Array.isArray(p)) local = p; } } catch {}
-
-          const server = await pullFromServer(key);
-
-          if (server && server.length > 0) {
-            // Merge union dengan server
-            const merged = mergeUnion(key, local, server);
-            if (JSON.stringify(merged) !== JSON.stringify(local)) {
-              try { localStorage.setItem(key, JSON.stringify(merged)); } catch {}
-              notifyListeners(key);
-            }
-            localSnapshots.current[key] = JSON.stringify(merged);
-            if (JSON.stringify(server) !== JSON.stringify(merged)) {
-              await pushToServer(key, merged);
-            }
-          } else if (local.length > 0 && JSON.stringify(local) !== localSnapshots.current[key]) {
-            // Server kosong → push lokal
-            await pushToServer(key, local);
-            localSnapshots.current[key] = JSON.stringify(local);
-          }
-        } catch {}
-      }
+      for (const key of SYNC_KEYS) await syncKey(key);
     }, SYNC_INTERVAL);
-
     return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return <>{children}</>;

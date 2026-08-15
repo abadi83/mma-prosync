@@ -63,11 +63,11 @@ export async function POST(request: Request) {
     if (!key) {
       return NextResponse.json({ error: 'Field key wajib.' }, { status: 400 });
     }
-    if (!Array.isArray(data)) {
-      return NextResponse.json({ error: 'Field data harus array.' }, { status: 400 });
+    if (data === undefined || data === null) {
+      return NextResponse.json({ error: 'Field data wajib.' }, { status: 400 });
     }
     writeData(key, data);
-    return NextResponse.json({ success: true, key, count: data.length });
+    return NextResponse.json({ success: true, key, count: Array.isArray(data) ? data.length : 1 });
   } catch (err: any) {
     console.error('POST /api/data error:', err?.message);
     return NextResponse.json({ error: 'Gagal menyimpan data.' }, { status: 500 });
