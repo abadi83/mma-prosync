@@ -1035,12 +1035,16 @@ function InputKeuangan() {
         <button
           onClick={() => {
             if (!confirm('⚠️ Hapus SEMUA data Input Keuangan & Riwayat Marketplace?\n\nData yang dihapus: Upload Excel, input manual, riwayat marketplace.\n\nData Master SKU & lainnya TIDAK terpengaruh.')) return;
-            localStorage.removeItem('mma_marketplace_orders');
-            localStorage.removeItem('mma_marketplace_income');
-            localStorage.removeItem('mma_keuangan_manual');
+            // Hapus global: localStorage lokal + server (propagasi ke semua user)
+            try { localStorage.removeItem('mma_marketplace_orders'); } catch {}
+            try { localStorage.removeItem('mma_marketplace_income'); } catch {}
+            try { localStorage.removeItem('mma_keuangan_manual'); } catch {}
             setEntries([]);
             setSuccess(true);
             setTimeout(() => setSuccess(false), 3000);
+            window.dispatchEvent(new CustomEvent('global-data-reset', { detail: { key: 'mma_marketplace_orders' } }));
+            window.dispatchEvent(new CustomEvent('global-data-reset', { detail: { key: 'mma_marketplace_income' } }));
+            window.dispatchEvent(new CustomEvent('global-data-reset', { detail: { key: 'mma_keuangan_manual' } }));
             window.dispatchEvent(new Event('refresh-upload-history'));
             window.dispatchEvent(new Event('storage'));
           }}

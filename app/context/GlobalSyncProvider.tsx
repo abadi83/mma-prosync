@@ -105,15 +105,16 @@ function writeLocal(key: string, value: any) {
   try { localStorage.setItem(key, JSON.stringify(value)); } catch {}
 }
 
-async function pullFromServer(key: string): Promise<any | null> {
+async function pullFromServer(key: string): Promise<{ data: any; deletedAt: number | null } | null> {
   try {
     const res = await fetch(`/api/data?key=${key}&t=${Date.now()}`);
     if (!res.ok) return null;
     const json = await res.json();
     const d = json.data;
+    const deletedAt = typeof json.deletedAt === 'number' ? json.deletedAt : null;
     // Array kosong dianggap "tidak ada data"
-    if (Array.isArray(d) && d.length === 0) return null;
-    return d ?? null;
+    const data = Array.isArray(d) && d.length === 0 ? null : (d ?? null);
+    return { data, deletedAt };
   } catch { return null; }
 }
 
@@ -124,6 +125,13 @@ async function pushToServer(key: string, data: any): Promise<boolean> {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ key, data }),
     });
+    return res.ok;
+  } catch { return false; }
+}
+
+async function deleteOnServer(key: string): Promise<boolean> {
+  try {
+    const res = await fetch(`/api/data?key=${encodeURIComponent(key)}`, { method: 'DELETE' });
     return res.ok;
   } catch { return false; }
 }
@@ -146,7 +154,19 @@ export function GlobalSyncProvider({ children }: { children: React.ReactNode }) 
   const syncKey = async (key: string) => {
     try {
       const local = readLocal(key);
-      const server = await pullFromServer(key);
+      const remote = await pullFromServer(key);
+      const server = remote ? remote.data : null;
+      const deletedAt = remote ? remote.deletedAt : null;
+
+      // ── Hapus global: tombstone dari user lain ──
+      if (deletedAt !== null) {
+        if (local !== null) {
+          try { localStorage.removeItem(key); } catch {}
+          delete localSnapshots.current[key];
+          notifyListeners(key);
+        }
+        return; // jangan push balik data yang sengaja dihapus
+      }
 
       if (local === null && server === null) return;
 
@@ -205,6 +225,22 @@ export function GlobalSyncProvider({ children }: { children: React.ReactNode }) 
     }, SYNC_INTERVAL);
     return () => clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Event hapus global: komponen dispatch 'global-data-reset' { key } ──
+  useEffect(() => {
+    const onReset = async (e: Event) => {
+      const detail = (e as CustomEvent).detail as { key?: string } | undefined;
+      const keys = detail?.key ? [detail.key] : SYNC_KEYS;
+      for (const key of keys) {
+        try { localStorage.removeItem(key); } catch {}
+        delete localSnapshots.current[key];
+        await deleteOnServer(key);
+        notifyListeners(key);
+      }
+    };
+    window.addEventListener('global-data-reset', onReset);
+    return () => window.removeEventListener('global-data-reset', onReset);
   }, []);
 
   return <>{children}</>;
