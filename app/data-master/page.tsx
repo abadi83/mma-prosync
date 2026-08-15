@@ -6,7 +6,7 @@ import { SupplierTab } from './SupplierTab';
 import { TokoTab } from './TokoTab';
 import { PelangganTab } from './PelangganTab';
 import { FleetTab } from './FleetTab';
-import { TaskHargaTab } from './TaskHargaTab';
+import TaskHargaTab from '@/app/components/TaskHargaTab';
 
 type Tab = 'sku' | 'supplier' | 'toko' | 'taskharga' | 'pelanggan' | 'fleet';
 
