@@ -1,5 +1,6 @@
+import { NextResponse } from 'next/server';
 import { loginUser } from '@/app/services/authService';
-import { apiSuccess, apiBadRequest, apiServerError } from '@/app/lib/apiResponse';
+import { apiBadRequest, apiServerError } from '@/app/lib/apiResponse';
 import { validateRequired, runValidations } from '@/app/lib/validation';
 
 export async function POST(request: Request) {
@@ -11,19 +12,15 @@ export async function POST(request: Request) {
     const result = await loginUser(email, password);
     if ('error' in result) return apiBadRequest(result.error);
 
-    // Set auth cookies
-    const cookieOptions = 'Path=/; Max-Age=86400; SameSite=Lax; HttpOnly';
-    const headers = new Headers();
-    headers.append('Set-Cookie', `auth_token=${encodeURIComponent(result.token)}; ${cookieOptions}`);
-    headers.append('Set-Cookie', `user_name=${encodeURIComponent(result.nama)}; Path=/; Max-Age=86400; SameSite=Lax`);
-    headers.append('Set-Cookie', `user_role=${encodeURIComponent(result.role)}; Path=/; Max-Age=86400; SameSite=Lax`);
-    headers.append('Set-Cookie', `user_roles=${encodeURIComponent(result.roles.join(','))}; Path=/; Max-Age=86400; SameSite=Lax`);
-    if (result.pegawaiId) headers.append('Set-Cookie', `user_pegawai_id=${encodeURIComponent(result.pegawaiId)}; Path=/; Max-Age=86400; SameSite=Lax`);
+    // Set auth cookies via NextResponse (cara yang benar untuk multi Set-Cookie)
+    const response = NextResponse.json({ success: true, ...result });
+    response.cookies.set('auth_token', result.token, { path: '/', maxAge: 86400, sameSite: 'lax', httpOnly: true });
+    response.cookies.set('user_name', result.nama, { path: '/', maxAge: 86400, sameSite: 'lax' });
+    response.cookies.set('user_role', result.role, { path: '/', maxAge: 86400, sameSite: 'lax' });
+    response.cookies.set('user_roles', result.roles.join(','), { path: '/', maxAge: 86400, sameSite: 'lax' });
+    if (result.pegawaiId) response.cookies.set('user_pegawai_id', result.pegawaiId, { path: '/', maxAge: 86400, sameSite: 'lax' });
 
-    return new Response(JSON.stringify({ success: true, ...result }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json', ...Object.fromEntries(headers) },
-    });
+    return response;
   } catch {
     return apiServerError('POST /api/login');
   }
