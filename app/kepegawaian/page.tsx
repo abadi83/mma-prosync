@@ -209,6 +209,7 @@ export default function KepegawaianPage() {
   useEffect(() => { try { localStorage.setItem('mma_pegawai_data', JSON.stringify(pegawai)); window.dispatchEvent(new Event('refresh-akun')); } catch {} }, [pegawai]);
 
   // ══ Sync 2 arah dengan PostgreSQL (login membaca dari DB) ══
+  // DB = sumber kebenaran. Lokal hanya cache.
   useEffect(() => {
     if (!isAdmin) return;
     let cancelled = false;
@@ -219,45 +220,37 @@ export default function KepegawaianPage() {
         const dbList = await res.json();
         if (!Array.isArray(dbList) || cancelled) return;
 
-        // 1) Tarik pegawai dari DB yang belum ada di lokal
-        setPegawai(prev => {
-          const merged = [...prev];
-          const existingIds = new Set(prev.map(p => p.id));
-          const existingNiks = new Set(prev.map(p => p.nik));
-          for (const dbP of dbList) {
-            const mapped: Pegawai = {
-              id: dbP.id,
-              nama: dbP.nama,
-              nik: dbP.nik || '',
-              username: dbP.username || '',
-              jabatan: dbP.jabatan || '',
-              departemen: dbP.departemen || '',
-              tanggalMasuk: dbP.tanggal_masuk ? String(dbP.tanggal_masuk).slice(0, 10) : '',
-              status: (dbP.status as Pegawai['status']) || 'Aktif',
-              noHp: dbP.no_hp || '',
-              email: dbP.email || '',
-              roles: Array.isArray(dbP.roles) ? dbP.roles : ['pegawai'],
-            };
-            if (!existingIds.has(mapped.id) && !existingNiks.has(mapped.nik)) merged.push(mapped);
-          }
-          return merged;
-        });
+        const dbMapped: Pegawai[] = dbList.map((dbP: any) => ({
+          id: dbP.id,
+          nama: dbP.nama,
+          nik: dbP.nik || '',
+          username: dbP.username || '',
+          jabatan: dbP.jabatan || '',
+          departemen: dbP.departemen || '',
+          tanggalMasuk: dbP.tanggal_masuk ? String(dbP.tanggal_masuk).slice(0, 10) : '',
+          status: (dbP.status as Pegawai['status']) || 'Aktif',
+          noHp: dbP.no_hp || '',
+          email: dbP.email || '',
+          roles: Array.isArray(dbP.roles) ? dbP.roles : ['pegawai'],
+        }));
+        const dbNiks = new Set(dbMapped.map(p => p.nik));
 
-        // 2) Push pegawai lokal (id sementara pg-*) yang belum ada di DB
-        const dbNiks = new Set(dbList.map((p: any) => p.nik));
-        for (const p of pegawai) {
-          if (p.id.startsWith('pg-') && !dbNiks.has(p.nik)) {
-            fetch('/api/pegawai', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                nama: p.nama, nik: p.nik, username: p.username, jabatan: p.jabatan,
-                departemen: p.departemen, tanggalMasuk: p.tanggalMasuk, status: p.status,
-                noHp: p.noHp, email: p.email, roles: p.roles,
-              }),
-            }).catch(() => {});
-          }
+        // Entry lokal pg-* yang NIK-nya tidak ada di DB → push ke DB (migrasi data lama)
+        const legacyToPush = pegawai.filter(p => p.id.startsWith('pg-') && !dbNiks.has(p.nik));
+        for (const p of legacyToPush) {
+          fetch('/api/pegawai', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              nama: p.nama, nik: p.nik, username: p.username, jabatan: p.jabatan,
+              departemen: p.departemen, tanggalMasuk: p.tanggalMasuk, status: p.status,
+              noHp: p.noHp, email: p.email, roles: p.roles,
+            }),
+          }).catch(() => {});
         }
+
+        // State lokal = DB + entry pg-* legacy (tanpa duplikat NIK)
+        setPegawai([...legacyToPush, ...dbMapped]);
       } catch {}
     })();
     return () => { cancelled = true; };
