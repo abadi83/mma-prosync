@@ -667,7 +667,7 @@ function DaftarPegawai({ pegawai, setPegawai }: { pegawai: Pegawai[]; setPegawai
                 <div className="mt-3 flex gap-2">
                   <button
                     onClick={() => {
-                      // Save roles
+                      // Simpan roles ke state lokal
                       setPegawai(prev => prev.map(p =>
                         p.id === selected.id ? { ...p, roles: editRoles } : p
                       ));
@@ -675,6 +675,28 @@ function DaftarPegawai({ pegawai, setPegawai }: { pegawai: Pegawai[]; setPegawai
                       setEditMode(false);
                       setSavedMsg(true);
                       setTimeout(() => setSavedMsg(false), 2000);
+                      // ⚠️ Push ke PostgreSQL juga — kalau tidak, hard refresh
+                      // akan menimpa balik roles dari DB (default ['pegawai'])
+                      const sel = selected;
+                      if (sel) {
+                        fetch('/api/pegawai', {
+                          method: 'PUT',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            id: sel.id,
+                            nama: sel.nama,
+                            nik: sel.nik,
+                            username: sel.username,
+                            jabatan: sel.jabatan,
+                            departemen: sel.departemen,
+                            tanggalMasuk: sel.tanggalMasuk,
+                            status: sel.status,
+                            noHp: sel.noHp,
+                            email: sel.email,
+                            roles: editRoles.length > 0 ? editRoles : ['pegawai'],
+                          }),
+                        }).catch(() => {});
+                      }
                     }}
                     className="rounded-lg bg-emerald-500 px-4 py-1.5 text-xs font-semibold text-white hover:bg-emerald-600"
                   >
@@ -763,6 +785,36 @@ function DaftarPegawai({ pegawai, setPegawai }: { pegawai: Pegawai[]; setPegawai
               <label className="flex flex-col gap-1"><span className="text-xs font-semibold text-slate-600">Email</span><input value={pegawaiForm.email} onChange={e => setPegawaiForm({ ...pegawaiForm, email: e.target.value })} className="rounded-xl border px-2 py-1.5 text-sm focus:border-purple-500 focus:outline-none" /></label>
               <label className="flex flex-col gap-1"><span className="text-xs font-semibold text-slate-600">Tanggal Masuk</span><input type="date" value={pegawaiForm.tanggalMasuk} onChange={e => setPegawaiForm({ ...pegawaiForm, tanggalMasuk: e.target.value })} className="rounded-xl border px-2 py-1.5 text-sm focus:border-purple-500 focus:outline-none" /></label>
               <label className="flex flex-col gap-1"><span className="text-xs font-semibold text-slate-600">Status</span><select value={pegawaiForm.status} onChange={e => setPegawaiForm({ ...pegawaiForm, status: e.target.value as Pegawai['status'] })} className="rounded-xl border px-2 py-1.5 text-sm bg-white focus:border-purple-500 focus:outline-none"><option>Aktif</option><option>Cuti</option><option>Nonaktif</option></select></label>
+            </div>
+            {/* Role / Hak Akses */}
+            <div className="mt-4">
+              <span className="text-xs font-semibold text-slate-600">Hak Akses (Role):</span>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {ALL_ROLES.map(role => {
+                  const checked = pegawaiForm.roles.includes(role);
+                  return (
+                    <label key={role}
+                      className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold cursor-pointer transition border ${
+                        checked ? 'bg-purple-200 border-purple-400 text-purple-800' : 'bg-white border-slate-200 text-slate-500 hover:border-purple-300'
+                      }`}>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => {
+                          setPegawaiForm(prev => ({
+                            ...prev,
+                            roles: prev.roles.includes(role)
+                              ? prev.roles.filter(r => r !== role)
+                              : [...prev.roles, role],
+                          }));
+                        }}
+                        className="rounded accent-purple-500 w-3.5 h-3.5"
+                      />
+                      {ROLE_LABELS[role] || role}
+                    </label>
+                  );
+                })}
+              </div>
             </div>
             <div className="mt-4 flex justify-end gap-2">
               <button onClick={() => setShowAddForm(false)} className="rounded-xl bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-600">Batal</button>
