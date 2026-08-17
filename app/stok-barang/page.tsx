@@ -159,6 +159,19 @@ function StokOpname() {
   const searchRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
+  /* ══════ Pagination tabel — 20 baris/halaman biar enteng & cepat ══════ */
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 20;
+  const totalPages = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const paginatedItems = items.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+
+  /* Scan/pilih manual → lompat ke halaman tempat SKU itu berada */
+  const goToItem = (id: string) => {
+    const idx = items.findIndex(p => p.id === id);
+    if (idx >= 0) setPage(Math.floor(idx / PAGE_SIZE) + 1);
+  };
+
   const filteredManual = useMemo(() => {
     if (!manualSearch.trim()) return [];
     const q = manualSearch.toLowerCase();
@@ -205,10 +218,11 @@ function StokOpname() {
       setKoreksi({sku:found.id, nama:found.nama, qty:current});
       setQtyKoreksi(String(current||''));
       setScanError('');
+      goToItem(found.id);
       setTimeout(()=>{
         const el=inputRefs.current.get(found.id);
         el?.scrollIntoView({behavior:'smooth',block:'center'});
-      },100);
+      },300);
     }else{
       setScanError(`SKU "${sku}" tidak ditemukan.`);
     }
@@ -222,10 +236,11 @@ function StokOpname() {
     setManualSearch('');
     setShowDropdown(false);
     setManualQty('');
+    goToItem(item.id);
     setTimeout(() => {
       const el = inputRefs.current.get(item.id);
       el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }, 100);
+    }, 300);
   };
 
   /* ── Input manual langsung (tanpa panel koreksi) ── */
@@ -455,14 +470,14 @@ function StokOpname() {
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-50 bg-white">
-            {items.map((item, idx) => {
+            {paginatedItems.map((item, idx) => {
               const isCounted = item.qtyFisik !== null;
               const isSaved = saved.includes(item.id);
               const selisihVal = isCounted ? item.selisih : 0;
               return (
                 <tr key={item.id} className={`transition hover:bg-slate-50 ${isSaved ? 'bg-emerald-50/60' : isCounted ? 'bg-amber-50/40' : ''}`}>
                   {/* No */}
-                  <td className="px-3 py-3 text-center text-xs text-slate-400">{idx + 1}</td>
+                  <td className="px-3 py-3 text-center text-xs text-slate-400">{(safePage - 1) * PAGE_SIZE + idx + 1}</td>
                   {/* SKU */}
                   <td className="px-3 py-3 font-mono text-xs font-semibold text-brand-700">{item.id}</td>
                   {/* Nama Produk */}
@@ -504,6 +519,20 @@ function StokOpname() {
           </tbody>
         </table>
       </div>
+
+      {/* Pagination — 20 baris/halaman biar enteng */}
+      {items.length > PAGE_SIZE && (
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs text-slate-500">Menampilkan <strong>{((safePage - 1) * PAGE_SIZE) + 1}–{Math.min(safePage * PAGE_SIZE, items.length)}</strong> dari <strong>{items.length}</strong> SKU</p>
+          <div className="flex items-center gap-1">
+            <button onClick={() => setPage(1)} disabled={safePage === 1} className="rounded-lg border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-brand-50 disabled:opacity-40">«</button>
+            <button onClick={() => setPage(safePage - 1)} disabled={safePage === 1} className="rounded-lg border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-brand-50 disabled:opacity-40">‹</button>
+            <span className="px-2 py-1 text-xs font-bold text-slate-700">Hal {safePage} / {totalPages}</span>
+            <button onClick={() => setPage(safePage + 1)} disabled={safePage === totalPages} className="rounded-lg border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-brand-50 disabled:opacity-40">›</button>
+            <button onClick={() => setPage(totalPages)} disabled={safePage === totalPages} className="rounded-lg border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-brand-50 disabled:opacity-40">»</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
