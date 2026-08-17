@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useUser, hasRole } from '@/app/hooks/useUser';
 
 type Tab = 'profil' | 'password' | 'toko' | 'akun' | 'data';
 
@@ -13,7 +14,23 @@ const TABS = [
 ];
 
 export default function PengaturanPage() {
+  const user = useUser();
   const [tab, setTab] = useState<Tab>('akun');
+
+  // 🔒 Pengaturan khusus Admin saja
+  if (!hasRole(user, 'admin')) {
+    return (
+      <main className="mx-auto flex min-h-screen max-w-2xl flex-col items-center justify-center gap-4 px-4 py-16 text-center">
+        <div className="text-6xl">🔒</div>
+        <h1 className="text-2xl font-bold text-slate-800">Akses Ditolak</h1>
+        <p className="max-w-sm text-sm text-slate-500">
+          Halaman Pengaturan hanya bisa diakses oleh <strong>Admin</strong>.
+          Silakan hubungi administrator toko Anda.
+        </p>
+        <a href="/" className="rounded-xl bg-brand-500 px-5 py-2 text-sm font-semibold text-white no-underline hover:bg-brand-700 transition">← Kembali ke Beranda</a>
+      </main>
+    );
+  }
 
   return (
     <main className="mx-auto flex min-h-screen max-w-2xl flex-col gap-5 px-4 py-6 sm:px-6">
@@ -326,6 +343,11 @@ function TokoTab() {
     localStorage.setItem('mma_alamat_toko', alamat);
     localStorage.setItem('mma_telepon_toko', telepon);
     if (logo) localStorage.setItem('mma_logo_toko', logo);
+    // Broadcast agar header di tab/user lain ikut berubah
+    try {
+      window.dispatchEvent(new Event('refresh-toko-info'));
+      window.dispatchEvent(new CustomEvent('shared-data-updated', { detail: { key: 'mma_nama_toko' } }));
+    } catch {}
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);
   };

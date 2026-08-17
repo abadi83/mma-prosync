@@ -61,6 +61,7 @@ const SYNC_KEYS = [
   'mma_nama_toko',
   'mma_alamat_toko',
   'mma_telepon_toko',
+  'mma_logo_toko',
 ];
 
 const SYNC_INTERVAL = 5000; // 5 detik

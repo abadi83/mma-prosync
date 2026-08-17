@@ -13,8 +13,21 @@ export function AppHeader() {
   const { nama } = useUser();
 
   useEffect(() => {
-    setLogo(localStorage.getItem('mma_logo_toko') || '');
-    setNamaToko(localStorage.getItem('mma_nama_toko') || '');
+    const refresh = () => {
+      setLogo(localStorage.getItem('mma_logo_toko') || '');
+      setNamaToko(localStorage.getItem('mma_nama_toko') || '');
+    };
+    refresh();
+    // Live update: kalau admin simpan info toko di tab/user lain,
+    // sync provider broadcast event → header langsung ikut berubah
+    window.addEventListener('shared-data-updated', refresh);
+    window.addEventListener('storage', refresh);
+    window.addEventListener('refresh-toko-info', refresh);
+    return () => {
+      window.removeEventListener('shared-data-updated', refresh);
+      window.removeEventListener('storage', refresh);
+      window.removeEventListener('refresh-toko-info', refresh);
+    };
   }, []);
 
   const handleLogout = useCallback(() => {
