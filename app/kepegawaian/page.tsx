@@ -808,7 +808,9 @@ function DaftarPegawai({ pegawai, setPegawai }: { pegawai: Pegawai[]; setPegawai
                   }).catch(() => {});
                 } catch {}
                 // Hapus juga dari PostgreSQL (login membaca dari DB)
-                fetch(`/api/pegawai?id=${deleteId}`, { method: 'DELETE' }).catch(() => {});
+                // Kirim nik juga biar API bisa resolve id placeholder pg-*
+                const deletedPegawai = pegawai.find(p => p.id === deleteId);
+                fetch(`/api/pegawai?id=${encodeURIComponent(deleteId)}&nik=${encodeURIComponent(deletedPegawai?.nik || '')}`, { method: 'DELETE' }).catch(() => {});
               }}
                 className="rounded-xl bg-red-500 px-4 py-2 text-sm font-semibold text-white">Hapus</button>
             </div>

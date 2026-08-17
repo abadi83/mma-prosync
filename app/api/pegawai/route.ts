@@ -12,6 +12,23 @@ function hashPassword(password: string): string {
   return `mock_hash_${password}`;
 }
 
+/* ── Helper: cek apakah string valid UUID ── */
+function isUuid(v: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
+}
+
+/* ── Helper: resolve id asli DB (id bisa UUID asli atau placeholder pg-*) ── */
+async function resolveId(id: string, nik?: string): Promise<string | null> {
+  if (isUuid(id)) return id;
+  if (nik) {
+    const { rows } = await query(
+      'SELECT id FROM pegawai WHERE nik = $1 AND toko_id = $2', [nik, DEFAULT_TOKO]
+    );
+    if (rows.length > 0) return rows[0].id;
+  }
+  return null;
+}
+
 /* GET /api/pegawai — daftar pegawai */
 export async function GET() {
   try {
@@ -38,6 +55,25 @@ export async function POST(request: Request) {
     const passwordHash = hashPassword(password || 'pegawai123');
     const rolesArr = Array.isArray(roles) && roles.length > 0 ? roles : ['pegawai'];
 
+    // Upsert manual: kalau NIK sudah ada → update, kalau belum → insert
+    const { rows: existing } = await query(
+      'SELECT id FROM pegawai WHERE nik = $1 AND toko_id = $2', [nik.trim(), DEFAULT_TOKO]
+    );
+    if (existing.length > 0) {
+      const { rows } = await query(
+        `UPDATE pegawai SET
+           nama = $1, username = $2, jabatan = $3, departemen = $4,
+           tanggal_masuk = $5, status = $6, no_hp = $7, email = $8, roles = $9,
+           password_hash = $10, updated_at = NOW()
+         WHERE id = $11 AND toko_id = $12
+         RETURNING id, nama, nik, username, jabatan, departemen, tanggal_masuk, status, no_hp, email, roles`,
+        [nama.trim(), (username || '').trim() || null, jabatan || null, departemen || null,
+         tanggalMasuk || null, status || 'Aktif', noHp || null, email || null, rolesArr,
+         passwordHash, existing[0].id, DEFAULT_TOKO]
+      );
+      return apiSuccess(rows[0]);
+    }
+
     const { rows } = await query(
       `INSERT INTO pegawai (toko_id, nama, nik, username, jabatan, departemen, tanggal_masuk, status, no_hp, email, roles, password_hash)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
@@ -60,10 +96,9 @@ export async function PUT(request: Request) {
     const err = validateRequired({ id, nama, nik });
     if (err) return apiBadRequest(err);
 
-    const { rows: existing } = await query(
-      'SELECT id FROM pegawai WHERE id = $1 AND toko_id = $2', [id, DEFAULT_TOKO]
-    );
-    if (existing.length === 0) return apiNotFound();
+    // Resolve id asli: id bisa placeholder pg-* dari UI → cari lewat NIK
+    const realId = await resolveId(id, nik);
+    if (!realId) return apiNotFound('Pegawai tidak ditemukan (id/NIK tidak cocok).');
 
     const { rows } = await query(
       `UPDATE pegawai SET
@@ -76,7 +111,7 @@ export async function PUT(request: Request) {
       [nama.trim(), nik.trim(), (username || '').trim() || null, jabatan || null, departemen || null,
        tanggalMasuk || null, status || 'Aktif', noHp || null, email || null,
        Array.isArray(roles) && roles.length > 0 ? roles : ['pegawai'],
-       password ? hashPassword(password) : null, id, DEFAULT_TOKO]
+       password ? hashPassword(password) : null, realId, DEFAULT_TOKO]
     );
     return apiSuccess(rows[0]);
   } catch (err: any) {
@@ -86,15 +121,19 @@ export async function PUT(request: Request) {
   }
 }
 
-/* DELETE /api/pegawai?id=... — hapus pegawai */
+/* DELETE /api/pegawai?id=...&nik=... — hapus pegawai (id UUID atau placeholder via NIK) */
 export async function DELETE(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
+    const nik = searchParams.get('nik') || undefined;
     if (!id) return apiBadRequest('id wajib');
 
+    const realId = await resolveId(id, nik);
+    if (!realId) return apiNotFound('Pegawai tidak ditemukan.');
+
     const { rows } = await query(
-      'DELETE FROM pegawai WHERE id = $1 AND toko_id = $2 RETURNING id', [id, DEFAULT_TOKO]
+      'DELETE FROM pegawai WHERE id = $1 AND toko_id = $2 RETURNING id', [realId, DEFAULT_TOKO]
     );
     if (rows.length === 0) return apiNotFound();
     return apiSuccess({ deleted: true });
