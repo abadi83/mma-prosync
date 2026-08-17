@@ -678,9 +678,21 @@ function DaftarPegawai({ pegawai, setPegawai }: { pegawai: Pegawai[]; setPegawai
               <button onClick={() => setDeleteId(null)}
                 className="rounded-xl bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-600">Batal</button>
               <button onClick={() => {
-                setPegawai(prev => prev.filter(p => p.id !== deleteId));
+                // Hitung array baru tanpa pegawai yang dihapus
+                const next = pegawai.filter(p => p.id !== deleteId);
+                setPegawai(next);
                 if (selected?.id === deleteId) setSelected(null);
                 setDeleteId(null);
+                // ⚠️ Push langsung ke server: cegah "resurrect" oleh sync union
+                // (tanpa ini, data hapus akan balik dari server dalam ±5 detik)
+                try {
+                  localStorage.setItem('mma_pegawai_data', JSON.stringify(next));
+                  fetch('/api/data', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ key: 'mma_pegawai_data', data: next }),
+                  }).catch(() => {});
+                } catch {}
               }}
                 className="rounded-xl bg-red-500 px-4 py-2 text-sm font-semibold text-white">Hapus</button>
             </div>

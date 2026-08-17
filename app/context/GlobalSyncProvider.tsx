@@ -64,10 +64,12 @@ const SYNC_KEYS = [
 
 const SYNC_INTERVAL = 5000; // 5 detik
 
-function mergeUnion<T>(key: string, a: T[], b: T[]): T[] {
+function mergeUnion<T>(key: string, a: T[], b: T[], excluded?: Set<string>): T[] {
   const map = new Map<string, T>();
   for (const item of [...b, ...a]) {
-    map.set(itemKey(key, item), item);
+    const k = itemKey(key, item);
+    if (excluded && excluded.has(k)) continue; // item dihapus lokal → jangan dihidupkan lagi
+    map.set(k, item);
   }
   return Array.from(map.values());
 }
@@ -83,9 +85,9 @@ function itemKey(key: string, item: any): string {
 }
 
 /** Merge generik: array → union, object → shallow merge, scalar → last-write-wins */
-function mergeAny(key: string, local: any, server: any): any {
+function mergeAny(key: string, local: any, server: any, excluded?: Set<string>): any {
   if (Array.isArray(local) || Array.isArray(server)) {
-    return mergeUnion(key, Array.isArray(local) ? local : [], Array.isArray(server) ? server : []);
+    return mergeUnion(key, Array.isArray(local) ? local : [], Array.isArray(server) ? server : [], excluded);
   }
   if (local && server && typeof local === 'object' && typeof server === 'object') {
     return { ...server, ...local };
@@ -189,7 +191,22 @@ export function GlobalSyncProvider({ children }: { children: React.ReactNode }) 
       }
 
       // Keduanya punya data → merge (lokal menang per item)
-      const merged = mergeAny(key, local, server);
+      // Deteksi item yang dihapus lokal: ada di snapshot lama, hilang di lokal sekarang
+      let excluded: Set<string> | undefined;
+      if (Array.isArray(local) && localSnapshots.current[key]) {
+        try {
+          const prevArr = JSON.parse(localSnapshots.current[key]);
+          if (Array.isArray(prevArr)) {
+            const prevKeys = new Set(prevArr.map((i: any) => itemKey(key, i)));
+            const curKeys = new Set(local.map((i: any) => itemKey(key, i)));
+            const deleted = new Set<string>();
+            prevKeys.forEach(k => { if (!curKeys.has(k)) deleted.add(k); });
+            if (deleted.size > 0) excluded = deleted;
+          }
+        } catch {}
+      }
+
+      const merged = mergeAny(key, local, server, excluded);
       const localStr = JSON.stringify(local);
       const mergedStr = JSON.stringify(merged);
 
