@@ -207,6 +207,62 @@ export default function KepegawaianPage() {
 
   // Simpan ke localStorage setiap kali pegawai berubah
   useEffect(() => { try { localStorage.setItem('mma_pegawai_data', JSON.stringify(pegawai)); window.dispatchEvent(new Event('refresh-akun')); } catch {} }, [pegawai]);
+
+  // ══ Sync 2 arah dengan PostgreSQL (login membaca dari DB) ══
+  useEffect(() => {
+    if (!isAdmin) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/pegawai');
+        if (!res.ok) return;
+        const dbList = await res.json();
+        if (!Array.isArray(dbList) || cancelled) return;
+
+        // 1) Tarik pegawai dari DB yang belum ada di lokal
+        setPegawai(prev => {
+          const merged = [...prev];
+          const existingIds = new Set(prev.map(p => p.id));
+          const existingNiks = new Set(prev.map(p => p.nik));
+          for (const dbP of dbList) {
+            const mapped: Pegawai = {
+              id: dbP.id,
+              nama: dbP.nama,
+              nik: dbP.nik || '',
+              username: dbP.username || '',
+              jabatan: dbP.jabatan || '',
+              departemen: dbP.departemen || '',
+              tanggalMasuk: dbP.tanggal_masuk ? String(dbP.tanggal_masuk).slice(0, 10) : '',
+              status: (dbP.status as Pegawai['status']) || 'Aktif',
+              noHp: dbP.no_hp || '',
+              email: dbP.email || '',
+              roles: Array.isArray(dbP.roles) ? dbP.roles : ['pegawai'],
+            };
+            if (!existingIds.has(mapped.id) && !existingNiks.has(mapped.nik)) merged.push(mapped);
+          }
+          return merged;
+        });
+
+        // 2) Push pegawai lokal (id sementara pg-*) yang belum ada di DB
+        const dbNiks = new Set(dbList.map((p: any) => p.nik));
+        for (const p of pegawai) {
+          if (p.id.startsWith('pg-') && !dbNiks.has(p.nik)) {
+            fetch('/api/pegawai', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                nama: p.nama, nik: p.nik, username: p.username, jabatan: p.jabatan,
+                departemen: p.departemen, tanggalMasuk: p.tanggalMasuk, status: p.status,
+                noHp: p.noHp, email: p.email, roles: p.roles,
+              }),
+            }).catch(() => {});
+          }
+        }
+      } catch {}
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin]);
   const [absensi, setAbsensi] = useState<AbsensiRecord[]>(() => generateAbsensi(MOCK_PEGAWAI));
   const [kpi] = useState<KpiRecord[]>(() => generateKpi(MOCK_PEGAWAI));
   const [izinList, setIzinList] = useState<IzinRecord[]>(() => {
@@ -365,15 +421,42 @@ function DaftarPegawai({ pegawai, setPegawai }: { pegawai: Pegawai[]; setPegawai
       setPwErr('Password minimal 4 karakter.');
       return;
     }
+    // Ambil data pegawai untuk payload PUT (wajib ada nama & nik)
+    const target = pegawai.find(p => p.id === resetPwId);
+    if (!target) { setPwErr('Pegawai tidak ditemukan.'); return; }
+
+    // 1) Simpan di localStorage (fallback / kompatibilitas)
     try {
       const existing = JSON.parse(localStorage.getItem('mma_pegawai_passwords') || '{}');
       existing[resetPwId!] = newPassword;
       localStorage.setItem('mma_pegawai_passwords', JSON.stringify(existing));
-      setPwSuccess(true);
-      setTimeout(() => { setResetPwId(null); setNewPassword(''); setPwSuccess(false); }, 2000);
-    } catch {
-      setPwErr('Gagal menyimpan password.');
-    }
+    } catch {}
+
+    // 2) Update ke PostgreSQL via API (sumber login sebenarnya)
+    fetch('/api/pegawai', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: target.id,
+        nama: target.nama,
+        nik: target.nik,
+        username: target.username,
+        jabatan: target.jabatan,
+        departemen: target.departemen,
+        tanggalMasuk: target.tanggalMasuk,
+        status: target.status,
+        noHp: target.noHp,
+        email: target.email,
+        roles: target.roles,
+        password: newPassword,
+      }),
+    })
+      .then(r => {
+        if (!r.ok) { setPwErr('Gagal menyimpan ke server.'); return; }
+        setPwSuccess(true);
+        setTimeout(() => { setResetPwId(null); setNewPassword(''); setPwSuccess(false); }, 2000);
+      })
+      .catch(() => setPwErr('Gagal menyimpan ke server.'));
   };
 
   const departments = ['semua', ...Array.from(new Set(pegawai.map(p => p.departemen)))];
@@ -398,10 +481,41 @@ function DaftarPegawai({ pegawai, setPegawai }: { pegawai: Pegawai[]; setPegawai
   };
   const savePegawai = () => {
     if (!pegawaiForm.nama || !pegawaiForm.nik) { setFormErr('Nama & NIK wajib diisi.'); return; }
+    const payload = {
+      nama: pegawaiForm.nama.trim(),
+      nik: pegawaiForm.nik.trim(),
+      username: pegawaiForm.username.trim(),
+      jabatan: pegawaiForm.jabatan,
+      departemen: pegawaiForm.departemen,
+      tanggalMasuk: pegawaiForm.tanggalMasuk,
+      status: pegawaiForm.status,
+      noHp: pegawaiForm.noHp,
+      email: pegawaiForm.email,
+      roles: pegawaiForm.roles.length > 0 ? pegawaiForm.roles : ['pegawai'],
+    };
+
     if (editPegawaiId) {
       setPegawai(prev => prev.map(p => p.id === editPegawaiId ? { ...p, ...pegawaiForm } : p));
+      // Sync ke PostgreSQL (login membaca dari DB)
+      fetch('/api/pegawai', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: editPegawaiId, ...payload }),
+      }).catch(() => {});
     } else {
       setPegawai(prev => [{ id: `pg-${Date.now()}`, ...pegawaiForm }, ...prev]);
+      // Sync ke PostgreSQL (login membaca dari DB)
+      fetch('/api/pegawai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      }).then(async r => {
+        const created = await r.json().catch(() => null);
+        if (created?.id) {
+          // Pakai id asli dari DB agar konsisten (password, login, dll)
+          setPegawai(prev => prev.map(p => p.id.startsWith('pg-') && p.nama === created.nama && p.nik === created.nik ? { ...p, id: created.id } : p));
+        }
+      }).catch(() => {});
     }
     setShowAddForm(false);
   };
@@ -693,6 +807,8 @@ function DaftarPegawai({ pegawai, setPegawai }: { pegawai: Pegawai[]; setPegawai
                     body: JSON.stringify({ key: 'mma_pegawai_data', data: next }),
                   }).catch(() => {});
                 } catch {}
+                // Hapus juga dari PostgreSQL (login membaca dari DB)
+                fetch(`/api/pegawai?id=${deleteId}`, { method: 'DELETE' }).catch(() => {});
               }}
                 className="rounded-xl bg-red-500 px-4 py-2 text-sm font-semibold text-white">Hapus</button>
             </div>
