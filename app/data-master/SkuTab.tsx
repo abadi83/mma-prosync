@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import * as XLSX from 'xlsx';
 import { useSkus, type SkuItem } from '@/app/context/SkuContext';
 import { ModalConfirm } from './modals';
@@ -78,7 +78,29 @@ export function SkuTab() {
     setF(p => ({ ...p, hargaJual: String(hj) })); setFerr('');
   };
 
-  const filtered = skus.filter(i => i.nama.toLowerCase().includes(search.toLowerCase()) || i.sku.toLowerCase().includes(search.toLowerCase()));
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase().trim();
+    if (!q) return skus;
+    return skus.filter(i => i.nama.toLowerCase().includes(q) || i.sku.toLowerCase().includes(q));
+  }, [skus, search]);
+
+  // ⚡ Pagination: jangan render 4700+ baris sekaligus (penyebab lambat)
+  const PAGE_SIZE = 50;
+  const [page, setPage] = useState(1);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const paginated = useMemo(() => filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE), [filtered, safePage]);
+
+  // ⚡ Cache hasil parse marketplace per SKU (hindari split string berulang)
+  const mpCache = useMemo(() => {
+    const map = new Map<string, { name: string; color: string }[]>();
+    for (const item of paginated) {
+      map.set(item.id, extractMarketplaces(item.statusUploadToko));
+    }
+    return map;
+  }, [paginated]);
+
+  const goPage = (p: number) => setPage(Math.max(1, Math.min(totalPages, p)));
 
   const blank = () => ({ sku: '', nama: '', grade: '', kodeSupplierVarian: '', statusEditGambar: '', statusUploadToko: '', supplier: '', kategori: '', satuan: 'pcs', hargaModalLama: '', hargaBaru: '', hargaJual: '', minStok: '', aktif: 1 });
   const openAdd = () => { setF(blank()); setFerr(''); setShowForm(true); setEditId(null); hargaBaruManual.current = false; };
@@ -277,7 +299,7 @@ export function SkuTab() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div><h2 className="text-lg font-bold text-slate-800 sm:text-xl">📦 Master SKU</h2><p className="text-sm text-slate-500">{filtered.length} dari {skus.length} SKU</p></div>
         <div className="flex gap-2 flex-wrap">
-          <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="🔍 Cari SKU / Nama..." className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none sm:max-w-[180px]" />
+          <input type="text" value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} placeholder="🔍 Cari SKU / Nama..." className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none sm:max-w-[180px]" />
           <button onClick={openAdd} className="rounded-xl bg-brand-500 px-3 py-1.5 text-sm font-semibold text-white hover:bg-brand-700">+ Tambah</button>
           <select value={upsertMode} onChange={e => setUpsertMode(e.target.value as 'insert' | 'upsert')} className="rounded-xl border border-slate-200 bg-white px-2 py-1.5 text-xs font-semibold text-slate-600 focus:border-brand-500 focus:outline-none" title="Mode Upload">
             <option value="upsert">🔄 Upsert</option>
@@ -378,8 +400,8 @@ export function SkuTab() {
             <th className="px-1.5 py-2 font-semibold w-[56px]">Aksi</th>
           </tr></thead>
           <tbody className="divide-y divide-slate-50 bg-white">
-            {filtered.length === 0 ? <tr><td colSpan={10} className="py-10 text-center text-slate-400">Tidak ada SKU. Upload file Excel atau tambah manual.</td></tr>
-              : filtered.map((item, i) => (<tr key={item.id} className={`${i % 2 === 0 ? 'bg-white' : 'bg-slate-50/30'} ${item.stok < item.minStok ? 'border-l-4 border-l-red-400' : ''} cursor-pointer hover:bg-brand-50/50`} onClick={() => setDetailId(item.id)}>
+            {paginated.length === 0 ? <tr><td colSpan={10} className="py-10 text-center text-slate-400">Tidak ada SKU. Upload file Excel atau tambah manual.</td></tr>
+              : paginated.map((item, i) => (<tr key={item.id} className={`${i % 2 === 0 ? 'bg-white' : 'bg-slate-50/30'} ${item.stok < item.minStok ? 'border-l-4 border-l-red-400' : ''} cursor-pointer hover:bg-brand-50/50`} onClick={() => setDetailId(item.id)}>
                 <td className="px-1.5 py-1.5 font-mono text-[11px] text-brand-700 truncate" title={item.sku}>{item.sku}</td>
                 <td className="px-1.5 py-1.5 truncate text-[11px] font-medium text-slate-800" title={item.nama}>{item.nama}</td>
                 <td className="px-1.5 py-1.5"><span className={`rounded-full px-1 py-0.5 text-[10px] font-semibold ${item.grade === 'A' ? 'bg-emerald-100 text-emerald-700' : item.grade === 'B' ? 'bg-amber-100 text-amber-700' : item.grade === 'C' ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-600'}`}>{item.grade || '-'}</span></td>
@@ -387,13 +409,29 @@ export function SkuTab() {
                 <td className="px-1.5 py-1.5 text-[11px] text-slate-700 whitespace-nowrap">Rp {item.hargaBaru.toLocaleString('id-ID')}</td>
                 <td className="px-1.5 py-1.5 text-[11px] font-semibold text-brand-700 whitespace-nowrap">Rp {item.hargaJual.toLocaleString('id-ID')}</td>
                 <td className="px-1.5 py-1.5"><span className={`text-[11px] font-semibold ${item.stok < item.minStok ? 'text-red-500' : item.stok === 0 ? 'text-slate-400' : 'text-slate-700'}`}>{item.stok}{item.stok < item.minStok && ' ⚠'}</span></td>
-                <td className="px-1.5 py-1.5"><div className="flex flex-wrap gap-0.5">{extractMarketplaces(item.statusUploadToko).slice(0, 2).map((mp, j) => <span key={j} className={`rounded-full px-1 py-0.5 text-[10px] font-semibold leading-none ${mp.color}`}>{mp.name}</span>)}{extractMarketplaces(item.statusUploadToko).length > 2 && <span className="text-[10px] text-slate-400">+{extractMarketplaces(item.statusUploadToko).length - 2}</span>}</div></td>
+                <td className="px-1.5 py-1.5"><div className="flex flex-wrap gap-0.5">{(() => { const mps = mpCache.get(item.id) || []; return <>{mps.slice(0, 2).map((mp, j) => <span key={j} className={`rounded-full px-1 py-0.5 text-[10px] font-semibold leading-none ${mp.color}`}>{mp.name}</span>)}{mps.length > 2 && <span className="text-[10px] text-slate-400">+{mps.length - 2}</span>}</>; })()}</div></td>
                 <td className={`px-1.5 py-1.5 text-[10px] font-semibold whitespace-nowrap ${perubahanColor(item.perubahanHargaBeli)}`}>{item.perubahanHargaBeli || '-'}</td>
                 <td className="px-1.5 py-1.5" onClick={e => e.stopPropagation()}><div className="flex gap-0.5"><button onClick={() => openEdit(item)} className="rounded-md bg-brand-100 px-1.5 py-1 text-[11px] font-semibold text-brand-700 hover:bg-brand-200">✏️</button><button onClick={() => setDeleteId(item.id)} className="rounded-md bg-red-100 px-1.5 py-1 text-[11px] font-semibold text-red-600 hover:bg-red-200">🗑️</button></div></td>
               </tr>))}
           </tbody>
         </table>
       </div>
+
+      {/* ── Pagination ── */}
+      {filtered.length > PAGE_SIZE && (
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs text-slate-500">
+            Menampilkan <strong>{((safePage - 1) * PAGE_SIZE) + 1}–{Math.min(safePage * PAGE_SIZE, filtered.length)}</strong> dari <strong>{filtered.length}</strong> SKU
+          </p>
+          <div className="flex items-center gap-1">
+            <button onClick={() => goPage(1)} disabled={safePage === 1} className="rounded-lg border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-brand-50 disabled:opacity-40">«</button>
+            <button onClick={() => goPage(safePage - 1)} disabled={safePage === 1} className="rounded-lg border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-brand-50 disabled:opacity-40">‹</button>
+            <span className="px-2 py-1 text-xs font-bold text-slate-700">Hal {safePage} / {totalPages}</span>
+            <button onClick={() => goPage(safePage + 1)} disabled={safePage === totalPages} className="rounded-lg border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-brand-50 disabled:opacity-40">›</button>
+            <button onClick={() => goPage(totalPages)} disabled={safePage === totalPages} className="rounded-lg border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-brand-50 disabled:opacity-40">»</button>
+          </div>
+        </div>
+      )}
       {deleteId && <ModalConfirm title="Konfirmasi Hapus" msg="Yakin hapus SKU ini?" onCancel={() => setDeleteId(null)} onConfirm={del} />}
     </div>
   );

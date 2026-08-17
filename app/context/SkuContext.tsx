@@ -9,7 +9,7 @@ export interface SkuItem {
   stok: number; minStok: number; aktif: number; perubahanHargaBeli: string;
 }
 
-const SYNC_INTERVAL = 30000;
+const SYNC_INTERVAL = 60000; // 60 detik (sebelumnya 30s — hemat bandwidth 4700 SKU)
 const API = '/api/sku-master';
 
 interface SkuContextType {
@@ -58,7 +58,11 @@ export function SkuProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
-    syncTimer.current = setInterval(() => load(), SYNC_INTERVAL);
+    syncTimer.current = setInterval(() => {
+      // Skip polling saat tab tersembunyi (hemat bandwidth + CPU)
+      if (typeof document !== 'undefined' && document.hidden) return;
+      load();
+    }, SYNC_INTERVAL);
     return () => { if (syncTimer.current) clearInterval(syncTimer.current); };
   }, [load]);
 
