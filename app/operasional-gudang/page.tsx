@@ -3,8 +3,9 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import * as XLSX from 'xlsx';
 import { useAgregasi, type AgregasiRow } from '@/app/context/AgregasiContext';
+import { useSkus } from '@/app/context/SkuContext';
 
-type Tab = 'agregasi' | 'picking' | 'qc' | 'packing' | 'runner' | 'logistik';
+type Tab = 'agregasi' | 'picking' | 'qc' | 'packing' | 'runner' | 'logistik' | 'belanja';
 
 const TABS = [
   { key: 'agregasi' as const, label: 'Dashboard', icon: '📊' },
@@ -13,6 +14,7 @@ const TABS = [
   { key: 'packing' as const, label: 'Packing', icon: '📦' },
   { key: 'runner' as const, label: 'Runner Scan', icon: '📱' },
   { key: 'logistik' as const, label: 'Logistik', icon: '🚛' },
+  { key: 'belanja' as const, label: 'Harus Belanja', icon: '🛒' },
 ];
 
 /* ── Parse Rupiah ── */
@@ -26,8 +28,61 @@ function parseRp(val: string): number {
 
 interface GroupedOrder { noPesanan:string;noResi:string;marketplace:string;namaToko:string;statusPesanan:string;sla:string;kurir:string;dibuat:string;items:{sku:string;namaProduk:string;qty:number;harga:number}[];total:number; }
 
+/* ── Helper: deteksi SKU pesanan yang KOSONG / TIDAK ADA di Inventory ── */
+export interface BelanjaItem {
+  sku: string;
+  namaProduk: string;
+  qty: number;
+  reason: 'not-found' | 'stok-kosong';
+}
+
+export interface BelanjaOrder {
+  key: string;
+  noPesanan: string;
+  noResi: string;
+  marketplace: string;
+  namaToko: string;
+  statusPesanan: string;
+  statusProses?: string;
+  items: BelanjaItem[];
+}
+
+/** SKU tidak ada di inventory → 'not-found'; ada tapi stok 0 → 'stok-kosong'; selain itu null */
+export function skuInventoryStatus(sku: string, inv: Map<string, number>): 'not-found' | 'stok-kosong' | null {
+  const s = sku.trim().toLowerCase();
+  if (!s) return null;
+  const stok = inv.get(s);
+  if (stok === undefined) return 'not-found';
+  if (stok <= 0) return 'stok-kosong';
+  return null;
+}
+
+/** Pesanan yang punya SKU kosong / tidak terdaftar di Inventory → Harus Belanja */
+export function computeBelanjaOrders(allRows: AgregasiRow[], skus: { sku: string; stok: number }[]): BelanjaOrder[] {
+  const inv = new Map<string, number>();
+  for (const s of skus) inv.set(s.sku.toLowerCase(), s.stok);
+  const map = new Map<string, BelanjaOrder>();
+  for (const r of allRows) {
+    // Skip pesanan yang dibatalkan — gak perlu belanja
+    if (r.statusProses === 'Dibatalkan') continue;
+    if (/dibatalkan|cancelled|batal/i.test(r.statusPesanan)) continue;
+    const status = skuInventoryStatus(r.sku, inv);
+    if (!status) continue;
+    const key = `${r.noPesanan}||${r.noResi}`;
+    if (!map.has(key)) map.set(key, { key, noPesanan: r.noPesanan, noResi: r.noResi, marketplace: r.marketplace, namaToko: r.namaToko, statusPesanan: r.statusPesanan, statusProses: r.statusProses, items: [] });
+    const bo = map.get(key)!;
+    if (!bo.items.some(i => i.sku === r.sku)) {
+      bo.items.push({ sku: r.sku, namaProduk: r.namaProduk, qty: r.kuantity, reason: status });
+    }
+  }
+  return Array.from(map.values());
+}
+
 export default function OperasionalGudangPage() {
   const [tab, setTab] = useState<Tab>('agregasi');
+  const { allRows } = useAgregasi();
+  const { skus } = useSkus();
+  const belanjaCount = useMemo(() => computeBelanjaOrders(allRows, skus).length, [allRows, skus]);
   return (
     <main className="mx-auto flex min-h-screen max-w-6xl flex-col gap-5 px-4 py-6 sm:px-6 lg:px-8">
       <header className="rounded-3xl bg-gradient-to-br from-brand-700 via-brand-500 to-brand-300 p-5 text-white shadow-lg sm:p-7">
@@ -36,7 +91,7 @@ export default function OperasionalGudangPage() {
         <p className="mt-1 text-sm text-brand-100 sm:text-base">Dashboard agregasi pesanan, picking, QC, packing, runner scanner & logistik.</p>
       </header>
       <nav className="flex gap-1 overflow-x-auto rounded-2xl bg-white p-1 shadow-sm" role="tablist">
-        {TABS.map(t=>(<button key={t.key} role="tab" aria-selected={tab===t.key} onClick={()=>setTab(t.key)} className={`flex shrink-0 items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold transition sm:px-5 sm:text-sm ${tab===t.key?'bg-brand-500 text-white shadow':'text-slate-600 hover:bg-brand-50 hover:text-brand-700'}`}><span className="text-base sm:text-lg">{t.icon}</span><span className="hidden sm:inline">{t.label}</span></button>))}
+        {TABS.map(t=>(<button key={t.key} role="tab" aria-selected={tab===t.key} onClick={()=>setTab(t.key)} className={`flex shrink-0 items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold transition sm:px-5 sm:text-sm ${tab===t.key?'bg-brand-500 text-white shadow':t.key==='belanja'&&belanjaCount>0?'bg-red-50 text-red-600 hover:bg-red-100':'text-slate-600 hover:bg-brand-50 hover:text-brand-700'}`}><span className="text-base sm:text-lg">{t.icon}</span><span className="hidden sm:inline">{t.label}</span>{t.key==='belanja'&&belanjaCount>0&&<span className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${tab===t.key?'bg-white text-red-600':'bg-red-500 text-white'}`}>{belanjaCount}</span>}</button>))}
       </nav>
       <section className="card-blue">
         {tab==='agregasi' && <AgregasiDashboard />}
@@ -45,6 +100,7 @@ export default function OperasionalGudangPage() {
         {tab==='packing' && <PackingList />}
         {tab==='runner' && <RunnerScan />}
         {tab==='logistik' && <LogistikTab />}
+        {tab==='belanja' && <HarusBelanjaTab />}
       </section>
     </main>
   );
@@ -55,6 +111,7 @@ export default function OperasionalGudangPage() {
 /* ═══════════════════════════════════════════════════════════════════ */
 function AgregasiDashboard() {
   const { allRows, addRows, updateStatusPicking, clearRows } = useAgregasi();
+  const { skus } = useSkus();
   const [uploading, setUploading] = useState(false);
   const [err, setErr] = useState('');
   const [filterMp, setFilterMp] = useState('semua');
@@ -63,6 +120,11 @@ function AgregasiDashboard() {
   const fileRef = useRef<HTMLInputElement>(null);
   const pickingRef = useRef<HTMLInputElement>(null);
   const toggle=(k:string)=>setExpanded(p=>{const n=new Set(p);n.has(k)?n.delete(k):n.add(k);return n;});
+
+  /* Inventory map + pesanan yang harus belanja */
+  const invMap = useMemo(() => { const m = new Map<string, number>(); for (const s of skus) m.set(s.sku.toLowerCase(), s.stok); return m; }, [skus]);
+  const belanjaOrders = useMemo(() => computeBelanjaOrders(allRows, skus), [allRows, skus]);
+  const belanjaSet = useMemo(() => new Set(belanjaOrders.map(o => o.key)), [belanjaOrders]);
 
   const upload=(e:React.ChangeEvent<HTMLInputElement>)=>{
     const file=e.target.files?.[0];if(!file)return;
@@ -140,7 +202,12 @@ function AgregasiDashboard() {
         }
         const result=updateStatusPicking(matches);
         setErr('');
-        alert(`� Picking selesai: ${result.updated} pesanan diupdate ke "Dipicking". ${result.notFound>0?result.notFound+' tidak ditemukan di dashboard.':''}`);
+        // Cek SKU pesanan yang terpengaruh vs Inventory
+        const opSet = new Set(matches.map(m => m.noPesanan.trim()).filter(Boolean));
+        const orSet = new Set(matches.map(m => m.noResi.trim()).filter(Boolean));
+        const affected = allRows.filter(r => opSet.has(r.noPesanan) || (r.noResi && orSet.has(r.noResi)));
+        const belanja = computeBelanjaOrders(affected, skus);
+        alert(`📦 Picking selesai: ${result.updated} pesanan diupdate ke "Dipicking". ${result.notFound>0?result.notFound+' tidak ditemukan di dashboard. ':''}${belanja.length>0?`⚠️ ${belanja.length} pesanan punya SKU kosong/tidak ada di Inventory — cek tab 🛒 Harus Belanja.`:''}`);
       }catch{setErr('Gagal membaca file picking.');}
       setUploading(false);
     };
@@ -196,7 +263,7 @@ function AgregasiDashboard() {
       {err&&<p className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{err}</p>}
 
       {allRows.length>0&&(<>
-        <div className="mt-4 grid grid-cols-2 sm:grid-cols-7 gap-3">
+        <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
           <div className="rounded-xl bg-brand-50 p-3 text-center"><p className="text-2xl font-bold text-brand-700">{totalOrder}</p><p className="text-xs text-brand-500">Pesanan</p></div>
           <div className="rounded-xl bg-purple-50 p-3 text-center"><p className="text-2xl font-bold text-purple-600">{totalItem}</p><p className="text-xs text-purple-500">Item</p></div>
           <div className="rounded-xl bg-amber-50 p-3 text-center"><p className="text-2xl font-bold text-amber-600">{perluDikirim}</p><p className="text-xs text-amber-500">Perlu Dikirim</p></div>
@@ -204,6 +271,7 @@ function AgregasiDashboard() {
           <div className="rounded-xl bg-amber-50 p-3 text-center"><p className="text-2xl font-bold text-amber-600">{diQC}</p><p className="text-xs text-amber-500">🔍 QC</p></div>
           <div className={`rounded-xl p-3 text-center ${slaUrgent>0?'bg-red-50':'bg-emerald-50'}`}><p className={`text-2xl font-bold ${slaUrgent>0?'text-red-600':'text-emerald-600'}`}>{slaUrgent}</p><p className="text-xs text-slate-500">⚠ Deadline {'<'}24j</p></div>
           <div className="rounded-xl bg-blue-50 p-3 text-center"><p className="text-2xl font-bold text-blue-600">Rp {(totalPendapatan/1000).toFixed(0)}k</p><p className="text-xs text-blue-500">Pendapatan</p></div>
+          <div className={`rounded-xl p-3 text-center ${belanjaOrders.length>0?'bg-red-50':'bg-emerald-50'}`}><p className={`text-2xl font-bold ${belanjaOrders.length>0?'text-red-600':'text-emerald-600'}`}>{belanjaOrders.length}</p><p className="text-xs text-slate-500">🛒 Harus Belanja</p></div>
         </div>
 
         {/* Progress packing bar */}
@@ -231,14 +299,14 @@ function AgregasiDashboard() {
                     <td className="px-2 py-2.5"><div className="flex flex-col"><span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold w-fit ${g.marketplace==='Shopee'?'bg-orange-100 text-orange-700':g.marketplace==='TikTok Shop'?'bg-slate-200 text-slate-700':g.marketplace==='Lazada'?'bg-blue-100 text-blue-700':'bg-slate-100 text-slate-600'}`}>{g.marketplace}</span>{g.namaToko&&<span className="text-[9px] text-slate-400 mt-0.5 truncate max-w-[80px]" title={g.namaToko}>{g.namaToko}</span>}</div></td>
                     <td className="px-2 py-2.5 font-mono text-[11px] text-slate-700 max-w-[100px] truncate" title={g.noPesanan}>{g.noPesanan}</td>
                     <td className="px-2 py-2.5 font-mono text-[10px] text-slate-500 max-w-[90px] truncate" title={g.noResi}>{g.noResi||'-'}</td>
-                    <td className="px-2 py-2.5"><span className="font-semibold text-brand-700">{g.items.length} SKU</span><span className="text-slate-400 ml-1">{isExp?'▲':'▼'}</span></td>
+                    <td className="px-2 py-2.5"><span className="font-semibold text-brand-700">{g.items.length} SKU</span>{belanjaSet.has(k)&&<span className="ml-1 rounded-full bg-red-100 px-1.5 py-0.5 text-[9px] font-bold text-red-600 whitespace-nowrap">🛒 Belanja</span>}<span className="text-slate-400 ml-1">{isExp?'▲':'▼'}</span></td>
                     <td className="px-2 py-2.5 font-semibold whitespace-nowrap">Rp {g.total.toLocaleString('id-ID')}</td>
                     <td className="px-2 py-2.5 text-slate-500 max-w-[100px] truncate text-[10px]">{g.kurir.split('-')[0]?.trim()||g.kurir.split(':')[0]?.trim()||g.kurir}</td>
                     <td className={`px-2 py-2.5 text-[10px] whitespace-nowrap font-semibold ${urgent?'text-red-600':'text-slate-500'}`}>{g.sla||'-'}</td>
                     <td className="px-2 py-2.5"><span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold whitespace-nowrap ${g.statusPesanan==='Perlu Dikirim'||g.statusPesanan==='shipped'?'bg-amber-100 text-amber-700':g.statusPesanan.includes('Diterima')||g.statusPesanan==='Selesai'||g.statusPesanan==='delivered'?'bg-emerald-100 text-emerald-700':g.statusPesanan.includes('Dikirim')?'bg-blue-100 text-blue-700':g.statusPesanan.includes('Dibatalkan')||g.statusPesanan==='cancelled'?'bg-red-100 text-red-700':'bg-slate-100 text-slate-600'}`}>{g.statusPesanan}</span></td>
                     <td className="px-2 py-2.5">{statusGdg}</td>
                   </tr>
-                  {isExp&&g.items.map((item,i)=>(<tr key={`${k}-${i}`} className="bg-slate-50/50 border-b border-slate-100"><td colSpan={2}></td><td colSpan={2} className="px-2 py-1.5 text-[11px]"><span className="text-slate-400 mr-1">└</span><span className="font-mono text-[10px] text-brand-600 mr-1">{item.sku||'-'}</span><span className="max-w-[180px] truncate inline-block" title={item.namaProduk}>{item.namaProduk}</span></td><td className="px-2 py-1.5 text-[11px] whitespace-nowrap">Rp {item.harga.toLocaleString('id-ID')} × {item.qty}</td><td colSpan={5}></td></tr>))}
+                  {isExp&&g.items.map((item,i)=>{const st=skuInventoryStatus(item.sku, invMap);return(<tr key={`${k}-${i}`} className="bg-slate-50/50 border-b border-slate-100"><td colSpan={2}></td><td colSpan={2} className="px-2 py-1.5 text-[11px]"><span className="text-slate-400 mr-1">└</span><span className="font-mono text-[10px] text-brand-600 mr-1">{item.sku||'-'}</span><span className="max-w-[180px] truncate inline-block" title={item.namaProduk}>{item.namaProduk}</span>{st&&<span className={`ml-1.5 rounded-full px-1.5 py-0.5 text-[9px] font-bold whitespace-nowrap ${st==='not-found'?'bg-red-100 text-red-700':'bg-orange-100 text-orange-700'}`}>{st==='not-found'?'❌ Tidak ada di Inventory':'⚠️ Stok 0'} 🛒</span>}</td><td className="px-2 py-1.5 text-[11px] whitespace-nowrap">Rp {item.harga.toLocaleString('id-ID')} × {item.qty}</td><td colSpan={5}></td></tr>);})}
                 </React.Fragment>);})}
             </tbody>
           </table>
@@ -246,6 +314,67 @@ function AgregasiDashboard() {
       </>)}
 
       {allRows.length===0&&(<div className="mt-8 text-center py-12 text-slate-400"><p className="text-5xl mb-3">📊</p><p className="font-semibold">Belum ada data agregasi.</p><p className="text-sm mt-1">Upload file di Data Entry atau di sini. Data akan tersinkron otomatis.</p></div>)}
+    </div>
+  );
+}
+
+/* ── Tab Khusus: pesanan dengan SKU kosong / tidak ada di Inventory → Harus Belanja ── */
+function HarusBelanjaTab() {
+  const { allRows } = useAgregasi();
+  const { skus } = useSkus();
+  const orders = useMemo(() => computeBelanjaOrders(allRows, skus), [allRows, skus]);
+  const totalItems = orders.reduce((s, o) => s + o.items.length, 0);
+
+  if (orders.length === 0) {
+    return (
+      <div>
+        <div className="mb-1 h-1 w-16 rounded-full bg-gradient-to-r from-brand-500 to-brand-300" />
+        <h2 className="text-lg font-bold text-slate-800 sm:text-xl">🛒 Harus Belanja</h2>
+        <div className="mt-8 text-center py-12 text-slate-400">
+          <p className="text-4xl mb-2">🛒</p>
+          <p className="font-semibold">Semua SKU pesanan tersedia di Inventory. 👍</p>
+          <p className="text-sm mt-1">Pesanan yang punya SKU kosong / tidak terdaftar di Inventory akan muncul di sini.</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="mb-1 h-1 w-16 rounded-full bg-gradient-to-r from-red-500 to-orange-300" />
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-bold text-slate-800 sm:text-xl">🛒 Harus Belanja</h2>
+          <p className="mt-1 text-sm text-slate-500">{orders.length} pesanan • {totalItems} SKU kosong / tidak ada di Inventory.</p>
+        </div>
+        <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-semibold text-red-700">⚠️ Perlu stok sebelum dikirim</span>
+      </div>
+
+      <div className="mt-4 grid gap-3 lg:grid-cols-2">
+        {orders.map(o => (
+          <div key={o.key} className="rounded-2xl border-2 border-red-200 bg-red-50/40 p-4 shadow-sm">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-700">{o.marketplace}</span>
+              <span className="font-mono text-xs font-bold text-slate-800">{o.noPesanan}</span>
+              <span className="font-mono text-[10px] text-slate-500">{o.noResi || '-'}</span>
+              <span className="ml-auto rounded-full bg-red-500 px-2 py-0.5 text-[10px] font-bold text-white">🛒 Harus Belanja</span>
+            </div>
+            <p className="mt-1.5 text-xs text-slate-500">🏪 {o.namaToko || '-'} • Status: {o.statusPesanan || '-'}{o.statusProses ? ` • Gudang: ${o.statusProses}` : ''}</p>
+            <ul className="mt-3 space-y-1.5">
+              {o.items.map((it, i) => (
+                <li key={i} className="flex flex-wrap items-center gap-2 rounded-xl bg-white px-3 py-2 text-xs shadow-sm">
+                  <span className="font-mono text-[10px] font-semibold text-brand-700">{it.sku}</span>
+                  <span className="min-w-0 flex-1 truncate text-slate-700" title={it.namaProduk}>{it.namaProduk}</span>
+                  <span className="shrink-0 font-semibold text-slate-500">Qty {it.qty}</span>
+                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-[9px] font-bold whitespace-nowrap ${it.reason === 'not-found' ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'}`}>
+                    {it.reason === 'not-found' ? '❌ Tidak ada di Inventory' : '⚠️ Stok 0'}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
