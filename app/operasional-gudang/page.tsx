@@ -4,6 +4,7 @@ import React, { useState, useRef, useEffect, useMemo } from 'react';
 import * as XLSX from 'xlsx';
 import { useAgregasi, type AgregasiRow } from '@/app/context/AgregasiContext';
 import { useSkus } from '@/app/context/SkuContext';
+import { computeBelanjaOrders, skuInventoryStatus } from '@/app/lib/belanja';
 
 type Tab = 'agregasi' | 'picking' | 'qc' | 'packing' | 'runner' | 'logistik' | 'belanja';
 
@@ -27,56 +28,6 @@ function parseRp(val: string): number {
 }
 
 interface GroupedOrder { noPesanan:string;noResi:string;marketplace:string;namaToko:string;statusPesanan:string;sla:string;kurir:string;dibuat:string;items:{sku:string;namaProduk:string;qty:number;harga:number}[];total:number; }
-
-/* ── Helper: deteksi SKU pesanan yang KOSONG / TIDAK ADA di Inventory ── */
-interface BelanjaItem {
-  sku: string;
-  namaProduk: string;
-  qty: number;
-  reason: 'not-found' | 'stok-kosong';
-}
-
-interface BelanjaOrder {
-  key: string;
-  noPesanan: string;
-  noResi: string;
-  marketplace: string;
-  namaToko: string;
-  statusPesanan: string;
-  statusProses?: string;
-  items: BelanjaItem[];
-}
-
-/** SKU tidak ada di inventory → 'not-found'; ada tapi stok 0 → 'stok-kosong'; selain itu null */
-function skuInventoryStatus(sku: string, inv: Map<string, number>): 'not-found' | 'stok-kosong' | null {
-  const s = sku.trim().toLowerCase();
-  if (!s) return null;
-  const stok = inv.get(s);
-  if (stok === undefined) return 'not-found';
-  if (stok <= 0) return 'stok-kosong';
-  return null;
-}
-
-/** Pesanan yang punya SKU kosong / tidak terdaftar di Inventory → Harus Belanja */
-function computeBelanjaOrders(allRows: AgregasiRow[], skus: { sku: string; stok: number }[]): BelanjaOrder[] {
-  const inv = new Map<string, number>();
-  for (const s of skus) inv.set(s.sku.toLowerCase(), s.stok);
-  const map = new Map<string, BelanjaOrder>();
-  for (const r of allRows) {
-    // Skip pesanan yang dibatalkan — gak perlu belanja
-    if (r.statusProses === 'Dibatalkan') continue;
-    if (/dibatalkan|cancelled|batal/i.test(r.statusPesanan)) continue;
-    const status = skuInventoryStatus(r.sku, inv);
-    if (!status) continue;
-    const key = `${r.noPesanan}||${r.noResi}`;
-    if (!map.has(key)) map.set(key, { key, noPesanan: r.noPesanan, noResi: r.noResi, marketplace: r.marketplace, namaToko: r.namaToko, statusPesanan: r.statusPesanan, statusProses: r.statusProses, items: [] });
-    const bo = map.get(key)!;
-    if (!bo.items.some(i => i.sku === r.sku)) {
-      bo.items.push({ sku: r.sku, namaProduk: r.namaProduk, qty: r.kuantity, reason: status });
-    }
-  }
-  return Array.from(map.values());
-}
 
 export default function OperasionalGudangPage() {
   const [tab, setTab] = useState<Tab>('agregasi');

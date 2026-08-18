@@ -2,6 +2,8 @@
 
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useSkus, type SkuItem } from '@/app/context/SkuContext';
+import { useAgregasi } from '@/app/context/AgregasiContext';
+import { computeBelanjaOrders, computeBelanjaSkuSummary } from '@/app/lib/belanja';
 import { useAkuntansi } from '@/app/context/AkuntansiContext';
 import InvoiceExport, { type InvoicePOData, type InvoicePOItem, InvoicePreview } from '@/app/components/InvoicePO';
 import KoreksiPOTab from '@/app/pembelian/components/KoreksiPOTab';
@@ -129,7 +131,7 @@ const BIAYA_STORAGE = 'mma_biaya_operasional';
 /* ================================================================ */
 /* Tab type                                                          */
 /* ================================================================ */
-type Tab = 'dashboard' | 'hpp' | 'opex' | 'biaya' | 'arsip' | 'koreksi';
+type Tab = 'dashboard' | 'hpp' | 'opex' | 'biaya' | 'arsip' | 'koreksi' | 'belanja';
 
 const TABS: { key: Tab; label: string; icon: string }[] = [
   { key: 'dashboard', label: 'Dashboard', icon: '📊' },
@@ -138,6 +140,7 @@ const TABS: { key: Tab; label: string; icon: string }[] = [
   { key: 'biaya', label: 'Biaya Operasional', icon: '💸' },
   { key: 'arsip', label: 'Arsip Invoice', icon: '🗄️' },
   { key: 'koreksi', label: 'Koreksi PO', icon: '⚠️' },
+  { key: 'belanja', label: 'Belanja Picking', icon: '🛒' },
 ];
 
 /* ── Kategori OPEX ── */
@@ -152,6 +155,9 @@ const BIAYA_KATEGORI = ['Listrik & Air', 'Internet & Pulsa', 'Transport & BBM', 
 /* ================================================================ */
 export default function PembelianPage() {
   const [tab, setTab] = useState<Tab>('dashboard');
+  const { allRows } = useAgregasi();
+  const { skus } = useSkus();
+  const belanjaCount = useMemo(() => computeBelanjaOrders(allRows, skus).length, [allRows, skus]);
 
   return (
     <main className="mx-auto flex min-h-screen max-w-6xl flex-col gap-5 px-4 py-6 sm:px-6 lg:px-8">
@@ -173,11 +179,16 @@ export default function PembelianPage() {
             className={`flex shrink-0 items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold transition sm:px-5 sm:text-sm ${
               tab === t.key
                 ? 'bg-emerald-500 text-white shadow'
-                : 'text-slate-600 hover:bg-emerald-50 hover:text-emerald-700'
+                : t.key === 'belanja' && belanjaCount > 0
+                  ? 'bg-red-50 text-red-600 hover:bg-red-100'
+                  : 'text-slate-600 hover:bg-emerald-50 hover:text-emerald-700'
             }`}
           >
             <span className="text-base sm:text-lg">{t.icon}</span>
             <span className="hidden sm:inline">{t.label}</span>
+            {t.key === 'belanja' && belanjaCount > 0 && (
+              <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${tab === t.key ? 'bg-white text-red-600' : 'bg-red-500 text-white'}`}>{belanjaCount}</span>
+            )}
           </button>
         ))}
       </nav>
@@ -190,8 +201,102 @@ export default function PembelianPage() {
         {tab === 'biaya' && <BiayaOpTab />}
         {tab === 'arsip' && <ArsipTab />}
         {tab === 'koreksi' && <KoreksiPOTab />}
+        {tab === 'belanja' && <BelanjaPickingTab onGoHpp={() => setTab('hpp')} />}
       </section>
     </main>
+  );
+}
+
+/* ================================================================ */
+/* TAB BELANJA PICKING: daftar belanja otomatis dari tim gudang     */
+/* ================================================================ */
+function BelanjaPickingTab({ onGoHpp }: { onGoHpp?: () => void }) {
+  const { allRows } = useAgregasi();
+  const { skus } = useSkus();
+  const summaries = useMemo(() => computeBelanjaSkuSummary(allRows, skus), [allRows, skus]);
+  const orders = useMemo(() => computeBelanjaOrders(allRows, skus), [allRows, skus]);
+  const totalQty = summaries.reduce((s, x) => s + x.qty, 0);
+
+  if (summaries.length === 0) {
+    return (
+      <div>
+        <div className="mb-1 h-1 w-16 rounded-full bg-gradient-to-r from-emerald-500 to-emerald-300" />
+        <h2 className="text-lg font-bold text-slate-800 sm:text-xl">🛒 Belanja Picking</h2>
+        <div className="mt-8 text-center py-12 text-slate-400">
+          <p className="text-4xl mb-2">🛒</p>
+          <p className="font-semibold">Belum ada permintaan belanja dari tim Picking. 👍</p>
+          <p className="text-sm mt-1">Daftar di sini terisi otomatis dari pesanan yang SKU-nya kosong / tidak ada di Inventory.</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="mb-1 h-1 w-16 rounded-full bg-gradient-to-r from-red-500 to-orange-300" />
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-bold text-slate-800 sm:text-xl">🛒 Belanja Picking</h2>
+          <p className="mt-1 text-sm text-slate-500">{summaries.length} SKU perlu dibeli • total {totalQty} pcs • dari {orders.length} pesanan gudang.</p>
+        </div>
+        <div className="flex gap-2">
+          {onGoHpp && <button onClick={onGoHpp} className="rounded-xl bg-emerald-500 px-3 py-1.5 text-sm font-semibold text-white hover:bg-emerald-700">➕ Buat PO</button>}
+        </div>
+      </div>
+
+      {/* Ringkasan per SKU */}
+      <div className="mt-4 overflow-x-auto rounded-xl border border-slate-100">
+        <table className="w-full text-left text-sm">
+          <thead><tr className="bg-red-50 text-xs uppercase text-red-500">
+            {['SKU', 'Nama Produk', 'Qty Dibutuhkan', 'Jumlah Pesanan', 'Status Inventory', 'Prioritas'].map(c => <th key={c} className="px-3 py-3 font-semibold whitespace-nowrap">{c}</th>)}
+          </tr></thead>
+          <tbody className="divide-y divide-slate-50 bg-white">
+            {summaries.map((s, i) => (
+              <tr key={s.sku} className={i % 2 === 0 ? 'bg-white' : 'bg-red-50/20'}>
+                <td className="px-3 py-3 font-mono text-xs font-semibold text-slate-800">{s.sku}</td>
+                <td className="px-3 py-3 max-w-[260px] truncate font-medium text-slate-700" title={s.namaProduk}>{s.namaProduk}</td>
+                <td className="px-3 py-3 font-bold text-red-600">{s.qty}</td>
+                <td className="px-3 py-3 text-slate-600">{s.orders} pesanan</td>
+                <td className="px-3 py-3">
+                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold whitespace-nowrap ${s.reason === 'not-found' ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'}`}>
+                    {s.reason === 'not-found' ? '❌ Tidak ada di Inventory' : '⚠️ Stok 0'}
+                  </span>
+                </td>
+                <td className="px-3 py-3">
+                  {s.qty >= 20 ? <span className="rounded-full bg-red-500 px-2 py-0.5 text-[10px] font-bold text-white">🔥 Urgent</span>
+                    : s.qty >= 10 ? <span className="rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-bold text-white">⚠️ Sedang</span>
+                    : <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-bold text-slate-600">Normal</span>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Detail per pesanan */}
+      <h3 className="mt-6 mb-2 text-sm font-bold text-slate-700">📋 Rincian per pesanan gudang</h3>
+      <div className="grid gap-3 lg:grid-cols-2">
+        {orders.map(o => (
+          <div key={o.key} className="rounded-2xl border border-red-200 bg-red-50/40 p-3 shadow-sm">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-700">{o.marketplace}</span>
+              <span className="font-mono text-xs font-bold text-slate-800">{o.noPesanan}</span>
+              <span className="font-mono text-[10px] text-slate-500">{o.noResi || '-'}</span>
+            </div>
+            <ul className="mt-2 space-y-1">
+              {o.items.map((it, i) => (
+                <li key={i} className="flex items-center gap-2 rounded-lg bg-white px-2.5 py-1.5 text-xs">
+                  <span className="font-mono text-[10px] font-semibold text-slate-700">{it.sku}</span>
+                  <span className="min-w-0 flex-1 truncate text-slate-600" title={it.namaProduk}>{it.namaProduk}</span>
+                  <span className="shrink-0 font-semibold text-slate-500">Qty {it.qty}</span>
+                  <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-bold whitespace-nowrap ${it.reason === 'not-found' ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'}`}>{it.reason === 'not-found' ? '❌ Belum ada' : '⚠️ Stok 0'}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
