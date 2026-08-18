@@ -212,10 +212,139 @@ export default function PembelianPage() {
 /* ================================================================ */
 function BelanjaPickingTab({ onGoHpp }: { onGoHpp?: () => void }) {
   const { allRows } = useAgregasi();
-  const { skus } = useSkus();
+  const { skus, updateStok, setSkus } = useSkus();
+  const { addJurnal } = useAkuntansi();
+  const [purchases, setPurchases] = useLocalStorage<HppPurchase[]>(HPP_STORAGE, []);
+  const [hargaHistory, setHargaHistory] = useLocalStorage<any[]>('mma_harga_modal_history', []);
+  const [suppliers] = useState<SupplierItem[]>(() => loadSuppliers());
   const summaries = useMemo(() => computeBelanjaSkuSummary(allRows, skus), [allRows, skus]);
   const orders = useMemo(() => computeBelanjaOrders(allRows, skus), [allRows, skus]);
   const totalQty = summaries.reduce((s, x) => s + x.qty, 0);
+
+  /* ── Seleksi manual per SKU + supplier per SKU ── */
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [supplierBySku, setSupplierBySku] = useState<Record<string, string>>({});
+  const [qtyBySku, setQtyBySku] = useState<Record<string, number>>({});
+  const [hargaBySku, setHargaBySku] = useState<Record<string, string>>({});
+  const [metodeBayar, setMetodeBayar] = useState<MetodeBayar>('cash');
+  const [tanggal, setTanggal] = useState(() => new Date().toISOString().slice(0, 10));
+  const [dpAmount, setDpAmount] = useState('');
+  const [jatuhTempo, setJatuhTempo] = useState(() => { const d = new Date(); d.setDate(d.getDate() + 30); return d.toISOString().slice(0, 10); });
+  const [ferr, setFerr] = useState('');
+
+  /* SKU yang sudah punya PO terbuka (belum lunas) → hindari dobel beli */
+  const alreadyPoed = useMemo(() => new Set(purchases.filter(p => !p.lunas).map(p => p.sku)), [purchases]);
+  const selectable = summaries.filter(s => !alreadyPoed.has(s.sku));
+
+  /* Auto-fill satu SKU: supplier pertama, qty kebutuhan, & harga (history → master) */
+  const autofill = (sku: string, needed: number) => {
+    setSupplierBySku(p => (p[sku] ? p : suppliers[0] ? { ...p, [sku]: suppliers[0].id } : p));
+    setQtyBySku(p => (p[sku] !== undefined ? p : { ...p, [sku]: needed ?? 1 }));
+    setHargaBySku(p => {
+      if (p[sku] !== undefined) return p;
+      const hist = purchases.filter(x => x.sku === sku).sort((a, b) => b.tanggal.localeCompare(a.tanggal));
+      const inv = skus.find(x => x.sku.toLowerCase() === sku.toLowerCase());
+      const auto = hist.length > 0 ? String(hist[0].hargaBeli) : (inv ? String(inv.hargaBaru || inv.hargaModalLama || '') : '');
+      return { ...p, [sku]: auto };
+    });
+  };
+
+  const toggleSelect = (sku: string) => {
+    const willSelect = !selected.has(sku);
+    setSelected(prev => {
+      const n = new Set(prev);
+      if (willSelect) n.add(sku); else n.delete(sku);
+      return n;
+    });
+    if (willSelect) {
+      const s = summaries.find(x => x.sku === sku);
+      autofill(sku, s?.qty ?? 1);
+    }
+  };
+
+  const selectedList = summaries.filter(s => selected.has(s.sku));
+  const selectAll = () => {
+    const list = selectable;
+    setSelected(new Set(list.map(s => s.sku)));
+    for (const s of list) autofill(s.sku, s.qty);
+  };
+  const deselectAll = () => setSelected(new Set());
+  const estTotal = selectedList.filter(s => !alreadyPoed.has(s.sku)).reduce((sum, s) => sum + (qtyBySku[s.sku] || s.qty) * +(hargaBySku[s.sku] || 0), 0);
+
+  /* ── Buat PO: 1 No PO per supplier (supplier bisa beda per SKU) ── */
+  const submitPO = () => {
+    setFerr('');
+    const lines = selectedList.filter(s => !alreadyPoed.has(s.sku));
+    if (lines.length === 0) { setFerr('Pilih minimal 1 SKU yang belum di-PO.'); return; }
+    for (const s of lines) {
+      if (!supplierBySku[s.sku]) { setFerr(`Pilih supplier untuk SKU ${s.sku}.`); return; }
+      const q = qtyBySku[s.sku];
+      if (!q || q <= 0) { setFerr(`Qty untuk SKU ${s.sku} harus lebih dari 0.`); return; }
+      const h = +(hargaBySku[s.sku] || 0);
+      if (!h || h <= 0) { setFerr(`Harga beli untuk SKU ${s.sku} harus lebih dari 0.`); return; }
+    }
+    if (metodeBayar === 'dp' && (!dpAmount || +dpAmount <= 0)) { setFerr('Isi jumlah DP.'); return; }
+
+    // Group by supplier → satu No PO per supplier
+    const groups = new Map<string, typeof lines>();
+    for (const s of lines) {
+      const supId = supplierBySku[s.sku];
+      if (!groups.has(supId)) groups.set(supId, []);
+      groups.get(supId)!.push(s);
+    }
+
+    const now = new Date();
+    const yymmdd = `${String(now.getFullYear()).slice(2)}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
+    let seq = purchases.filter(p => p.noPO.startsWith(`PO-${yymmdd}`)).length;
+
+    for (const [supId, items] of groups) {
+      seq += 1;
+      const poNumber = `PO-${yymmdd}-${String(seq).padStart(3, '0')}`;
+      const sup = suppliers.find(x => x.id === supId);
+      const groupTotal = items.reduce((s2, it) => s2 + (qtyBySku[it.sku] || it.qty) * +(hargaBySku[it.sku] || 0), 0);
+
+      for (const it of items) {
+        const q = qtyBySku[it.sku] || it.qty;
+        const h = +(hargaBySku[it.sku] || 0);
+        const subtotal = q * h;
+        const purchase: HppPurchase = {
+          id: `hpp-belanja-${Date.now()}-${it.sku}`,
+          noPO: poNumber, sku: it.sku, namaSku: it.namaProduk,
+          supplierId: supId, supplierNama: sup?.nama ?? '',
+          qty: q, hargaBeli: h, total: subtotal,
+          metodeBayar,
+          dibayar: 0, sisaTagihan: subtotal,
+          tanggal, jatuhTempo: metodeBayar === 'kontrabon' ? jatuhTempo : '',
+          lunas: false, pickupStatus: 'belum',
+        };
+        setPurchases(prev => [purchase, ...prev]);
+        updateStok(it.sku, q);
+
+        // Update harga modal untuk SKU yang sudah ada di inventory
+        const inv = skus.find(x => x.sku.toLowerCase() === it.sku.toLowerCase());
+        if (inv) {
+          const oldHarga = inv.hargaBaru || inv.hargaModalLama || 0;
+          if (h !== oldHarga && oldHarga > 0) {
+            const persen = (((h - oldHarga) / oldHarga) * 100).toFixed(2);
+            setHargaHistory((prev: any[]) => [{ id: `hist-${Date.now()}-${it.sku}`, sku: it.sku, nama: it.namaProduk, hargaLama: oldHarga, hargaBaru: h, persen, supplier: sup?.nama || '', noPO: poNumber, tanggal }, ...prev].slice(0, 100));
+            setSkus((prev: SkuItem[]) => prev.map(x => x.sku.toLowerCase() === it.sku.toLowerCase() ? { ...x, hargaModalLama: oldHarga, hargaBaru: h, perubahanHargaBeli: `${persen.startsWith('-') ? '' : '+'}${persen}%` } : x));
+          }
+        }
+      }
+
+      // Auto-jurnal per PO (sama dengan HppSkuTab)
+      const dp = metodeBayar === 'dp' ? (+dpAmount || 0) : 0;
+      const cashBayar = metodeBayar === 'cash' || metodeBayar === 'transfer' ? groupTotal : dp;
+      if (cashBayar > 0) addJurnal({ tanggal, akunDebitId: '1-1200', akunKreditId: '1-1000', nominal: cashBayar, keterangan: `Pembelian ${poNumber} - ${sup?.nama || ''} (dibayar)`, referensi: poNumber });
+      if (groupTotal - cashBayar > 0) addJurnal({ tanggal, akunDebitId: '1-1200', akunKreditId: '2-1000', nominal: groupTotal - cashBayar, keterangan: `Pembelian ${poNumber} - ${sup?.nama || ''} (utang)`, referensi: poNumber });
+    }
+
+    const poCount = groups.size;
+    setSelected(new Set());
+    setSupplierBySku({}); setQtyBySku({}); setHargaBySku({});
+    setDpAmount('');
+    alert(`✅ ${poCount} PO dibuat untuk ${lines.length} SKU dari daftar belanja picking. Cek tab Pembelian HPP SKU / Arsip Invoice.`);
+  };
 
   if (summaries.length === 0) {
     return (
@@ -240,38 +369,125 @@ function BelanjaPickingTab({ onGoHpp }: { onGoHpp?: () => void }) {
           <p className="mt-1 text-sm text-slate-500">{summaries.length} SKU perlu dibeli • total {totalQty} pcs • dari {orders.length} pesanan gudang.</p>
         </div>
         <div className="flex gap-2">
-          {onGoHpp && <button onClick={onGoHpp} className="rounded-xl bg-emerald-500 px-3 py-1.5 text-sm font-semibold text-white hover:bg-emerald-700">➕ Buat PO</button>}
+          {onGoHpp && <button onClick={onGoHpp} className="rounded-xl border border-emerald-300 bg-white px-3 py-1.5 text-sm font-semibold text-emerald-700 hover:bg-emerald-50">📦 Pembelian HPP SKU</button>}
         </div>
       </div>
 
-      {/* Ringkasan per SKU */}
+      {/* Toolbar PO */}
+      <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400">🧾 Buat PO dari daftar ini — supplier bisa beda per SKU</p>
+        <div className="flex flex-wrap items-end gap-3">
+          <div>
+            <label className="text-[10px] font-semibold text-slate-500">Metode Bayar</label>
+            <select value={metodeBayar} onChange={e => setMetodeBayar(e.target.value as MetodeBayar)} className="mt-0.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none">
+              {METODE_OPTIONS.map(m => <option key={m.value} value={m.value}>{m.icon} {m.label}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="text-[10px] font-semibold text-slate-500">Tanggal</label>
+            <input type="date" value={tanggal} onChange={e => setTanggal(e.target.value)} className="mt-0.5 block rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none" />
+          </div>
+          {metodeBayar === 'dp' && (
+            <div>
+              <label className="text-[10px] font-semibold text-slate-500">Jumlah DP (Rp)</label>
+              <input type="number" value={dpAmount} onChange={e => setDpAmount(e.target.value)} placeholder="Nominal DP" className="mt-0.5 block w-32 rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none" />
+            </div>
+          )}
+          {metodeBayar === 'kontrabon' && (
+            <div>
+              <label className="text-[10px] font-semibold text-slate-500">Jatuh Tempo</label>
+              <input type="date" value={jatuhTempo} onChange={e => setJatuhTempo(e.target.value)} className="mt-0.5 block rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none" />
+            </div>
+          )}
+          <div className="flex gap-2">
+            <button onClick={selectAll} disabled={selectable.length === 0} className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-emerald-50 disabled:opacity-40">☑ Pilih Semua</button>
+            <button onClick={deselectAll} disabled={selected.size === 0} className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-emerald-50 disabled:opacity-40">☐ Batal</button>
+            <button onClick={submitPO} disabled={selectedList.filter(s => !alreadyPoed.has(s.sku)).length === 0} className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-bold text-white hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed">
+              🧾 Buat PO ({selectedList.filter(s => !alreadyPoed.has(s.sku)).length} SKU)
+            </button>
+          </div>
+        </div>
+        {ferr && <p className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{ferr}</p>}
+      </div>
+
+      {/* Tabel pilih per SKU */}
       <div className="mt-4 overflow-x-auto rounded-xl border border-slate-100">
         <table className="w-full text-left text-sm">
           <thead><tr className="bg-red-50 text-xs uppercase text-red-500">
-            {['SKU', 'Nama Produk', 'Qty Dibutuhkan', 'Jumlah Pesanan', 'Status Inventory', 'Prioritas'].map(c => <th key={c} className="px-3 py-3 font-semibold whitespace-nowrap">{c}</th>)}
+            {['Pilih', 'SKU', 'Nama Produk', 'Qty', 'Supplier', 'Harga Beli', 'Status', 'Prioritas'].map(c => <th key={c} className="px-3 py-3 font-semibold whitespace-nowrap">{c}</th>)}
           </tr></thead>
           <tbody className="divide-y divide-slate-50 bg-white">
-            {summaries.map((s, i) => (
-              <tr key={s.sku} className={i % 2 === 0 ? 'bg-white' : 'bg-red-50/20'}>
-                <td className="px-3 py-3 font-mono text-xs font-semibold text-slate-800">{s.sku}</td>
-                <td className="px-3 py-3 max-w-[260px] truncate font-medium text-slate-700" title={s.namaProduk}>{s.namaProduk}</td>
-                <td className="px-3 py-3 font-bold text-red-600">{s.qty}</td>
-                <td className="px-3 py-3 text-slate-600">{s.orders} pesanan</td>
-                <td className="px-3 py-3">
-                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold whitespace-nowrap ${s.reason === 'not-found' ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'}`}>
-                    {s.reason === 'not-found' ? '❌ Tidak ada di Inventory' : '⚠️ Stok 0'}
-                  </span>
-                </td>
-                <td className="px-3 py-3">
-                  {s.qty >= 20 ? <span className="rounded-full bg-red-500 px-2 py-0.5 text-[10px] font-bold text-white">🔥 Urgent</span>
-                    : s.qty >= 10 ? <span className="rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-bold text-white">⚠️ Sedang</span>
-                    : <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-bold text-slate-600">Normal</span>}
-                </td>
-              </tr>
-            ))}
+            {summaries.map((s, i) => {
+              const poed = alreadyPoed.has(s.sku);
+              const isSel = selected.has(s.sku);
+              const supVal = supplierBySku[s.sku] || '';
+              return (
+                <tr key={s.sku} className={poed ? 'bg-emerald-50/40' : i % 2 === 0 ? 'bg-white' : 'bg-red-50/20'}>
+                  <td className="px-3 py-3 text-center">
+                    <input type="checkbox" checked={isSel} disabled={poed} onChange={() => toggleSelect(s.sku)} className="h-4 w-4 cursor-pointer rounded accent-emerald-500 disabled:cursor-not-allowed" />
+                  </td>
+                  <td className="px-3 py-3 font-mono text-xs font-semibold text-slate-800">{s.sku}</td>
+                  <td className="px-3 py-3 max-w-[220px] truncate font-medium text-slate-700" title={s.namaProduk}>{s.namaProduk}</td>
+                  <td className="px-3 py-3">
+                    <input
+                      type="number"
+                      min={1}
+                      value={qtyBySku[s.sku] ?? s.qty}
+                      disabled={!isSel}
+                      onChange={e => setQtyBySku(p => ({ ...p, [s.sku]: +e.target.value }))}
+                      className="w-20 rounded-lg border border-slate-200 px-2 py-1.5 text-center text-sm font-bold text-slate-800 focus:border-emerald-500 focus:outline-none disabled:bg-slate-50 disabled:text-slate-400"
+                    />
+                  </td>
+                  <td className="px-3 py-3">
+                    <select
+                      value={supVal}
+                      disabled={!isSel}
+                      onChange={e => setSupplierBySku(p => ({ ...p, [s.sku]: e.target.value }))}
+                      className={`rounded-lg border px-2 py-1.5 text-xs focus:border-emerald-500 focus:outline-none ${supVal ? 'border-emerald-300 bg-emerald-50 text-emerald-800 font-semibold' : 'border-slate-200 text-slate-500'} disabled:bg-slate-50 disabled:text-slate-400`}
+                    >
+                      <option value="">— pilih supplier —</option>
+                      {suppliers.map(sp => <option key={sp.id} value={sp.id}>{sp.nama}</option>)}
+                    </select>
+                  </td>
+                  <td className="px-3 py-3">
+                    <input
+                      type="number"
+                      min={1}
+                      value={hargaBySku[s.sku] ?? ''}
+                      disabled={!isSel}
+                      onChange={e => setHargaBySku(p => ({ ...p, [s.sku]: e.target.value }))}
+                      placeholder="Rp"
+                      className="w-28 rounded-lg border border-slate-200 px-2 py-1.5 text-sm font-bold text-slate-800 focus:border-emerald-500 focus:outline-none disabled:bg-slate-50 disabled:text-slate-400"
+                    />
+                  </td>
+                  <td className="px-3 py-3">
+                    {poed ? (
+                      <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700 whitespace-nowrap">⏳ Sudah di-PO</span>
+                    ) : (
+                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold whitespace-nowrap ${s.reason === 'not-found' ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'}`}>
+                        {s.reason === 'not-found' ? '❌ Tidak ada di Inventory' : '⚠️ Stok 0'}
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-3 py-3">
+                    {s.qty >= 20 ? <span className="rounded-full bg-red-500 px-2 py-0.5 text-[10px] font-bold text-white">🔥 Urgent</span>
+                      : s.qty >= 10 ? <span className="rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-bold text-white">⚠️ Sedang</span>
+                      : <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-bold text-slate-600">Normal</span>}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
+
+      {/* Footer estimasi */}
+      {selectedList.length > 0 && (
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm">
+          <p className="text-emerald-800"><strong>{selectedList.filter(s => !alreadyPoed.has(s.sku)).length} SKU dipilih</strong> • estimasi <strong>Rp {estTotal.toLocaleString('id-ID')}</strong> • {new Set(selectedList.filter(s => !alreadyPoed.has(s.sku)).map(s => supplierBySku[s.sku]).filter(Boolean)).size} supplier</p>
+          <button onClick={submitPO} disabled={selectedList.filter(s => !alreadyPoed.has(s.sku)).length === 0} className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-bold text-white hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed">🧾 Buat PO Sekarang</button>
+        </div>
+      )}
 
       {/* Detail per pesanan */}
       <h3 className="mt-6 mb-2 text-sm font-bold text-slate-700">📋 Rincian per pesanan gudang</h3>
