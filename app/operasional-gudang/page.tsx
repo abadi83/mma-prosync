@@ -29,14 +29,14 @@ function parseRp(val: string): number {
 interface GroupedOrder { noPesanan:string;noResi:string;marketplace:string;namaToko:string;statusPesanan:string;sla:string;kurir:string;dibuat:string;items:{sku:string;namaProduk:string;qty:number;harga:number}[];total:number; }
 
 /* ── Helper: deteksi SKU pesanan yang KOSONG / TIDAK ADA di Inventory ── */
-export interface BelanjaItem {
+interface BelanjaItem {
   sku: string;
   namaProduk: string;
   qty: number;
   reason: 'not-found' | 'stok-kosong';
 }
 
-export interface BelanjaOrder {
+interface BelanjaOrder {
   key: string;
   noPesanan: string;
   noResi: string;
@@ -48,7 +48,7 @@ export interface BelanjaOrder {
 }
 
 /** SKU tidak ada di inventory → 'not-found'; ada tapi stok 0 → 'stok-kosong'; selain itu null */
-export function skuInventoryStatus(sku: string, inv: Map<string, number>): 'not-found' | 'stok-kosong' | null {
+function skuInventoryStatus(sku: string, inv: Map<string, number>): 'not-found' | 'stok-kosong' | null {
   const s = sku.trim().toLowerCase();
   if (!s) return null;
   const stok = inv.get(s);
@@ -58,7 +58,7 @@ export function skuInventoryStatus(sku: string, inv: Map<string, number>): 'not-
 }
 
 /** Pesanan yang punya SKU kosong / tidak terdaftar di Inventory → Harus Belanja */
-export function computeBelanjaOrders(allRows: AgregasiRow[], skus: { sku: string; stok: number }[]): BelanjaOrder[] {
+function computeBelanjaOrders(allRows: AgregasiRow[], skus: { sku: string; stok: number }[]): BelanjaOrder[] {
   const inv = new Map<string, number>();
   for (const s of skus) inv.set(s.sku.toLowerCase(), s.stok);
   const map = new Map<string, BelanjaOrder>();
