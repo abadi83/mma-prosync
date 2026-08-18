@@ -95,7 +95,7 @@ export default function OperasionalGudangPage() {
       </nav>
       <section className="card-blue">
         {tab==='agregasi' && <AgregasiDashboard />}
-        {tab==='picking' && <PickingList />}
+        {tab==='picking' && <PickingList onGoBelanja={() => setTab('belanja')} />}
         {tab==='qc' && <QCList />}
         {tab==='packing' && <PackingList />}
         {tab==='runner' && <RunnerScan />}
@@ -1337,9 +1337,13 @@ function RunnerScan() {
 }
 
 /* ── Picking List ── */
-function PickingList() {
+function PickingList({ onGoBelanja }: { onGoBelanja?: () => void }) {
   const { allRows, updateStatusToQC, updateStatusPicking, setAllRows } = useAgregasi();
+  const { skus } = useSkus();
   const picking = allRows.filter(r => r.statusProses === 'Dipicking');
+
+  /* Pesanan yang SKU-nya kosong/tidak ada di Inventory → ditahan dari picking */
+  const belanjaSet = useMemo(() => new Set(computeBelanjaOrders(allRows, skus).map(o => o.key)), [allRows, skus]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirmed, setConfirmed] = useState<Set<string>>(new Set());
   const [filterMp, setFilterMp] = useState('semua');
@@ -1367,6 +1371,10 @@ function PickingList() {
   let groupList = Array.from(grouped.entries());
   if (filterMp!=='semua') groupList = groupList.filter(([,g])=>g.marketplace===filterMp);
   if (filterToko!=='semua') groupList = groupList.filter(([,g])=>g.namaToko===filterToko);
+
+  /* Tahan pesanan yang SKU-nya kosong/tidak ada di Inventory — otomatis balik saat stok tersedia */
+  const heldCount = groupList.filter(([k]) => belanjaSet.has(k)).length;
+  groupList = groupList.filter(([k]) => !belanjaSet.has(k));
 
   const toggleSelect = (key: string) => setSelected(p => { const n = new Set(p); n.has(key) ? n.delete(key) : n.add(key); return n; });
   const selectAll = () => setSelected(new Set(groupList.map(([k]) => k)));
@@ -1436,7 +1444,7 @@ function PickingList() {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h2 className="text-lg font-bold text-slate-800 sm:text-xl">📋 Daftar Picking</h2>
-          <p className="mt-1 text-sm text-slate-500">{picking.length>0?`${groupList.length} resi • ${picking.length} item • ✅ ${confirmed.size} dikonfirmasi`:'Input manual / scanner'}</p>
+          <p className="mt-1 text-sm text-slate-500">{picking.length>0?`${groupList.length} resi • ${picking.length} item • ✅ ${confirmed.size} dikonfirmasi${heldCount>0?` • 🚦 ${heldCount} ditahan`:''}`:'Input manual / scanner'}</p>
         </div>
         {picking.length>0 && (
         <div className="flex gap-2">
@@ -1447,6 +1455,15 @@ function PickingList() {
         </div>
         )}
       </div>
+
+      {/* Banner pesanan ditahan karena SKU kosong */}
+      {heldCount > 0 && (
+        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+          <span className="text-lg">🚦</span>
+          <p className="min-w-0 flex-1"><strong>{heldCount} pesanan ditahan</strong> — SKU kosong / tidak ada di Inventory. Otomatis masuk lagi ke daftar picking setelah stok tersedia.</p>
+          {onGoBelanja && <button onClick={onGoBelanja} className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-bold text-white hover:bg-amber-600 whitespace-nowrap">Lihat 🛒 Harus Belanja</button>}
+        </div>
+      )}
 
       {/* ── Manual Input Scanner ── */}
       <div className="mt-3 rounded-xl border-2 border-dashed border-brand-200 bg-brand-50/30 p-4">
