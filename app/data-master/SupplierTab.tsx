@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useApiList } from '@/app/hooks/useApiList';
 import { SupplierItem } from '@/app/services/supplierService';
+import { SUPPLIER_STORAGE } from '@/app/hooks/useSuppliers';
 import { ModalForm, ModalConfirm } from './modals';
 
 export function SupplierTab() {
@@ -25,6 +26,12 @@ export function SupplierTab() {
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
   const paginated = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+
+  /* Mirror ke localStorage → tab lain (Pembelian, Gudang) sinkron live via event 'storage' */
+  useEffect(() => {
+    if (list.length === 0) return;
+    try { localStorage.setItem(SUPPLIER_STORAGE, JSON.stringify(list)); } catch {}
+  }, [list]);
 
   const reset = () => { setF({ nama: '', kontak: '', alamat: '' }); setErr(''); setEditId(null); };
   const openAdd = () => { reset(); setShow(true); };

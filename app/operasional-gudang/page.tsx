@@ -5,6 +5,7 @@ import * as XLSX from 'xlsx';
 import { useAgregasi, type AgregasiRow } from '@/app/context/AgregasiContext';
 import { useSkus } from '@/app/context/SkuContext';
 import { computeBelanjaOrders, skuInventoryStatus } from '@/app/lib/belanja';
+import { useSuppliers } from '@/app/hooks/useSuppliers';
 
 type Tab = 'agregasi' | 'picking' | 'qc' | 'packing' | 'runner' | 'logistik' | 'belanja';
 
@@ -1985,6 +1986,8 @@ function LogistikPengantaran({ fleet }: { fleet: any[] }) {
 }
 
 function LogistikPO({ fleet }: { fleet: any[] }) {
+  const suppliers = useSuppliers();
+
   /* ── Tarik PO dari data HPP Purchasing (group by noPO) ── */
   const [poGroups, setPoGroups] = useState<any[]>(() => {
     if (typeof window === 'undefined') return [];
@@ -2029,15 +2032,10 @@ function LogistikPO({ fleet }: { fleet: any[] }) {
     } catch { return []; }
   });
 
-  /* ── Supplier address lookup ── */
+  /* ── Supplier address lookup (satu sumber data via useSuppliers) ── */
   const getSupplierAlamat = (supplierId: string, supplierNama: string): string => {
-    try {
-      const raw = localStorage.getItem('mma_supplier_master');
-      if (!raw) return supplierNama;
-      const suppliers = JSON.parse(raw);
-      const found = suppliers.find((s: any) => s.id === supplierId);
-      return found?.alamat || supplierNama;
-    } catch { return supplierNama; }
+    const found = suppliers.find((s: any) => s.id === supplierId);
+    return found?.alamat || supplierNama;
   };
 
   /* ── Update HPP data di localStorage ── */

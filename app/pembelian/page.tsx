@@ -7,33 +7,11 @@ import { computeBelanjaOrders, computeBelanjaSkuSummary } from '@/app/lib/belanj
 import { useAkuntansi } from '@/app/context/AkuntansiContext';
 import InvoiceExport, { type InvoicePOData, type InvoicePOItem, InvoicePreview } from '@/app/components/InvoicePO';
 import KoreksiPOTab from '@/app/pembelian/components/KoreksiPOTab';
+import { useSuppliers } from '@/app/hooks/useSuppliers';
 
 /* ================================================================ */
 /* Types                                                             */
 /* ================================================================ */
-
-interface SupplierItem { id: string; nama: string; kontak: string; alamat: string; }
-
-const SUPPLIER_STORAGE = 'mma_supplier_master';
-
-const DEFAULT_SUPPLIERS: SupplierItem[] = [
-  { id:'s-1',nama:'PT Sinar Jaya Steel',kontak:'021-5555-1234',alamat:'Jl. Industri Raya No. 45, Cikarang, Bekasi' },
-  { id:'s-2',nama:'UD Sumber Bangunan',kontak:'0813-9876-5432',alamat:'Jl. Raya Bogor KM 12, Cibinong' },
-  { id:'s-3',nama:'CV Teknik Makmur',kontak:'0811-2233-4455',alamat:'Jl. Pangeran Jayakarta No. 88, Jakarta Pusat' },
-  { id:'s-4',nama:'PT Plasma Pack Indonesia',kontak:'021-8888-7777',alamat:'Kawasan Industri Pulogadung Blok C-12, Jakarta Timur' },
-  { id:'s-5',nama:'Toko Listrik Jaya',kontak:'0856-1111-2222',alamat:'Jl. Kenari No. 25, Pasar Baru, Jakarta Pusat' },
-  { id:'s-6',nama:'PT Cat Maju Jaya',kontak:'021-6666-9999',alamat:'Jl. Daan Mogot KM 8, Jakarta Barat' },
-  { id:'s-7',nama:'UD Aluminium Sejahtera',kontak:'0815-4444-8888',alamat:'Jl. Raya Serpong No. 120, Tangerang Selatan' },
-  { id:'s-8',nama:'CV Baut Nusantara',kontak:'0812-7777-3333',alamat:'Jl. Kramat Jaya No. 56, Senen, Jakarta Pusat' },
-  { id:'s-9',nama:'Toko ATK & Packing',kontak:'0857-2222-1111',alamat:'Jl. Mangga Dua Raya No. 30, Jakarta Utara' },
-  { id:'s-10',nama:'PT Sanitary Utama',kontak:'021-3333-5555',alamat:'Jl. Taman Sari No. 15, Jakarta Barat' },
-];
-
-function loadSuppliers(): SupplierItem[] {
-  if (typeof window === 'undefined') return DEFAULT_SUPPLIERS;
-  try { const raw = localStorage.getItem(SUPPLIER_STORAGE); return raw ? JSON.parse(raw) : DEFAULT_SUPPLIERS; }
-  catch { return DEFAULT_SUPPLIERS; }
-}
 
 /* ── Payment Method ── */
 type MetodeBayar = 'cash' | 'transfer' | 'dp' | 'kontrabon';
@@ -216,7 +194,7 @@ function BelanjaPickingTab({ onGoHpp }: { onGoHpp?: () => void }) {
   const { addJurnal } = useAkuntansi();
   const [purchases, setPurchases] = useLocalStorage<HppPurchase[]>(HPP_STORAGE, []);
   const [hargaHistory, setHargaHistory] = useLocalStorage<any[]>('mma_harga_modal_history', []);
-  const [suppliers] = useState<SupplierItem[]>(() => loadSuppliers());
+  const suppliers = useSuppliers();
   const summaries = useMemo(() => computeBelanjaSkuSummary(allRows, skus), [allRows, skus]);
   const orders = useMemo(() => computeBelanjaOrders(allRows, skus), [allRows, skus]);
   const totalQty = summaries.reduce((s, x) => s + x.qty, 0);
@@ -523,7 +501,7 @@ function DashboardTab() {
   const [hppData] = useLocalStorage<HppPurchase[]>(HPP_STORAGE, []);
   const [opexData] = useLocalStorage<OpexPurchase[]>(OPEX_STORAGE, []);
   const [biayaData] = useLocalStorage<BiayaOp[]>(BIAYA_STORAGE, []);
-  const [suppliers] = useState<SupplierItem[]>(() => loadSuppliers());
+  const suppliers = useSuppliers();
 
   /* ── Periode ── */
   const [periode, setPeriode] = useState<'7hari' | '30hari' | 'bulanini' | 'semua'>('bulanini');
@@ -907,7 +885,7 @@ function useLocalStorage<T>(key: string, fallback: T): [T, React.Dispatch<React.
 function HppSkuTab() {
   const { skus, updateStok, setSkus } = useSkus();
   const [purchases, setPurchases] = useLocalStorage<HppPurchase[]>(HPP_STORAGE, []);
-  const [suppliers] = useState<SupplierItem[]>(() => loadSuppliers());
+  const suppliers = useSuppliers();
   const { addJurnal } = useAkuntansi();  // <-- Auto-jurnal
 
   /* Form state — single line input, multi-line cart */
@@ -1806,7 +1784,7 @@ function BiayaOpTab() {
 /* ================================================================ */
 function ArsipTab() {
   const [purchases] = useLocalStorage<HppPurchase[]>(HPP_STORAGE, []);
-  const [suppliers] = useState<SupplierItem[]>(() => loadSuppliers());
+  const suppliers = useSuppliers();
 
   const [filterTglDari, setFilterTglDari] = useState('');
   const [filterTglSampai, setFilterTglSampai] = useState('');
