@@ -154,6 +154,8 @@ function notifyListeners(key: string) {
 export function GlobalSyncProvider({ children }: { children: React.ReactNode }) {
   const initialized = useRef(false);
   const localSnapshots = useRef<Record<string, string>>({});
+  // Key yang pernah kita lihat tombstone-nya (buat bedain data baru vs data lama)
+  const tombstoneSeen = useRef<Set<string>>(new Set());
 
   const syncKey = async (key: string) => {
     try {
@@ -164,6 +166,23 @@ export function GlobalSyncProvider({ children }: { children: React.ReactNode }) 
 
       // ── Hapus global: tombstone dari user lain ──
       if (deletedAt !== null) {
+        const localStr = local === null ? null : JSON.stringify(local);
+        const prevStr = localSnapshots.current[key];
+        // Data lokal yang BARU (muncul/berubah SETELAH tombstone diproses)
+        // = aktivitas baru user → jangan dihapus, push balik ke server
+        // (POST /api/data otomatis membersihkan tombstone).
+        const localIsNew = local !== null && (
+          tombstoneSeen.current.has(key) ||
+          (prevStr !== undefined && localStr !== prevStr)
+        );
+        if (localIsNew) {
+          tombstoneSeen.current.delete(key);
+          localSnapshots.current[key] = localStr as string;
+          await pushToServer(key, local);
+          notifyListeners(key);
+          return;
+        }
+        tombstoneSeen.current.add(key);
         if (local !== null) {
           try { localStorage.removeItem(key); } catch {}
           delete localSnapshots.current[key];
@@ -171,6 +190,9 @@ export function GlobalSyncProvider({ children }: { children: React.ReactNode }) 
         }
         return; // jangan push balik data yang sengaja dihapus
       }
+
+      // Jalur normal: tombstone sudah tidak berlaku untuk key ini
+      tombstoneSeen.current.delete(key);
 
       if (local === null && server === null) return;
 

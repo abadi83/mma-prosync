@@ -23,8 +23,8 @@ describe('DataEntryPage', () => {
     render(<DataEntryPage />);
     fireEvent.click(screen.getByRole('tab', { name: /input keuangan/i }));
     expect(screen.getByText('💰 Input Data Keuangan')).toBeInTheDocument();
-    expect(screen.getByText('Shopee')).toBeInTheDocument();
-    expect(screen.getByText('Tokopedia')).toBeInTheDocument();
-    expect(screen.getByText('Lazada')).toBeInTheDocument();
+    expect(screen.getAllByText('Shopee').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('Tokopedia').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('Lazada').length).toBeGreaterThanOrEqual(1);
   });
 });

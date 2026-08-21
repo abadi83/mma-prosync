@@ -77,6 +77,20 @@ interface ShopeeOrder {
   totalPembayaran: number;    // [37] Total Pembayaran
 }
 
+/* ── Simpan data ke localStorage + server sekaligus ──
+   POST /api/data otomatis membersihkan tombstone reset lama,
+   jadi data baru tidak dihapus balik oleh GlobalSyncProvider. */
+async function saveSynced(key: string, data: unknown) {
+  try { localStorage.setItem(key, JSON.stringify(data)); } catch {}
+  try {
+    await fetch('/api/data', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key, data }),
+    });
+  } catch {}
+}
+
 export default function DataEntryPage() {
   const [tab, setTab] = useState<Tab>('shopee');
 
@@ -543,9 +557,9 @@ function InputKeuangan() {
     } catch { setTokoList(DEFAULT_TOKO); }
   }, []);
 
-  // Persist manual entries ke localStorage (biar Laba Rugi bisa baca)
+  // Persist manual entries ke localStorage + server (biar Laba Rugi bisa baca)
   useEffect(() => {
-    try { localStorage.setItem('mma_keuangan_manual', JSON.stringify(entries)); } catch { }
+    void saveSynced('mma_keuangan_manual', entries);
   }, [entries]);
 
   // Re-read saat ada update dari user lain (GlobalSyncProvider)
@@ -780,15 +794,17 @@ function InputKeuangan() {
           // Save
           try {
             const existing = JSON.parse(localStorage.getItem('mma_marketplace_orders') || '[]');
-            localStorage.setItem('mma_marketplace_orders', JSON.stringify([...newOrders, ...existing]));
             const summary = newOrders.map(o => ({
               id: o.id, tanggal: o.tanggal, marketplaceId: o.marketplaceId, marketplaceNama: `${o.marketplace} — ${o.tokoNama}`,
               pendapatanKotor: o.pendapatanKotor, feeMarketplace: o.totalBiaya, biayaIklan: 0, biayaPengemasan: 0,
               biayaPengiriman: o.ongkirAktual, pendapatanBersih: o.pendapatanBersih, biayaProses: o.biayaPemrosesan, totalHPP: o.totalHPP, catatan: o.catatan,
             }));
             const existingOld = JSON.parse(localStorage.getItem('mma_marketplace_income') || '[]');
-            localStorage.setItem('mma_marketplace_income', JSON.stringify([...summary, ...existingOld]));
+            // Simpan lokal + server sekaligus (hapus tombstone reset lama)
+            void saveSynced('mma_marketplace_orders', [...newOrders, ...existing]);
+            void saveSynced('mma_marketplace_income', [...summary, ...existingOld]);
             window.dispatchEvent(new Event('refresh-laporan'));
+            window.dispatchEvent(new Event('refresh-upload-history'));
           } catch { }
 
           const totalNet = newOrders.reduce((s,o) => s + o.pendapatanBersih, 0);
@@ -964,10 +980,9 @@ function InputKeuangan() {
           });
         }
 
-        // Simpan ke localStorage
+        // Simpan ke localStorage + server
         try {
           const existing = JSON.parse(localStorage.getItem('mma_marketplace_orders') || '[]');
-          localStorage.setItem('mma_marketplace_orders', JSON.stringify([...newOrders, ...existing]));
           // Juga simpan ringkasan untuk kompatibilitas
           const summary = newOrders.map(o => ({
             id: o.id, tanggal: o.tanggal, marketplaceId: o.marketplaceId, marketplaceNama: `${o.marketplace} — ${o.tokoNama}`,
@@ -975,9 +990,12 @@ function InputKeuangan() {
             biayaPengiriman: o.ongkirAktual, pendapatanBersih: o.pendapatanBersih, biayaProses: o.biayaPemrosesan, totalHPP: o.totalHPP, catatan: o.catatan,
           }));
           const existingOld = JSON.parse(localStorage.getItem('mma_marketplace_income') || '[]');
-          localStorage.setItem('mma_marketplace_income', JSON.stringify([...summary, ...existingOld]));
+          // Simpan lokal + server sekaligus (hapus tombstone reset lama)
+          void saveSynced('mma_marketplace_orders', [...newOrders, ...existing]);
+          void saveSynced('mma_marketplace_income', [...summary, ...existingOld]);
           // ── Trigger refresh Laba Rugi ──
           window.dispatchEvent(new Event('refresh-laporan'));
+          window.dispatchEvent(new Event('refresh-upload-history'));
         } catch { }
 
         const totalNet = newOrders.reduce((s,o) => s + o.pendapatanBersih, 0);
