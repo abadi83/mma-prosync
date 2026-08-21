@@ -424,8 +424,8 @@ const DATA_GROUPS = [
   },
   {
     label: '🛒 Pembelian & Biaya',
-    desc: 'Hapus semua PO, pembelian OPEX, dan biaya operasional.',
-    keys: ['mma_hpp_purchases', 'mma_opex_purchases', 'mma_biaya_operasional', 'mma_koreksi_po', 'mma_koreksi_refund'],
+    desc: 'Hapus semua PO, pembelian OPEX, biaya operasional, & riwayat harga modal.',
+    keys: ['mma_hpp_purchases', 'mma_opex_purchases', 'mma_biaya_operasional', 'mma_harga_modal_history', 'mma_koreksi_po', 'mma_koreksi_refund'],
   },
   {
     label: '💳 Keuangan',
@@ -439,8 +439,8 @@ const DATA_GROUPS = [
   },
   {
     label: '🏭 Operasional Gudang',
-    desc: 'Hapus data agregasi, handover, PO pickup, inventory check, fleet, face absensi.',
-    keys: ['mma_agregasi_data', 'mma_ho_archive', 'mma_po_pickup', 'mma_po_inventory_check', 'mma_fleet_master', 'mma_absensi_face', 'mma_face_data'],
+    desc: 'Hapus data agregasi, handover, PO pickup, inventory check, fleet, pengantaran offline, absensi.',
+    keys: ['mma_agregasi_rows', 'mma_ho_archive', 'mma_po_pickup', 'mma_po_inventory_check', 'mma_fleet_master', 'mma_pengantaran_offline', 'mma_absensi_face', 'mma_face_data'],
   },
   {
     label: '👥 Kepegawaian',
@@ -457,32 +457,53 @@ const DATA_GROUPS = [
 function DataTab() {
   const [confirmKey, setConfirmKey] = useState('');
   const [status, setStatus] = useState<{ type: 'ok' | 'err'; msg: string } | null>(null);
+  const [resetting, setResetting] = useState(false);
 
-  const handleReset = (group: typeof DATA_GROUPS[0]) => {
+  /* Reset = hapus LOKAL + SERVER (GlobalSyncProvider nge-sync ke /api/data,
+     jadi kalau cuma hapus localStorage, data balik lagi dalam 5 detik). */
+  const deleteKeys = async (keys: string[]) => {
+    // 1. Hapus global di server → tombstone bikin device lain ikut hapus
+    await Promise.allSettled(keys.map(k =>
+      fetch(`/api/data?key=${encodeURIComponent(k)}`, { method: 'DELETE' }).catch(() => null)
+    ));
+    // 2. Hapus lokal + beri tahu provider & tab lain
+    keys.forEach(k => {
+      try { localStorage.removeItem(k); } catch {}
+      try { window.dispatchEvent(new CustomEvent('global-data-reset', { detail: { key: k } })); } catch {}
+    });
+  };
+
+  const handleReset = async (group: typeof DATA_GROUPS[0]) => {
     if (group.dangerous && confirmKey !== 'RESET') {
       setStatus({ type: 'err', msg: 'Ketik "RESET" untuk konfirmasi penghapusan data SKU.' });
       return;
     }
+    setResetting(true);
     try {
-      group.keys.forEach(k => localStorage.removeItem(k));
-      setStatus({ type: 'ok', msg: `✅ ${group.label} berhasil direset. Refresh halaman untuk melihat perubahan.` });
+      await deleteKeys(group.keys);
+      setStatus({ type: 'ok', msg: `✅ ${group.label} berhasil direset (lokal + server). Refresh halaman untuk melihat perubahan.` });
       setConfirmKey('');
     } catch {
       setStatus({ type: 'err', msg: 'Gagal mereset data.' });
+    } finally {
+      setResetting(false);
     }
   };
 
-  const handleResetAll = () => {
+  const handleResetAll = async () => {
     if (confirmKey !== 'RESET ALL') {
       setStatus({ type: 'err', msg: 'Ketik "RESET ALL" untuk konfirmasi reset SEMUA data (kecuali supplier).' });
       return;
     }
+    setResetting(true);
     try {
-      DATA_GROUPS.forEach(g => g.keys.forEach(k => localStorage.removeItem(k)));
-      setStatus({ type: 'ok', msg: '✅ Semua data berhasil direset. Refresh halaman (F5) untuk memulai dari awal.' });
+      await deleteKeys(DATA_GROUPS.flatMap(g => g.keys));
+      setStatus({ type: 'ok', msg: '✅ Semua data berhasil direset (lokal + server). Refresh halaman (F5) untuk memulai dari awal.' });
       setConfirmKey('');
     } catch {
       setStatus({ type: 'err', msg: 'Gagal mereset data.' });
+    } finally {
+      setResetting(false);
     }
   };
 
@@ -521,9 +542,10 @@ function DataTab() {
               </div>
               <button
                 onClick={() => handleReset(group)}
-                className={`shrink-0 rounded-xl px-4 py-2 text-xs font-bold text-white transition ${group.dangerous ? 'bg-red-500 hover:bg-red-700' : 'bg-slate-500 hover:bg-slate-700'}`}
+                disabled={resetting}
+                className={`shrink-0 rounded-xl px-4 py-2 text-xs font-bold text-white transition ${group.dangerous ? 'bg-red-500 hover:bg-red-700' : 'bg-slate-500 hover:bg-slate-700'} disabled:opacity-50`}
               >
-                Reset
+                {resetting ? '⏳' : 'Reset'}
               </button>
             </div>
           </div>
@@ -544,7 +566,7 @@ function DataTab() {
           />
           <button
             onClick={handleResetAll}
-            disabled={confirmKey !== 'RESET ALL'}
+            disabled={confirmKey !== 'RESET ALL' || resetting}
             className="shrink-0 rounded-xl bg-red-500 px-6 py-2 text-sm font-bold text-white hover:bg-red-700 disabled:bg-slate-300 transition"
           >
             💣 Reset All

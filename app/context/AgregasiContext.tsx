@@ -184,6 +184,8 @@ export function AgregasiProvider({ children }: { children: React.ReactNode }) {
     setAllRows([]);
     if (typeof window !== 'undefined') {
       try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
+      // Hapus juga di server (GlobalSyncProvider) supaya data tidak balik lagi
+      try { window.dispatchEvent(new CustomEvent('global-data-reset', { detail: { key: STORAGE_KEY } })); } catch { /* ignore */ }
     }
   }, []);
 
