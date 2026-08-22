@@ -80,9 +80,10 @@ interface ShopeeOrder {
 /* ── Simpan data ke localStorage + server sekaligus ──
    POST /api/data otomatis membersihkan tombstone reset lama,
    jadi data baru tidak dihapus balik oleh GlobalSyncProvider. */
-async function saveSynced(key: string, data: unknown) {
+async function saveSynced(key: string, data: unknown): Promise<boolean> {
+  let ok = true;
   try { localStorage.setItem(key, JSON.stringify(data)); }
-  catch (e) { console.error(`Gagal simpan ${key} ke localStorage:`, e); }
+  catch (e) { ok = false; console.error(`Gagal simpan ${key} ke localStorage:`, e); }
   try {
     await fetch('/api/data', {
       method: 'POST',
@@ -90,6 +91,7 @@ async function saveSynced(key: string, data: unknown) {
       body: JSON.stringify({ key, data }),
     });
   } catch {}
+  return ok;
 }
 
 /* ── Riwayat Entry: log audit semua input (Pesanan, Operasional, Keuangan) ──
@@ -646,7 +648,7 @@ function InputKeuangan() {
     e.target.value = '';
     setUploading(true); setErr('');
     const r = new FileReader();
-    r.onload = ev => {
+    r.onload = async ev => {
       try {
         const data = new Uint8Array(ev.target?.result as ArrayBuffer);
         const wb = XLSX.read(data, { type: 'array' });
@@ -851,21 +853,35 @@ function InputKeuangan() {
           const freshCount = fresh.length;
           const skippedCount = newOrders.length - freshCount;
 
-          // Save
+          // Save — dedup penuh (bersihkan duplikat lama) + cek kuota penyimpanan
+          const summary = fresh.map(o => ({
+            id: o.id, tanggal: o.tanggal, marketplaceId: o.marketplaceId, marketplaceNama: `${o.marketplace} — ${o.tokoNama}`,
+            pendapatanKotor: o.pendapatanKotor, feeMarketplace: o.totalBiaya, biayaIklan: 0, biayaPengemasan: 0,
+            biayaPengiriman: o.ongkirAktual, pendapatanBersih: o.pendapatanBersih, biayaProses: o.biayaPemrosesan, totalHPP: o.totalHPP, catatan: o.catatan,
+          }));
+          let ordersSaved = false;
           try {
             const existing = JSON.parse(localStorage.getItem('mma_marketplace_orders') || '[]');
-            const summary = fresh.map(o => ({
-              id: o.id, tanggal: o.tanggal, marketplaceId: o.marketplaceId, marketplaceNama: `${o.marketplace} — ${o.tokoNama}`,
-              pendapatanKotor: o.pendapatanKotor, feeMarketplace: o.totalBiaya, biayaIklan: 0, biayaPengemasan: 0,
-              biayaPengiriman: o.ongkirAktual, pendapatanBersih: o.pendapatanBersih, biayaProses: o.biayaPemrosesan, totalHPP: o.totalHPP, catatan: o.catatan,
-            }));
+            const seen = new Map<string, any>();
+            for (const o of [...fresh, ...existing]) { const k = `${o.marketplace}||${o.noPesanan}`; if (!seen.has(k)) seen.set(k, o); }
+            const cleaned = Array.from(seen.values()).slice(0, 3000);
+            ordersSaved = await saveSynced('mma_marketplace_orders', cleaned);
+
             const existingOld = JSON.parse(localStorage.getItem('mma_marketplace_income') || '[]');
-            // Simpan lokal + server sekaligus (hapus tombstone reset lama)
-            void saveSynced('mma_marketplace_orders', [...fresh, ...existing].slice(0, 3000));
-            void saveSynced('mma_marketplace_income', [...summary, ...existingOld].slice(0, 6000));
+            const seenInc = new Map<string, any>();
+            for (const s of [...summary, ...existingOld]) { const k = String(s.id || ''); if (!seenInc.has(k)) seenInc.set(k, s); }
+            const cleanedIncome = Array.from(seenInc.values()).slice(0, 6000);
+            await saveSynced('mma_marketplace_income', cleanedIncome);
+
             window.dispatchEvent(new Event('refresh-laporan'));
             window.dispatchEvent(new Event('refresh-upload-history'));
           } catch { }
+
+          if (!ordersSaved) {
+            setUploading(false);
+            setErr('⚠️ Penyimpanan browser penuh — upload TIDAK tersimpan. Bersihkan data lama lewat Pengaturan → Reset Data (Pembelian & Biaya / Data Entry), lalu coba lagi.');
+            return;
+          }
 
           const totalNet = fresh.reduce((s,o) => s + o.pendapatanBersih, 0);
           const totalKotor = fresh.reduce((s,o) => s + o.pendapatanKotor, 0);
@@ -1055,23 +1071,36 @@ function InputKeuangan() {
         const freshCount = fresh.length;
         const skippedCount = newOrders.length - freshCount;
 
-        // Simpan ke localStorage + server
+        // Simpan ke localStorage + server — dedup penuh + cek kuota penyimpanan
+        const summary = fresh.map(o => ({
+          id: o.id, tanggal: o.tanggal, marketplaceId: o.marketplaceId, marketplaceNama: `${o.marketplace} — ${o.tokoNama}`,
+          pendapatanKotor: o.pendapatanKotor, feeMarketplace: o.totalBiaya, biayaIklan: 0, biayaPengemasan: 0,
+          biayaPengiriman: o.ongkirAktual, pendapatanBersih: o.pendapatanBersih, biayaProses: o.biayaPemrosesan, totalHPP: o.totalHPP, catatan: o.catatan,
+        }));
+        let ordersSaved = false;
         try {
           const existing = JSON.parse(localStorage.getItem('mma_marketplace_orders') || '[]');
-          // Juga simpan ringkasan untuk kompatibilitas
-          const summary = fresh.map(o => ({
-            id: o.id, tanggal: o.tanggal, marketplaceId: o.marketplaceId, marketplaceNama: `${o.marketplace} — ${o.tokoNama}`,
-            pendapatanKotor: o.pendapatanKotor, feeMarketplace: o.totalBiaya, biayaIklan: 0, biayaPengemasan: 0,
-            biayaPengiriman: o.ongkirAktual, pendapatanBersih: o.pendapatanBersih, biayaProses: o.biayaPemrosesan, totalHPP: o.totalHPP, catatan: o.catatan,
-          }));
+          const seen = new Map<string, any>();
+          for (const o of [...fresh, ...existing]) { const k = `${o.marketplace}||${o.noPesanan}`; if (!seen.has(k)) seen.set(k, o); }
+          const cleaned = Array.from(seen.values()).slice(0, 3000);
+          ordersSaved = await saveSynced('mma_marketplace_orders', cleaned);
+
           const existingOld = JSON.parse(localStorage.getItem('mma_marketplace_income') || '[]');
-          // Simpan lokal + server sekaligus (hapus tombstone reset lama)
-          void saveSynced('mma_marketplace_orders', [...fresh, ...existing].slice(0, 3000));
-          void saveSynced('mma_marketplace_income', [...summary, ...existingOld].slice(0, 6000));
+          const seenInc = new Map<string, any>();
+          for (const s of [...summary, ...existingOld]) { const k = String(s.id || ''); if (!seenInc.has(k)) seenInc.set(k, s); }
+          const cleanedIncome = Array.from(seenInc.values()).slice(0, 6000);
+          await saveSynced('mma_marketplace_income', cleanedIncome);
+
           // ── Trigger refresh Laba Rugi ──
           window.dispatchEvent(new Event('refresh-laporan'));
           window.dispatchEvent(new Event('refresh-upload-history'));
         } catch { }
+
+        if (!ordersSaved) {
+          setUploading(false);
+          setErr('⚠️ Penyimpanan browser penuh — upload TIDAK tersimpan. Bersihkan data lama lewat Pengaturan → Reset Data (Pembelian & Biaya / Data Entry), lalu coba lagi.');
+          return;
+        }
 
         const totalNet = fresh.reduce((s,o) => s + o.pendapatanBersih, 0);
         const totalKotor = fresh.reduce((s,o) => s + o.pendapatanKotor, 0);
