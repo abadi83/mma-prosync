@@ -81,7 +81,8 @@ interface ShopeeOrder {
    POST /api/data otomatis membersihkan tombstone reset lama,
    jadi data baru tidak dihapus balik oleh GlobalSyncProvider. */
 async function saveSynced(key: string, data: unknown) {
-  try { localStorage.setItem(key, JSON.stringify(data)); } catch {}
+  try { localStorage.setItem(key, JSON.stringify(data)); }
+  catch (e) { console.error(`Gagal simpan ${key} ke localStorage:`, e); }
   try {
     await fetch('/api/data', {
       method: 'POST',
@@ -843,34 +844,42 @@ function InputKeuangan() {
             });
           }
 
+          // Dedup: skip order yang sudah pernah diupload (key: marketplace||noPesanan)
+          let existingKeys = new Set<string>();
+          try { existingKeys = new Set((JSON.parse(localStorage.getItem('mma_marketplace_orders') || '[]') as any[]).map((o: any) => `${o.marketplace}||${o.noPesanan}`)); } catch {}
+          const fresh = newOrders.filter(o => !existingKeys.has(`${o.marketplace}||${o.noPesanan}`));
+          const freshCount = fresh.length;
+          const skippedCount = newOrders.length - freshCount;
+
           // Save
           try {
             const existing = JSON.parse(localStorage.getItem('mma_marketplace_orders') || '[]');
-            const summary = newOrders.map(o => ({
+            const summary = fresh.map(o => ({
               id: o.id, tanggal: o.tanggal, marketplaceId: o.marketplaceId, marketplaceNama: `${o.marketplace} — ${o.tokoNama}`,
               pendapatanKotor: o.pendapatanKotor, feeMarketplace: o.totalBiaya, biayaIklan: 0, biayaPengemasan: 0,
               biayaPengiriman: o.ongkirAktual, pendapatanBersih: o.pendapatanBersih, biayaProses: o.biayaPemrosesan, totalHPP: o.totalHPP, catatan: o.catatan,
             }));
             const existingOld = JSON.parse(localStorage.getItem('mma_marketplace_income') || '[]');
             // Simpan lokal + server sekaligus (hapus tombstone reset lama)
-            void saveSynced('mma_marketplace_orders', [...newOrders, ...existing]);
-            void saveSynced('mma_marketplace_income', [...summary, ...existingOld]);
+            void saveSynced('mma_marketplace_orders', [...fresh, ...existing].slice(0, 3000));
+            void saveSynced('mma_marketplace_income', [...summary, ...existingOld].slice(0, 6000));
             window.dispatchEvent(new Event('refresh-laporan'));
             window.dispatchEvent(new Event('refresh-upload-history'));
           } catch { }
 
-          const totalNet = newOrders.reduce((s,o) => s + o.pendapatanBersih, 0);
-          const totalKotor = newOrders.reduce((s,o) => s + o.pendapatanKotor, 0);
-          const totalFee = newOrders.reduce((s,o) => s + o.totalBiaya, 0);
+          const totalNet = fresh.reduce((s,o) => s + o.pendapatanBersih, 0);
+          const totalKotor = fresh.reduce((s,o) => s + o.pendapatanKotor, 0);
+          const totalFee = fresh.reduce((s,o) => s + o.totalBiaya, 0);
+          const totalHppFresh = fresh.reduce((s,o) => s + o.totalHPP, 0);
           setSuccess(true); setErr('');
 
           // Log ke Riwayat Entry
           appendRiwayat({
             kategori: 'Upload Keuangan', marketplace: mpObj.marketplace, namaToko: tokoNama,
-            jumlah: newOrders.length, keterangan: `Upload ${file.name}`,
+            jumlah: freshCount, keterangan: `Upload ${file.name}${skippedCount > 0 ? ` (${skippedCount} dilewati)` : ''}`,
           });
 
-          alert(`✅ ${newOrders.length} order diupload (${mpObj.marketplace} - Lazada).\n\n📊 Ringkasan:\n💰 Kotor: Rp ${totalKotor.toLocaleString('id-ID')}\n🛒 Fee: Rp ${totalFee.toLocaleString('id-ID')}\n📦 HPP: Rp ${totalHppAll.toLocaleString('id-ID')}\n📈 Profit: Rp ${totalNet.toLocaleString('id-ID')}${unmatchedSku>0?`\n⚠️ ${unmatchedSku} SKU tidak match`:'\n✅ Semua SKU match'}`);
+          alert(`✅ ${freshCount} order baru diupload (${mpObj.marketplace} - Lazada)${skippedCount > 0 ? `\n⏭️ ${skippedCount} order dilewati (sudah pernah diupload)` : ''}.\n\n📊 Ringkasan:\n💰 Kotor: Rp ${totalKotor.toLocaleString('id-ID')}\n🛒 Fee: Rp ${totalFee.toLocaleString('id-ID')}\n📦 HPP: Rp ${totalHppFresh.toLocaleString('id-ID')}\n📈 Profit: Rp ${totalNet.toLocaleString('id-ID')}${unmatchedSku>0?`\n⚠️ ${unmatchedSku} SKU tidak match`:'\n✅ Semua SKU match'}`);
           setTimeout(() => setSuccess(false), 5000);
           setUploading(false);
           if (fileRef.current) fileRef.current.value = '';
@@ -1039,33 +1048,41 @@ function InputKeuangan() {
           });
         }
 
+        // Dedup: skip order yang sudah pernah diupload (key: marketplace||noPesanan)
+        let existingKeys = new Set<string>();
+        try { existingKeys = new Set((JSON.parse(localStorage.getItem('mma_marketplace_orders') || '[]') as any[]).map((o: any) => `${o.marketplace}||${o.noPesanan}`)); } catch {}
+        const fresh = newOrders.filter(o => !existingKeys.has(`${o.marketplace}||${o.noPesanan}`));
+        const freshCount = fresh.length;
+        const skippedCount = newOrders.length - freshCount;
+
         // Simpan ke localStorage + server
         try {
           const existing = JSON.parse(localStorage.getItem('mma_marketplace_orders') || '[]');
           // Juga simpan ringkasan untuk kompatibilitas
-          const summary = newOrders.map(o => ({
+          const summary = fresh.map(o => ({
             id: o.id, tanggal: o.tanggal, marketplaceId: o.marketplaceId, marketplaceNama: `${o.marketplace} — ${o.tokoNama}`,
             pendapatanKotor: o.pendapatanKotor, feeMarketplace: o.totalBiaya, biayaIklan: 0, biayaPengemasan: 0,
             biayaPengiriman: o.ongkirAktual, pendapatanBersih: o.pendapatanBersih, biayaProses: o.biayaPemrosesan, totalHPP: o.totalHPP, catatan: o.catatan,
           }));
           const existingOld = JSON.parse(localStorage.getItem('mma_marketplace_income') || '[]');
           // Simpan lokal + server sekaligus (hapus tombstone reset lama)
-          void saveSynced('mma_marketplace_orders', [...newOrders, ...existing]);
-          void saveSynced('mma_marketplace_income', [...summary, ...existingOld]);
+          void saveSynced('mma_marketplace_orders', [...fresh, ...existing].slice(0, 3000));
+          void saveSynced('mma_marketplace_income', [...summary, ...existingOld].slice(0, 6000));
           // ── Trigger refresh Laba Rugi ──
           window.dispatchEvent(new Event('refresh-laporan'));
           window.dispatchEvent(new Event('refresh-upload-history'));
         } catch { }
 
-        const totalNet = newOrders.reduce((s,o) => s + o.pendapatanBersih, 0);
-        const totalKotor = newOrders.reduce((s,o) => s + o.pendapatanKotor, 0);
-        const totalFee = newOrders.reduce((s,o) => s + o.totalBiaya, 0);
+        const totalNet = fresh.reduce((s,o) => s + o.pendapatanBersih, 0);
+        const totalKotor = fresh.reduce((s,o) => s + o.pendapatanKotor, 0);
+        const totalFee = fresh.reduce((s,o) => s + o.totalBiaya, 0);
+        const totalHppFresh = fresh.reduce((s,o) => s + o.totalHPP, 0);
         setSuccess(true); setErr('');
 
         // Log ke Riwayat Entry
         appendRiwayat({
           kategori: 'Upload Keuangan', marketplace: mpObj.marketplace, namaToko: tokoNama,
-          jumlah: newOrders.length, keterangan: `Upload ${file.name}`,
+          jumlah: freshCount, keterangan: `Upload ${file.name}${skippedCount > 0 ? ` (${skippedCount} dilewati)` : ''}`,
         });
 
         // ── Kolom terdeteksi (debug) ──
@@ -1079,13 +1096,13 @@ function InputKeuangan() {
         const feeFound = feeCols.filter(c => c >= 0).length;
         colsFound.push(`${feeFound}/${feeCols.length} kolom fee terdeteksi`);
 
-        const hppMsg = totalHppAll > 0
-          ? `\n✅ HPP: Rp ${totalHppAll.toLocaleString('id-ID')} (${matchedSku} SKU matched dari ${skuMapSize} di Master)`
+        const hppMsg = totalHppFresh > 0
+          ? `\n✅ HPP: Rp ${totalHppFresh.toLocaleString('id-ID')} (${matchedSku} SKU matched dari ${skuMapSize} di Master)`
           : '\n⚠️ HPP: Rp 0 — tidak ada SKU yang match dengan Master Data!';
         const unmatchedMsg = unmatchedSku > 0
           ? `\n⚠️ ${unmatchedSku} SKU tidak ditemukan di Master: ${unmatchedList.slice(0,5).join(', ')}${unmatchedList.length>5?'...':''}`
           : '';
-        alert(`✅ ${newOrders.length} order diupload (${mpObj.marketplace}).\n\n📊 Ringkasan:\n💰 Kotor: Rp ${totalKotor.toLocaleString('id-ID')}\n🛒 Fee: Rp ${totalFee.toLocaleString('id-ID')}\n📦 HPP: Rp ${totalHppAll.toLocaleString('id-ID')}\n📈 Profit: Rp ${totalNet.toLocaleString('id-ID')}\n\n🔍 Kolom Terdeteksi:\n${colsFound.join('\n')}${hppMsg}${unmatchedMsg}`);
+        alert(`✅ ${freshCount} order baru diupload (${mpObj.marketplace})${skippedCount > 0 ? `\n⏭️ ${skippedCount} order dilewati (sudah pernah diupload)` : ''}.\n\n📊 Ringkasan:\n💰 Kotor: Rp ${totalKotor.toLocaleString('id-ID')}\n🛒 Fee: Rp ${totalFee.toLocaleString('id-ID')}\n📦 HPP: Rp ${totalHppFresh.toLocaleString('id-ID')}\n📈 Profit: Rp ${totalNet.toLocaleString('id-ID')}\n\n🔍 Kolom Terdeteksi:\n${colsFound.join('\n')}${hppMsg}${unmatchedMsg}`);
         setTimeout(() => setSuccess(false), 5000);
       } catch { setErr('Gagal membaca file. Pastikan format Excel benar.'); }
       setUploading(false);
