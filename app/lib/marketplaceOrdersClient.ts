@@ -11,24 +11,23 @@ export async function fetchMarketplaceOrders(): Promise<any[]> {
     if (res.ok) {
       const data = await res.json();
       if (Array.isArray(data)) {
-        if (data.length === 0) {
-          // DB kosong → coba impor data lama dari localStorage
-          try {
-            const local = JSON.parse(localStorage.getItem('mma_marketplace_orders') || '[]');
-            if (Array.isArray(local) && local.length > 0) {
-              await fetch('/api/marketplace-orders', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ orders: local }),
-              });
-              const res2 = await fetch(`/api/marketplace-orders?t=${Date.now()}`);
-              if (res2.ok) {
-                const d2 = await res2.json();
-                if (Array.isArray(d2) && d2.length > 0) return d2;
-              }
+        // Backfill: kalau cache lokal menyimpan LEBIH BANYAK order dari DB
+        // (data lama sebelum migrasi), impor dulu ke DB lalu baca ulang.
+        try {
+          const local = JSON.parse(localStorage.getItem('mma_marketplace_orders') || '[]');
+          if (Array.isArray(local) && local.length > data.length) {
+            await fetch('/api/marketplace-orders', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ orders: local }),
+            });
+            const res2 = await fetch(`/api/marketplace-orders?t=${Date.now()}`);
+            if (res2.ok) {
+              const d2 = await res2.json();
+              if (Array.isArray(d2) && d2.length >= local.length) return d2;
             }
-          } catch {}
-        }
+          }
+        } catch {}
         return data;
       }
     }
