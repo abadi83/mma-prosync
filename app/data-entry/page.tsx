@@ -705,7 +705,10 @@ function InputKeuangan() {
 
         // ── Deteksi marketplace ──
         const mpObj = uploadMpObj || MARKETPLACE_TOKO[0];
-        const tokoNama = uploadToko ? (filteredToko.find(t=>t.id===uploadToko)?.nama || '') : (mpObj.nama.split('—')[1]?.trim() || mpObj.nama);
+        const tokoObj = uploadToko ? filteredToko.find(t => t.id === uploadToko) : null;
+        const tokoNama = tokoObj?.nama || (mpObj.nama.split('—')[1]?.trim() || mpObj.nama);
+        // Label marketplace ikut toko yang dipilih (Shopee / GMT / Digo Tools, dll)
+        const marketplaceLabel = tokoObj?.marketplace || mpObj.marketplace;
 
         // ── PARSE LAZADA (format vertikal: 1 pesanan = banyak baris jenis biaya) ──
         if (isLazada) {
@@ -833,7 +836,7 @@ function InputKeuangan() {
             newOrders.push({
               id: `mp-${Date.now()}-${orderId.slice(-6)}`, noPesanan: orderId,
               tanggal: o.tanggal || new Date().toISOString().slice(0, 10),
-              marketplaceId: mpObj.id, marketplace: mpObj.marketplace, tokoNama,
+              marketplaceId: mpObj.id, marketplace: marketplaceLabel, tokoNama,
               pendapatanKotor: gross,
               pendapatanBersih: labaFinal,
               totalBiaya: totalFeeLazada,
@@ -908,11 +911,11 @@ function InputKeuangan() {
 
           // Log ke Riwayat Entry
           appendRiwayat({
-            kategori: 'Upload Keuangan', marketplace: mpObj.marketplace, namaToko: tokoNama,
+            kategori: 'Upload Keuangan', marketplace: marketplaceLabel, namaToko: tokoNama,
             jumlah: freshCount, keterangan: `Upload ${file.name}${skippedCount > 0 ? ` (${skippedCount} dilewati)` : ''}`,
           });
 
-          alert(`✅ Upload ${mpObj.marketplace} - Lazada selesai.\n📥 ${dbInserted} baru • ${dbUpdated} diperbarui${skippedCount > 0 ? ` • ${skippedCount} dilewati` : ''}.\n\n📊 Ringkasan (file ini):\n💰 Kotor: Rp ${totalKotor.toLocaleString('id-ID')}\n🛒 Fee: Rp ${totalFee.toLocaleString('id-ID')}\n📦 HPP: Rp ${totalHppFresh.toLocaleString('id-ID')}\n📈 Profit: Rp ${totalNet.toLocaleString('id-ID')}${unmatchedSku>0?`\n⚠️ ${unmatchedSku} SKU tidak match`:'\n✅ Semua SKU match'}`);
+          alert(`✅ Upload ${marketplaceLabel} - Lazada selesai.\n📥 ${dbInserted} baru • ${dbUpdated} diperbarui${skippedCount > 0 ? ` • ${skippedCount} dilewati` : ''}.\n\n📊 Ringkasan (file ini):\n💰 Kotor: Rp ${totalKotor.toLocaleString('id-ID')}\n🛒 Fee: Rp ${totalFee.toLocaleString('id-ID')}\n📦 HPP: Rp ${totalHppFresh.toLocaleString('id-ID')}\n📈 Profit: Rp ${totalNet.toLocaleString('id-ID')}${unmatchedSku>0?`\n⚠️ ${unmatchedSku} SKU tidak match`:'\n✅ Semua SKU match'}`);
           setTimeout(() => setSuccess(false), 5000);
           setUploading(false);
           if (fileRef.current) fileRef.current.value = '';
@@ -1060,7 +1063,7 @@ function InputKeuangan() {
             noPesanan: orderId,
             tanggal: o.tanggal || new Date().toISOString().slice(0, 10),
             marketplaceId: mpObj.id,
-            marketplace: mpObj.marketplace,
+            marketplace: marketplaceLabel,
             tokoNama,
             pendapatanKotor: grossRevenue,                        // ← dari kolom H/I Excel (Total Harga Produk)
             pendapatanBersih: labaFinal,                          // ← LABA BERSIH: Kotor - Fee - HPP (sebelum OPEX)
@@ -1144,7 +1147,7 @@ function InputKeuangan() {
 
         // Log ke Riwayat Entry
         appendRiwayat({
-          kategori: 'Upload Keuangan', marketplace: mpObj.marketplace, namaToko: tokoNama,
+          kategori: 'Upload Keuangan', marketplace: marketplaceLabel, namaToko: tokoNama,
           jumlah: freshCount, keterangan: `Upload ${file.name}${skippedCount > 0 ? ` (${skippedCount} dilewati)` : ''}`,
         });
 
@@ -1165,7 +1168,7 @@ function InputKeuangan() {
         const unmatchedMsg = unmatchedSku > 0
           ? `\n⚠️ ${unmatchedSku} SKU tidak ditemukan di Master: ${unmatchedList.slice(0,5).join(', ')}${unmatchedList.length>5?'...':''}`
           : '';
-        alert(`✅ Upload ${mpObj.marketplace} selesai.\n📥 ${dbInserted} baru • ${dbUpdated} diperbarui${skippedCount > 0 ? ` • ${skippedCount} dilewati` : ''}.\n\n📊 Ringkasan (file ini):\n💰 Kotor: Rp ${totalKotor.toLocaleString('id-ID')}\n🛒 Fee: Rp ${totalFee.toLocaleString('id-ID')}\n📦 HPP: Rp ${totalHppFresh.toLocaleString('id-ID')}\n📈 Profit: Rp ${totalNet.toLocaleString('id-ID')}\n\n🔍 Kolom Terdeteksi:\n${colsFound.join('\n')}${hppMsg}${unmatchedMsg}`);
+        alert(`✅ Upload ${marketplaceLabel} selesai.\n📥 ${dbInserted} baru • ${dbUpdated} diperbarui${skippedCount > 0 ? ` • ${skippedCount} dilewati` : ''}.\n\n📊 Ringkasan (file ini):\n💰 Kotor: Rp ${totalKotor.toLocaleString('id-ID')}\n🛒 Fee: Rp ${totalFee.toLocaleString('id-ID')}\n📦 HPP: Rp ${totalHppFresh.toLocaleString('id-ID')}\n📈 Profit: Rp ${totalNet.toLocaleString('id-ID')}\n\n🔍 Kolom Terdeteksi:\n${colsFound.join('\n')}${hppMsg}${unmatchedMsg}`);
         setTimeout(() => setSuccess(false), 5000);
       } catch { setErr('Gagal membaca file. Pastikan format Excel benar.'); }
       setUploading(false);

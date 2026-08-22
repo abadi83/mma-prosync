@@ -66,8 +66,7 @@ export async function listMarketplaceOrders(tokoId?: string): Promise<Marketplac
             catatan, status_pesanan
      FROM marketplace_order
      WHERE toko_id = $1
-     ORDER BY created_at DESC, id DESC
-     LIMIT 5000`,
+     ORDER BY created_at DESC, id DESC`,
     [tokoId || DEFAULT_TOKO]
   );
   return rows.map(mapRow);
