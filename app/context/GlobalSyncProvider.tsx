@@ -17,6 +17,8 @@ const SYNC_KEYS = [
   'mma_marketplace_orders',
   'mma_marketplace_income',
   'mma_keuangan_manual',
+  'mma_ops_entries',
+  'mma_riwayat_entry',
   'mma_agregasi_rows',
   'mma_sku_data',
   'mma_toko_master',

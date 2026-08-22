@@ -91,6 +91,31 @@ async function saveSynced(key: string, data: unknown) {
   } catch {}
 }
 
+/* ── Riwayat Entry: log audit semua input (Pesanan, Operasional, Keuangan) ──
+   Sumber: mma_riwayat_entry (tersinkron antar device via GlobalSyncProvider).
+   Riwayat TIDAK ikut reset data umum — reset lewat tombol khusus di tab Riwayat. */
+const RIWAYAT_STORAGE = 'mma_riwayat_entry';
+
+interface RiwayatItem {
+  id: string;
+  waktu: string;
+  kategori: 'Pesanan' | 'Operasional' | 'Keuangan' | 'Upload Keuangan';
+  marketplace: string;
+  namaToko: string;
+  jumlah: number;
+  keterangan: string;
+}
+
+function appendRiwayat(item: Omit<RiwayatItem, 'id' | 'waktu'>) {
+  try {
+    const existing: RiwayatItem[] = JSON.parse(localStorage.getItem(RIWAYAT_STORAGE) || '[]');
+    const entry: RiwayatItem = { id: `rw-${Date.now()}`, waktu: new Date().toLocaleString('id-ID'), ...item };
+    const next = [entry, ...existing].slice(0, 100);
+    void saveSynced(RIWAYAT_STORAGE, next);
+    window.dispatchEvent(new Event('refresh-riwayat-entry'));
+  } catch {}
+}
+
 export default function DataEntryPage() {
   const [tab, setTab] = useState<Tab>('shopee');
 
@@ -299,6 +324,13 @@ function PesananShopee() {
     }));
     addRows(ctxRows);
 
+    // Log ke Riwayat Entry
+    appendRiwayat({
+      kategori: 'Pesanan', marketplace: toko.marketplace,
+      namaToko: toko.nama.split('—')[1]?.trim() || toko.nama,
+      jumlah: staged.length, keterangan: `Upload ${stagedFile}`,
+    });
+
     setHistory(prev => [{
       id: `h-${Date.now()}`, waktu: new Date().toLocaleString('id-ID'),
       marketplace: toko.marketplace, namaToko: toko.nama.split('—')[1]?.trim() || toko.nama,
@@ -469,15 +501,31 @@ function PesananShopee() {
 /* INPUT DATA OPERASIONAL                                            */
 /* ═══════════════════════════════════════════════════════════════════ */
 function InputOperasional() {
-  const [entries, setEntries] = useState<OpsEntry[]>([]);
+  const [entries, setEntries] = useState<OpsEntry[]>(() => {
+    if (typeof window === 'undefined') return [];
+    try { const raw = localStorage.getItem('mma_ops_entries'); return raw ? JSON.parse(raw) : []; } catch { return []; }
+  });
   const [form, setForm] = useState({ tanggal: new Date().toISOString().slice(0, 10), jamBuka: '08:00', jamTutup: '17:00', jumlahKaryawan: '', catatan: '' });
   const [err, setErr] = useState('');
   const [success, setSuccess] = useState(false);
+
+  // Persist ke localStorage biar tidak hilang saat pindah tab
+  useEffect(() => {
+    try { localStorage.setItem('mma_ops_entries', JSON.stringify(entries)); } catch {}
+  }, [entries]);
 
   const save = () => {
     if (!form.jumlahKaryawan || +form.jumlahKaryawan <= 0) { setErr('Jumlah karyawan wajib diisi.'); return; }
     setEntries(p => [{ id: `ops-${Date.now()}`, ...form, jumlahKaryawan: +form.jumlahKaryawan }, ...p]);
     setForm({ tanggal: new Date().toISOString().slice(0, 10), jamBuka: '08:00', jamTutup: '17:00', jumlahKaryawan: '', catatan: '' });
+
+    // Log ke Riwayat Entry
+    appendRiwayat({
+      kategori: 'Operasional', marketplace: '-', namaToko: '',
+      jumlah: +form.jumlahKaryawan,
+      keterangan: `${form.tanggal} • ${form.jamBuka}–${form.jamTutup}`,
+    });
+
     setErr(''); setSuccess(true);
     setTimeout(() => setSuccess(false), 3000);
   };
@@ -811,6 +859,13 @@ function InputKeuangan() {
           const totalKotor = newOrders.reduce((s,o) => s + o.pendapatanKotor, 0);
           const totalFee = newOrders.reduce((s,o) => s + o.totalBiaya, 0);
           setSuccess(true); setErr('');
+
+          // Log ke Riwayat Entry
+          appendRiwayat({
+            kategori: 'Upload Keuangan', marketplace: mpObj.marketplace, namaToko: tokoNama,
+            jumlah: newOrders.length, keterangan: `Upload ${file.name}`,
+          });
+
           alert(`✅ ${newOrders.length} order diupload (${mpObj.marketplace} - Lazada).\n\n📊 Ringkasan:\n💰 Kotor: Rp ${totalKotor.toLocaleString('id-ID')}\n🛒 Fee: Rp ${totalFee.toLocaleString('id-ID')}\n📦 HPP: Rp ${totalHppAll.toLocaleString('id-ID')}\n📈 Profit: Rp ${totalNet.toLocaleString('id-ID')}${unmatchedSku>0?`\n⚠️ ${unmatchedSku} SKU tidak match`:'\n✅ Semua SKU match'}`);
           setTimeout(() => setSuccess(false), 5000);
           setUploading(false);
@@ -1003,6 +1058,12 @@ function InputKeuangan() {
         const totalFee = newOrders.reduce((s,o) => s + o.totalBiaya, 0);
         setSuccess(true); setErr('');
 
+        // Log ke Riwayat Entry
+        appendRiwayat({
+          kategori: 'Upload Keuangan', marketplace: mpObj.marketplace, namaToko: tokoNama,
+          jumlah: newOrders.length, keterangan: `Upload ${file.name}`,
+        });
+
         // ── Kolom terdeteksi (debug) ──
         const colsFound: string[] = [];
         if (iHargaJual >= 0) colsFound.push('✅ Total Harga Produk');
@@ -1033,6 +1094,14 @@ function InputKeuangan() {
     if (pk <= 0) { setErr('Pendapatan kotor wajib diisi.'); return; }
     setEntries(p => [{ id: `keu-${Date.now()}`, tanggal: form.tanggal, marketplaceId: mp.id, marketplaceNama: mp.nama, pendapatanKotor: pk, feeMarketplace: fee, biayaIklan: +form.biayaIklan || 0, biayaPengemasan: +form.biayaPengemasan || 0, biayaPengiriman: +form.biayaPengiriman || 0, pendapatanBersih: bersih, catatan: form.catatan }, ...p]);
     setForm({ tanggal: new Date().toISOString().slice(0, 10), pendapatanKotor: '', biayaIklan: '', biayaPengemasan: '', biayaPengiriman: '', catatan: '' });
+
+    // Log ke Riwayat Entry
+    appendRiwayat({
+      kategori: 'Keuangan', marketplace: mp.marketplace,
+      namaToko: mp.nama.split('—')[1]?.trim() || mp.nama,
+      jumlah: 1, keterangan: `Manual ${form.tanggal}`,
+    });
+
     setErr(''); setSuccess(true);
     // ── Trigger refresh Laba Rugi ──
     if (typeof window !== 'undefined') window.dispatchEvent(new Event('refresh-laporan'));
@@ -1179,16 +1248,80 @@ function InputKeuangan() {
 /* RIWAYAT ENTRY (gabungan)                                          */
 /* ═══════════════════════════════════════════════════════════════════ */
 function RiwayatEntry() {
+  const [riwayat, setRiwayat] = useState<RiwayatItem[]>([]);
+
+  useEffect(() => {
+    const load = () => {
+      try {
+        const raw = localStorage.getItem(RIWAYAT_STORAGE);
+        setRiwayat(raw ? JSON.parse(raw) : []);
+      } catch { setRiwayat([]); }
+    };
+    load();
+    window.addEventListener('storage', load);
+    window.addEventListener('shared-data-updated', load);
+    window.addEventListener('refresh-riwayat-entry', load);
+    return () => {
+      window.removeEventListener('storage', load);
+      window.removeEventListener('shared-data-updated', load);
+      window.removeEventListener('refresh-riwayat-entry', load);
+    };
+  }, []);
+
+  /* Riwayat = jejak audit → TIDAK ikut Reset All. Hapus lewat tombol ini saja. */
+  const hapusRiwayat = () => {
+    if (!confirm('🗑 Hapus SEMUA riwayat entry?\n\nData transaksi (pesanan, operasional, keuangan) TIDAK terpengaruh.')) return;
+    try { localStorage.removeItem(RIWAYAT_STORAGE); } catch {}
+    setRiwayat([]);
+    window.dispatchEvent(new CustomEvent('global-data-reset', { detail: { key: RIWAYAT_STORAGE } }));
+  };
+
+  const badge: Record<string, string> = {
+    'Pesanan': 'bg-orange-100 text-orange-700',
+    'Operasional': 'bg-blue-100 text-blue-700',
+    'Keuangan': 'bg-emerald-100 text-emerald-700',
+    'Upload Keuangan': 'bg-purple-100 text-purple-700',
+  };
+
   return (
     <div>
       <div className="mb-1 h-1 w-16 rounded-full bg-gradient-to-r from-brand-500 to-brand-300" />
-      <h2 className="text-lg font-bold text-slate-800 sm:text-xl">📜 Riwayat Entry</h2>
-      <p className="mt-1 text-sm text-slate-500">Semua data yang sudah diinput akan muncul di sini setelah disimpan. Riwayat akan terintegrasi antar sesi.</p>
-      <div className="mt-6 text-center py-10 text-slate-400">
-        <p className="text-4xl mb-2">📜</p>
-        <p className="text-sm">Riwayat entry akan ditampilkan di sini.</p>
-        <p className="text-xs mt-1">Gunakan tab Input Operasional & Input Keuangan untuk mencatat data baru.</p>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h2 className="text-lg font-bold text-slate-800 sm:text-xl">📜 Riwayat Entry</h2>
+          <p className="mt-1 text-sm text-slate-500">{riwayat.length} aktivitas input tercatat • Riwayat tidak ikut ter-reset oleh Reset Data (jejak audit).</p>
+        </div>
+        {riwayat.length > 0 && (
+          <button onClick={hapusRiwayat} className="rounded-xl bg-red-100 px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-200 transition">
+            🗑 Hapus Riwayat
+          </button>
+        )}
       </div>
+
+      {riwayat.length === 0 ? (
+        <div className="mt-6 text-center py-10 text-slate-400">
+          <p className="text-4xl mb-2">📜</p>
+          <p className="text-sm">Belum ada riwayat entry.</p>
+          <p className="text-xs mt-1">Upload pesanan, input operasional, atau input keuangan — semua aktivitas tercatat di sini.</p>
+        </div>
+      ) : (
+        <div className="mt-4 overflow-x-auto rounded-xl border border-slate-100">
+          <table className="w-full text-left text-sm">
+            <thead><tr className="bg-brand-50 text-xs uppercase text-brand-500">{['Waktu','Kategori','Marketplace / Toko','Jumlah','Keterangan'].map(c => <th key={c} className="px-3 py-3 font-semibold whitespace-nowrap">{c}</th>)}</tr></thead>
+            <tbody className="divide-y divide-slate-50 bg-white">
+              {riwayat.map(r => (
+                <tr key={r.id} className="hover:bg-brand-50/30">
+                  <td className="px-3 py-2.5 text-xs text-slate-400 whitespace-nowrap">{r.waktu}</td>
+                  <td className="px-3 py-2.5"><span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold whitespace-nowrap ${badge[r.kategori] || 'bg-slate-100 text-slate-600'}`}>{r.kategori}</span></td>
+                  <td className="px-3 py-2.5 text-xs font-medium text-slate-700">{r.marketplace !== '-' ? `${r.marketplace}${r.namaToko ? ' — ' + r.namaToko : ''}` : '-'}</td>
+                  <td className="px-3 py-2.5 text-xs text-slate-600">{r.jumlah}</td>
+                  <td className="px-3 py-2.5 text-xs text-slate-500">{r.keterangan}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
