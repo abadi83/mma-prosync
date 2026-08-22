@@ -853,12 +853,9 @@ function InputKeuangan() {
           const freshCount = fresh.length;
           const skippedCount = newOrders.length - freshCount;
 
-          // Save — dedup penuh (bersihkan duplikat lama) + cek kuota penyimpanan
-          const summary = fresh.map(o => ({
-            id: o.id, tanggal: o.tanggal, marketplaceId: o.marketplaceId, marketplaceNama: `${o.marketplace} — ${o.tokoNama}`,
-            pendapatanKotor: o.pendapatanKotor, feeMarketplace: o.totalBiaya, biayaIklan: 0, biayaPengemasan: 0,
-            biayaPengiriman: o.ongkirAktual, pendapatanBersih: o.pendapatanBersih, biayaProses: o.biayaPemrosesan, totalHPP: o.totalHPP, catatan: o.catatan,
-          }));
+          // Save — dedup penuh (bersihkan duplikat lama) + cek kuota penyimpanan.
+          // Ringkasan income TIDAK lagi disimpan duplikat (hemat storage) —
+          // Laporan membaca langsung dari mma_marketplace_orders.
           let ordersSaved = false;
           try {
             const existing = JSON.parse(localStorage.getItem('mma_marketplace_orders') || '[]');
@@ -867,11 +864,9 @@ function InputKeuangan() {
             const cleaned = Array.from(seen.values()).slice(0, 3000);
             ordersSaved = await saveSynced('mma_marketplace_orders', cleaned);
 
-            const existingOld = JSON.parse(localStorage.getItem('mma_marketplace_income') || '[]');
-            const seenInc = new Map<string, any>();
-            for (const s of [...summary, ...existingOld]) { const k = String(s.id || ''); if (!seenInc.has(k)) seenInc.set(k, s); }
-            const cleanedIncome = Array.from(seenInc.values()).slice(0, 6000);
-            await saveSynced('mma_marketplace_income', cleanedIncome);
+            // Bersihkan ringkasan income legacy (tidak dipakai lagi — hemat storage)
+            try { localStorage.removeItem('mma_marketplace_income'); } catch {}
+            try { fetch(`/api/data?key=${encodeURIComponent('mma_marketplace_income')}`, { method: 'DELETE' }); } catch {}
 
             window.dispatchEvent(new Event('refresh-laporan'));
             window.dispatchEvent(new Event('refresh-upload-history'));
@@ -879,7 +874,7 @@ function InputKeuangan() {
 
           if (!ordersSaved) {
             setUploading(false);
-            setErr('⚠️ Penyimpanan browser penuh — upload TIDAK tersimpan. Bersihkan data lama lewat Pengaturan → Reset Data (Pembelian & Biaya / Data Entry), lalu coba lagi.');
+            setErr('⚠️ Penyimpanan browser penuh — upload TIDAK tersimpan. Klik tombol 🗑️ Reset Data di halaman ini (kanan atas), lalu coba upload lagi.');
             return;
           }
 
@@ -1071,12 +1066,9 @@ function InputKeuangan() {
         const freshCount = fresh.length;
         const skippedCount = newOrders.length - freshCount;
 
-        // Simpan ke localStorage + server — dedup penuh + cek kuota penyimpanan
-        const summary = fresh.map(o => ({
-          id: o.id, tanggal: o.tanggal, marketplaceId: o.marketplaceId, marketplaceNama: `${o.marketplace} — ${o.tokoNama}`,
-          pendapatanKotor: o.pendapatanKotor, feeMarketplace: o.totalBiaya, biayaIklan: 0, biayaPengemasan: 0,
-          biayaPengiriman: o.ongkirAktual, pendapatanBersih: o.pendapatanBersih, biayaProses: o.biayaPemrosesan, totalHPP: o.totalHPP, catatan: o.catatan,
-        }));
+        // Simpan ke localStorage + server — dedup penuh + cek kuota penyimpanan.
+        // Ringkasan income TIDAK lagi disimpan duplikat (hemat storage) —
+        // Laporan membaca langsung dari mma_marketplace_orders.
         let ordersSaved = false;
         try {
           const existing = JSON.parse(localStorage.getItem('mma_marketplace_orders') || '[]');
@@ -1085,11 +1077,9 @@ function InputKeuangan() {
           const cleaned = Array.from(seen.values()).slice(0, 3000);
           ordersSaved = await saveSynced('mma_marketplace_orders', cleaned);
 
-          const existingOld = JSON.parse(localStorage.getItem('mma_marketplace_income') || '[]');
-          const seenInc = new Map<string, any>();
-          for (const s of [...summary, ...existingOld]) { const k = String(s.id || ''); if (!seenInc.has(k)) seenInc.set(k, s); }
-          const cleanedIncome = Array.from(seenInc.values()).slice(0, 6000);
-          await saveSynced('mma_marketplace_income', cleanedIncome);
+          // Bersihkan ringkasan income legacy (tidak dipakai lagi — hemat storage)
+          try { localStorage.removeItem('mma_marketplace_income'); } catch {}
+          try { fetch(`/api/data?key=${encodeURIComponent('mma_marketplace_income')}`, { method: 'DELETE' }); } catch {}
 
           // ── Trigger refresh Laba Rugi ──
           window.dispatchEvent(new Event('refresh-laporan'));
@@ -1098,7 +1088,7 @@ function InputKeuangan() {
 
         if (!ordersSaved) {
           setUploading(false);
-          setErr('⚠️ Penyimpanan browser penuh — upload TIDAK tersimpan. Bersihkan data lama lewat Pengaturan → Reset Data (Pembelian & Biaya / Data Entry), lalu coba lagi.');
+          setErr('⚠️ Penyimpanan browser penuh — upload TIDAK tersimpan. Klik tombol 🗑️ Reset Data di halaman ini (kanan atas), lalu coba upload lagi.');
           return;
         }
 

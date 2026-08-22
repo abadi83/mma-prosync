@@ -452,6 +452,11 @@ const DATA_GROUPS = [
     desc: 'Hapus riwayat transaksi penjualan.',
     keys: ['mma_penjualan_transaksi'],
   },
+  {
+    label: '🧾 Data Entry & Marketplace',
+    desc: 'Hapus upload Excel marketplace, input keuangan manual, & input operasional.',
+    keys: ['mma_marketplace_orders', 'mma_marketplace_income', 'mma_keuangan_manual', 'mma_ops_entries'],
+  },
 ];
 
 function DataTab() {
