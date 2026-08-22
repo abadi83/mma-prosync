@@ -862,7 +862,20 @@ function InputKeuangan() {
             const seen = new Map<string, any>();
             for (const o of [...fresh, ...existing]) { const k = `${o.marketplace}||${o.noPesanan}`; if (!seen.has(k)) seen.set(k, o); }
             const cleaned = Array.from(seen.values()).slice(0, 3000);
-            ordersSaved = await saveSynced('mma_marketplace_orders', cleaned);
+
+            // Sumber utama = PostgreSQL di VPS (browser tidak kehabisan storage).
+            // localStorage hanya cache 50 terbaru untuk fallback offline.
+            let serverOk = false;
+            try {
+              const res = await fetch('/api/marketplace-orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ orders: fresh }) });
+              serverOk = res.ok;
+            } catch {}
+            if (serverOk) {
+              ordersSaved = true;
+              try { localStorage.setItem('mma_marketplace_orders', JSON.stringify(cleaned.slice(0, 50))); } catch {}
+            } else {
+              ordersSaved = await saveSynced('mma_marketplace_orders', cleaned);
+            }
 
             // Bersihkan ringkasan income legacy (tidak dipakai lagi — hemat storage)
             try { localStorage.removeItem('mma_marketplace_income'); } catch {}
@@ -1075,7 +1088,20 @@ function InputKeuangan() {
           const seen = new Map<string, any>();
           for (const o of [...fresh, ...existing]) { const k = `${o.marketplace}||${o.noPesanan}`; if (!seen.has(k)) seen.set(k, o); }
           const cleaned = Array.from(seen.values()).slice(0, 3000);
-          ordersSaved = await saveSynced('mma_marketplace_orders', cleaned);
+
+          // Sumber utama = PostgreSQL di VPS (browser tidak kehabisan storage).
+          // localStorage hanya cache 50 terbaru untuk fallback offline.
+          let serverOk = false;
+          try {
+            const res = await fetch('/api/marketplace-orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ orders: fresh }) });
+            serverOk = res.ok;
+          } catch {}
+          if (serverOk) {
+            ordersSaved = true;
+            try { localStorage.setItem('mma_marketplace_orders', JSON.stringify(cleaned.slice(0, 50))); } catch {}
+          } else {
+            ordersSaved = await saveSynced('mma_marketplace_orders', cleaned);
+          }
 
           // Bersihkan ringkasan income legacy (tidak dipakai lagi — hemat storage)
           try { localStorage.removeItem('mma_marketplace_income'); } catch {}
@@ -1164,6 +1190,7 @@ function InputKeuangan() {
             if (!confirm('⚠️ Hapus SEMUA data Input Keuangan & Riwayat Marketplace?\n\nData yang dihapus: Upload Excel, input manual, riwayat marketplace.\n\nData Master SKU & lainnya TIDAK terpengaruh.')) return;
             // Hapus global: localStorage lokal + server (propagasi ke semua user)
             try { localStorage.removeItem('mma_marketplace_orders'); } catch {}
+            try { fetch('/api/marketplace-orders', { method: 'DELETE' }); } catch {}
             try { localStorage.removeItem('mma_marketplace_income'); } catch {}
             try { localStorage.removeItem('mma_keuangan_manual'); } catch {}
             setEntries([]);
@@ -1374,18 +1401,28 @@ function UploadHistory() {
   const [filterStatus, setFilterStatus] = useState('semua');
 
   useEffect(() => {
-    const loadOrders = () => {
+    let active = true;
+    const loadOrders = async () => {
+      // Sumber utama = PostgreSQL via API (storage browser tidak terbatas lagi)
+      try {
+        const res = await fetch(`/api/marketplace-orders?t=${Date.now()}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (active && Array.isArray(data)) { setOrders(data); return; }
+        }
+      } catch { }
+      // Fallback offline: cache lokal (50 terbaru)
       try {
         const stored = localStorage.getItem('mma_marketplace_orders');
-        if (stored) setOrders(JSON.parse(stored));
-        else setOrders([]);
-      } catch { }
+        if (active) setOrders(stored ? JSON.parse(stored) : []);
+      } catch { if (active) setOrders([]); }
     };
     loadOrders();
     window.addEventListener('storage', loadOrders);
     // Juga listen custom refresh event
     window.addEventListener('refresh-upload-history', loadOrders);
     return () => {
+      active = false;
       window.removeEventListener('storage', loadOrders);
       window.removeEventListener('refresh-upload-history', loadOrders);
     };

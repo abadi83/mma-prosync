@@ -471,6 +471,10 @@ function DataTab() {
     await Promise.allSettled(keys.map(k =>
       fetch(`/api/data?key=${encodeURIComponent(k)}`, { method: 'DELETE' }).catch(() => null)
     ));
+    // Order marketplace sekarang di PostgreSQL → hapus lewat API khusus
+    if (keys.includes('mma_marketplace_orders')) {
+      try { await fetch('/api/marketplace-orders', { method: 'DELETE' }); } catch {}
+    }
     // 2. Hapus lokal + beri tahu provider & tab lain
     keys.forEach(k => {
       try { localStorage.removeItem(k); } catch {}

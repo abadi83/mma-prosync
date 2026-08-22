@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 
 /**
  * GlobalSyncProvider — sync dua arah untuk SEMUA data yang masih di localStorage.
@@ -14,8 +14,6 @@ import { useEffect, useRef } from 'react';
 
 const SYNC_KEYS = [
   // Data Entry & operasional
-  'mma_marketplace_orders',
-  'mma_marketplace_income',
   'mma_keuangan_manual',
   'mma_ops_entries',
   'mma_riwayat_entry',

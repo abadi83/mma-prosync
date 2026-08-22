@@ -73,6 +73,33 @@ export default function LaporanPage() {
 
   const realData = useMemo(() => (mounted ? getRealData() : { penjualan: [], payments: [], biaya: [], opex: [], modal: [], keuanganManual: [], mpIncome: [] }), [mounted, refreshKey]);
 
+  // ── Order marketplace dari PostgreSQL (API) — fallback ke localStorage ──
+  const [mpOrdersApi, setMpOrdersApi] = useState<any[]>([]);
+  useEffect(() => {
+    let active = true;
+    const load = async () => {
+      try {
+        const res = await fetch(`/api/marketplace-orders?t=${Date.now()}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (active && Array.isArray(data)) { setMpOrdersApi(data); return; }
+        }
+      } catch { }
+      try {
+        const local = JSON.parse(localStorage.getItem('mma_marketplace_orders') || '[]');
+        if (active) setMpOrdersApi(local);
+      } catch { }
+    };
+    load();
+    window.addEventListener('refresh-laporan', load);
+    window.addEventListener('storage', load);
+    return () => {
+      active = false;
+      window.removeEventListener('refresh-laporan', load);
+      window.removeEventListener('storage', load);
+    };
+  }, []);
+
   const penjualanFiltered = useMemo(() => filterByPeriode(realData.penjualan, 'tanggal', periode, customStart, customEnd), [realData, periode, customStart, customEnd]);
   const paymentsFiltered = useMemo(() => filterByPeriode(realData.payments, 'tanggalBayar', periode, customStart, customEnd), [realData, periode, customStart, customEnd]);
   const biayaFiltered = useMemo(() => filterByPeriode(realData.biaya, 'tanggal', periode, customStart, customEnd), [realData, periode, customStart, customEnd]);
@@ -108,8 +135,7 @@ export default function LaporanPage() {
     let marketplaceHpp = 0;
     let marketplaceKotor = 0;
     try {
-      const mpOrders = JSON.parse(localStorage.getItem('mma_marketplace_orders') || '[]');
-      const mpFiltered = filterByPeriode(mpOrders, 'tanggal', periode, customStart, customEnd);
+      const mpFiltered = filterByPeriode(mpOrdersApi, 'tanggal', periode, customStart, customEnd);
       marketplaceNet = mpFiltered.reduce((s: number, o: any) => s + (o.pendapatanBersih || 0), 0);
       marketplaceHpp = mpFiltered.reduce((s: number, o: any) => s + (o.totalHPP || 0), 0);
       marketplaceKotor = mpFiltered.reduce((s: number, o: any) => s + (o.pendapatanKotor || 0), 0);
@@ -137,7 +163,7 @@ export default function LaporanPage() {
     const labaKotor = totalPendapatan - totalHPP - manualFee;
     const labaBersih = labaKotor - biayaOps - opexTotal;
     return { pendapatan: totalPendapatan, hargaPokok: totalHPP, biayaOperasional: biayaOps, biayaLain: opexTotal + manualFee, labaKotor, labaBersih };
-  }, [penjualanFiltered, biayaFiltered, opexFiltered, paymentsFiltered, periode, realData, customStart, customEnd]);
+  }, [penjualanFiltered, biayaFiltered, opexFiltered, paymentsFiltered, periode, realData, mpOrdersApi, customStart, customEnd]);
 
   // Arus Kas real
   const arusKasData = useMemo(() => {
@@ -242,7 +268,7 @@ export default function LaporanPage() {
 
       {/* Konten Laporan */}
       <section className="card-blue">
-        {jenis === 'laba-rugi' && <LabaRugi periode={periode} customStart={customStart} customEnd={customEnd} />}
+        {jenis === 'laba-rugi' && <LabaRugi periode={periode} customStart={customStart} customEnd={customEnd} orders={mpOrdersApi} />}
         {jenis === 'omset' && <OmsetTab data={omsetData} />}
         {jenis === 'arus-kas' && <ArusKas periode={periode} customStart={customStart} customEnd={customEnd} />}
         {jenis === 'stok' && <LaporanStok periode={periode} />}
@@ -255,7 +281,7 @@ export default function LaporanPage() {
 /* Sub-komponen per jenis laporan                                     */
 /* ================================================================== */
 
-function LabaRugi({ periode, customStart, customEnd }: { periode: Periode; customStart?: string; customEnd?: string }) {
+function LabaRugi({ periode, customStart, customEnd, orders }: { periode: Periode; customStart?: string; customEnd?: string; orders: any[] }) {
   const [mounted, setMounted] = useState(false);
   const [filterToko, setFilterToko] = useState<string>('semua');
   const [localRefresh, setLocalRefresh] = useState(0);
@@ -291,7 +317,7 @@ function LabaRugi({ periode, customStart, customEnd }: { periode: Periode; custo
     const tokoSet = new Set<string>();
 
     try {
-      const mpOrders = JSON.parse(localStorage.getItem('mma_marketplace_orders') || '[]');
+      const mpOrders = orders;
       const mpFiltered = f(mpOrders, 'tanggal');
 
       // ── Juga baca input keuangan MANUAL ──
@@ -406,7 +432,7 @@ function LabaRugi({ periode, customStart, customEnd }: { periode: Periode; custo
       feeMarketplace: marketplaceFee, hppMarketplace: marketplaceHpp,
       breakdownPerToko, tokoList: Array.from(tokoSet).sort(),
     };
-  }, [mounted, periode, filterToko, localRefresh, customStart, customEnd]);
+  }, [mounted, periode, filterToko, localRefresh, customStart, customEnd, orders]);
 
   return (
     <div>
