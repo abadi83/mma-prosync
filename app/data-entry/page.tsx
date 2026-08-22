@@ -858,6 +858,8 @@ function InputKeuangan() {
           // Ringkasan income TIDAK lagi disimpan duplikat (hemat storage) —
           // Laporan membaca langsung dari mma_marketplace_orders.
           let ordersSaved = false;
+          let dbInserted = fresh.length;
+          let dbUpdated = 0;
           try {
             const existing = JSON.parse(localStorage.getItem('mma_marketplace_orders') || '[]');
             const seen = new Map<string, any>();
@@ -867,8 +869,6 @@ function InputKeuangan() {
             // Sumber utama = PostgreSQL di VPS (browser tidak kehabisan storage).
             // localStorage hanya cache 50 terbaru untuk fallback offline.
             let serverOk = false;
-            let dbInserted = fresh.length;
-            let dbUpdated = 0;
             try {
               const res = await fetch('/api/marketplace-orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ orders: fresh }) });
               serverOk = res.ok;
@@ -1093,6 +1093,8 @@ function InputKeuangan() {
         // Ringkasan income TIDAK lagi disimpan duplikat (hemat storage) —
         // Laporan membaca langsung dari mma_marketplace_orders.
         let ordersSaved = false;
+        let dbInserted = fresh.length;
+        let dbUpdated = 0;
         try {
           const existing = JSON.parse(localStorage.getItem('mma_marketplace_orders') || '[]');
           const seen = new Map<string, any>();
@@ -1102,8 +1104,6 @@ function InputKeuangan() {
           // Sumber utama = PostgreSQL di VPS (browser tidak kehabisan storage).
           // localStorage hanya cache 50 terbaru untuk fallback offline.
           let serverOk = false;
-          let dbInserted = fresh.length;
-          let dbUpdated = 0;
           try {
             const res = await fetch('/api/marketplace-orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ orders: fresh }) });
             serverOk = res.ok;
