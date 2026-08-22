@@ -3,6 +3,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { useAgregasi, type AgregasiRow } from '@/app/context/AgregasiContext';
+import { fetchMarketplaceOrders } from '@/app/lib/marketplaceOrdersClient';
 
 type Tab = 'shopee' | 'operasional' | 'keuangan' | 'riwayat';
 
@@ -866,9 +867,17 @@ function InputKeuangan() {
             // Sumber utama = PostgreSQL di VPS (browser tidak kehabisan storage).
             // localStorage hanya cache 50 terbaru untuk fallback offline.
             let serverOk = false;
+            let dbInserted = fresh.length;
+            let dbUpdated = 0;
             try {
               const res = await fetch('/api/marketplace-orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ orders: fresh }) });
               serverOk = res.ok;
+              if (res.ok) {
+                try {
+                  const j = await res.json();
+                  if (typeof j.inserted === 'number') { dbInserted = j.inserted; dbUpdated = j.updated || 0; }
+                } catch {}
+              }
             } catch {}
             if (serverOk) {
               ordersSaved = true;
@@ -903,7 +912,7 @@ function InputKeuangan() {
             jumlah: freshCount, keterangan: `Upload ${file.name}${skippedCount > 0 ? ` (${skippedCount} dilewati)` : ''}`,
           });
 
-          alert(`✅ ${freshCount} order baru diupload (${mpObj.marketplace} - Lazada)${skippedCount > 0 ? `\n⏭️ ${skippedCount} order dilewati (sudah pernah diupload)` : ''}.\n\n📊 Ringkasan:\n💰 Kotor: Rp ${totalKotor.toLocaleString('id-ID')}\n🛒 Fee: Rp ${totalFee.toLocaleString('id-ID')}\n📦 HPP: Rp ${totalHppFresh.toLocaleString('id-ID')}\n📈 Profit: Rp ${totalNet.toLocaleString('id-ID')}${unmatchedSku>0?`\n⚠️ ${unmatchedSku} SKU tidak match`:'\n✅ Semua SKU match'}`);
+          alert(`✅ Upload ${mpObj.marketplace} - Lazada selesai.\n📥 ${dbInserted} baru • ${dbUpdated} diperbarui${skippedCount > 0 ? ` • ${skippedCount} dilewati` : ''}.\n\n📊 Ringkasan (file ini):\n💰 Kotor: Rp ${totalKotor.toLocaleString('id-ID')}\n🛒 Fee: Rp ${totalFee.toLocaleString('id-ID')}\n📦 HPP: Rp ${totalHppFresh.toLocaleString('id-ID')}\n📈 Profit: Rp ${totalNet.toLocaleString('id-ID')}${unmatchedSku>0?`\n⚠️ ${unmatchedSku} SKU tidak match`:'\n✅ Semua SKU match'}`);
           setTimeout(() => setSuccess(false), 5000);
           setUploading(false);
           if (fileRef.current) fileRef.current.value = '';
@@ -911,7 +920,8 @@ function InputKeuangan() {
         }
 
         // Column indices — deteksi lebih luas termasuk "biaya proses" (1250/paket)
-        const iId = h.findIndex(hh => hh === 'id pesanan');
+        let iId = h.findIndex(hh => hh === 'id pesanan');
+        if (iId < 0) iId = idx('no pesanan', 'nomor pesanan', 'no. pesanan', 'order id', 'order no', 'order_number');
         // ── Deteksi kolom Tanggal: header dulu, fallback ke kolom B (index 1) ──
         let iTanggal = idx('tanggal', 'waktu pesanan dibuat', 'created time', 'waktu dibuat', 'order date');
         if (iTanggal < 0) {
@@ -1092,9 +1102,17 @@ function InputKeuangan() {
           // Sumber utama = PostgreSQL di VPS (browser tidak kehabisan storage).
           // localStorage hanya cache 50 terbaru untuk fallback offline.
           let serverOk = false;
+          let dbInserted = fresh.length;
+          let dbUpdated = 0;
           try {
             const res = await fetch('/api/marketplace-orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ orders: fresh }) });
             serverOk = res.ok;
+            if (res.ok) {
+              try {
+                const j = await res.json();
+                if (typeof j.inserted === 'number') { dbInserted = j.inserted; dbUpdated = j.updated || 0; }
+              } catch {}
+            }
           } catch {}
           if (serverOk) {
             ordersSaved = true;
@@ -1147,7 +1165,7 @@ function InputKeuangan() {
         const unmatchedMsg = unmatchedSku > 0
           ? `\n⚠️ ${unmatchedSku} SKU tidak ditemukan di Master: ${unmatchedList.slice(0,5).join(', ')}${unmatchedList.length>5?'...':''}`
           : '';
-        alert(`✅ ${freshCount} order baru diupload (${mpObj.marketplace})${skippedCount > 0 ? `\n⏭️ ${skippedCount} order dilewati (sudah pernah diupload)` : ''}.\n\n📊 Ringkasan:\n💰 Kotor: Rp ${totalKotor.toLocaleString('id-ID')}\n🛒 Fee: Rp ${totalFee.toLocaleString('id-ID')}\n📦 HPP: Rp ${totalHppFresh.toLocaleString('id-ID')}\n📈 Profit: Rp ${totalNet.toLocaleString('id-ID')}\n\n🔍 Kolom Terdeteksi:\n${colsFound.join('\n')}${hppMsg}${unmatchedMsg}`);
+        alert(`✅ Upload ${mpObj.marketplace} selesai.\n📥 ${dbInserted} baru • ${dbUpdated} diperbarui${skippedCount > 0 ? ` • ${skippedCount} dilewati` : ''}.\n\n📊 Ringkasan (file ini):\n💰 Kotor: Rp ${totalKotor.toLocaleString('id-ID')}\n🛒 Fee: Rp ${totalFee.toLocaleString('id-ID')}\n📦 HPP: Rp ${totalHppFresh.toLocaleString('id-ID')}\n📈 Profit: Rp ${totalNet.toLocaleString('id-ID')}\n\n🔍 Kolom Terdeteksi:\n${colsFound.join('\n')}${hppMsg}${unmatchedMsg}`);
         setTimeout(() => setSuccess(false), 5000);
       } catch { setErr('Gagal membaca file. Pastikan format Excel benar.'); }
       setUploading(false);
@@ -1403,19 +1421,9 @@ function UploadHistory() {
   useEffect(() => {
     let active = true;
     const loadOrders = async () => {
-      // Sumber utama = PostgreSQL via API (storage browser tidak terbatas lagi)
-      try {
-        const res = await fetch(`/api/marketplace-orders?t=${Date.now()}`);
-        if (res.ok) {
-          const data = await res.json();
-          if (active && Array.isArray(data)) { setOrders(data); return; }
-        }
-      } catch { }
-      // Fallback offline: cache lokal (50 terbaru)
-      try {
-        const stored = localStorage.getItem('mma_marketplace_orders');
-        if (active) setOrders(stored ? JSON.parse(stored) : []);
-      } catch { if (active) setOrders([]); }
+      // PostgreSQL dulu (backfill otomatis data lama kalau DB kosong), fallback cache lokal
+      const list = await fetchMarketplaceOrders();
+      if (active) setOrders(list);
     };
     loadOrders();
     window.addEventListener('storage', loadOrders);

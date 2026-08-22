@@ -6,6 +6,7 @@ import { LabaRugiReport } from '@/app/laporan/components/LabaRugiReport';
 import { LaporanStokReport } from '@/app/laporan/components/LaporanStokReport';
 import { useAgregasi } from '@/app/context/AgregasiContext';
 import { ExportButton } from '@/app/components/ExportButton';
+import { fetchMarketplaceOrders } from '@/app/lib/marketplaceOrdersClient';
 
 type JenisLaporan = 'laba-rugi' | 'arus-kas' | 'stok' | 'omset';
 type Periode = 'minggu' | 'bulan' | 'tahun' | 'custom';
@@ -78,17 +79,8 @@ export default function LaporanPage() {
   useEffect(() => {
     let active = true;
     const load = async () => {
-      try {
-        const res = await fetch(`/api/marketplace-orders?t=${Date.now()}`);
-        if (res.ok) {
-          const data = await res.json();
-          if (active && Array.isArray(data)) { setMpOrdersApi(data); return; }
-        }
-      } catch { }
-      try {
-        const local = JSON.parse(localStorage.getItem('mma_marketplace_orders') || '[]');
-        if (active) setMpOrdersApi(local);
-      } catch { }
+      const list = await fetchMarketplaceOrders();
+      if (active) setMpOrdersApi(list);
     };
     load();
     window.addEventListener('refresh-laporan', load);
