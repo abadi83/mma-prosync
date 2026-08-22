@@ -242,6 +242,8 @@ function PesananShopee() {
   /* ── Upload Excel — dynamic column mapping by header name ── */
   const uploadFile=(e:React.ChangeEvent<HTMLInputElement>)=>{
     const file=e.target.files?.[0];if(!file)return;
+    // Reset input langsung — biar file yang sama bisa di-upload lagi (onChange pasti ter-trigger)
+    e.target.value='';
     setUploading(true);setErr('');
     const r=new FileReader();
     r.onload=ev=>{
@@ -639,6 +641,8 @@ function InputKeuangan() {
   /* ── Upload File Excel Laporan Keuangan Marketplace (dengan fee breakdown) ── */
   const uploadKeuangan = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file) return;
+    // Reset input langsung — biar file yang sama bisa di-upload lagi (onChange pasti ter-trigger)
+    e.target.value = '';
     setUploading(true); setErr('');
     const r = new FileReader();
     r.onload = ev => {
