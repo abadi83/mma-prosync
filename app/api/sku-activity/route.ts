@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { NextResponse, NextRequest } from 'next/server';
 import { recordSkuActivities, listSkuActivities } from '@/app/services/skuActivityService';
 
 export const dynamic = 'force-dynamic';
@@ -18,7 +18,7 @@ export async function GET(request: Request) {
 
 /** POST /api/sku-activity { entries: [{ aksi, sku, nama, detail }] }
  *  Identitas user dibaca dari cookie login di sisi server (tidak bisa dipalsukan). */
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const entries = Array.isArray(body?.entries) ? body.entries : [];
