@@ -56,7 +56,9 @@ export default function KoreksiPOTab() {
             status: 'menunggu_refund',
           });
           localStorage.setItem('mma_koreksi_refund', JSON.stringify(refunds));
+          try { window.dispatchEvent(new Event('refund-updated')); } catch {}
         } catch {}
+        alert(`↩️ Retur tercatat: ${item.noPO} — ${item.namaSku} ×${item.qty}\n\n💰 Antrean refund otomatis masuk ke Keuangan → tab "Refund / Koreksi".\nDi sana: konfirmasi nilai refund & pilih masuk Kas Besar atau Kas Kecil.`);
       }
     }
   };

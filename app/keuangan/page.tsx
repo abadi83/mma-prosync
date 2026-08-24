@@ -172,15 +172,25 @@ function SaldoKas() {
     } catch {}
     setPencairan(loadPencairan());
     fetchMarketplaceOrders().then(setMpOrders).catch(() => {});
-    const onUpdate = () => { setPencairan(loadPencairan()); };
+    const onUpdate = () => {
+      setPencairan(loadPencairan());
+      try {
+        const kk = localStorage.getItem(KAS_KECIL_STORAGE);
+        if (kk) setKasKecilList(JSON.parse(kk));
+      } catch {}
+    };
     window.addEventListener('pencairan-updated', onUpdate);
     window.addEventListener('storage', onUpdate);
     window.addEventListener('refresh-laporan', onUpdate);
+    window.addEventListener('refund-updated', onUpdate);
+    window.addEventListener('kas-kecil-updated', onUpdate);
     setMounted(true);
     return () => {
       window.removeEventListener('pencairan-updated', onUpdate);
       window.removeEventListener('storage', onUpdate);
       window.removeEventListener('refresh-laporan', onUpdate);
+      window.removeEventListener('refund-updated', onUpdate);
+      window.removeEventListener('kas-kecil-updated', onUpdate);
     };
   }, []);
 
@@ -206,7 +216,16 @@ function SaldoKas() {
   const mpNet = mpOrders.reduce((s: number, o: any) => s + ((o.pendapatanKotor || 0) - (o.totalBiaya || 0)), 0);
   const saldoMP = mpNet - totalPencairanSum; // masih di akun marketplace
 
-  const kasBesar = saldoAwal - totalPengeluaran + totalPencairanSum; // pencairan masuk ke Kas Besar
+  // Refund PO (koreksi) yang dikonfirmasi masuk Kas Besar — uang balik dari supplier
+  const refundBesar = (() => {
+    try {
+      const rf = JSON.parse(localStorage.getItem('mma_koreksi_refund') || '[]');
+      return rf.filter((r: any) => r.status === 'selesai' && r.tujuanKas === 'besar')
+        .reduce((s: number, r: any) => s + (r.nilaiRefund || 0), 0);
+    } catch { return 0; }
+  })();
+
+  const kasBesar = saldoAwal - totalPengeluaran + totalPencairanSum + refundBesar; // pencairan & refund masuk ke Kas Besar
   const totalSaldo = kasBesar + kasKecil + saldoMP;
 
   const tambahKasKecil = () => {
@@ -237,7 +256,7 @@ function SaldoKas() {
         <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-3 text-center">
           <p className="text-[10px] text-emerald-500 uppercase">Kas Besar</p>
           <p className="text-sm font-bold text-emerald-700">{fmt(kasBesar)}</p>
-          <p className="text-[9px] text-emerald-400">Bank / Modal + Pencairan</p>
+          <p className="text-[9px] text-emerald-400">Modal + Pencairan + Refund − Pengeluaran</p>
         </div>
         <div className="rounded-xl bg-amber-50 border border-amber-200 p-3 text-center">
           <p className="text-[10px] text-amber-500 uppercase">Kas Kecil</p>
@@ -1264,6 +1283,7 @@ interface RefundItem {
   tanggal: string;
   status: 'menunggu_refund' | 'diproses' | 'selesai';
   nilaiRefund?: number;
+  tujuanKas?: 'besar' | 'kecil';  // kas tujuan saat refund selesai
 }
 
 const REFUND_STORAGE = 'mma_koreksi_refund';
@@ -1300,6 +1320,7 @@ function RefundTab() {
     const updated = refundList.map(r => r.id === id ? { ...r, status } : r);
     setRefundList(updated);
     localStorage.setItem(REFUND_STORAGE, JSON.stringify(updated));
+    try { window.dispatchEvent(new Event('refund-updated')); } catch {}
   };
 
   // Pilih kas untuk refund
@@ -1307,31 +1328,36 @@ function RefundTab() {
   const selesaikanRefund = (keKasKecil: boolean) => {
     if (!pilihKasId) return;
     const id = pilihKasId;
-    const updated = refundList.map(r => r.id === id ? { ...r, status: 'selesai' as const } : r);
+    const item = refundList.find(r => r.id === id);
+    const nilai = item ? (item.nilaiRefund || getHargaBeli(item.noPO, item.sku) * item.qty) : 0;
+    const updated = refundList.map(r => r.id === id ? {
+      ...r,
+      status: 'selesai' as const,
+      nilaiRefund: r.nilaiRefund || nilai,
+      tujuanKas: (keKasKecil ? 'kecil' : 'besar') as 'besar' | 'kecil',
+    } : r);
     setRefundList(updated);
     localStorage.setItem(REFUND_STORAGE, JSON.stringify(updated));
+    try { window.dispatchEvent(new Event('refund-updated')); } catch {}
 
-    const item = refundList.find(r => r.id === id);
-    if (item) {
-      const nilai = item.nilaiRefund || getHargaBeli(item.noPO, item.sku) * item.qty;
-      if (nilai > 0) {
-        try {
-          if (keKasKecil) {
-            const kk = JSON.parse(localStorage.getItem(KAS_KECIL_STORAGE) || '[]');
-            kk.unshift({
-              id: `kk-refund-${Date.now()}`,
-              tanggal: new Date().toISOString().slice(0, 10),
-              jumlah: nilai,
-              jenis: 'masuk',
-              keterangan: `Refund ${item.noPO} - ${item.namaSku} (${item.supplierNama})`,
-              sumber: 'refund',
-            });
-            localStorage.setItem(KAS_KECIL_STORAGE, JSON.stringify(kk));
-          }
-          // Kalau Kas Besar: uang otomatis sudah dihitung sebagai pengurangan pengeluaran di SaldoKas
-          // (karena pembayaran PO sudah dicatat sebelumnya, refund mengembalikan ke kas besar)
-        } catch {}
-      }
+    if (item && nilai > 0) {
+      try {
+        if (keKasKecil) {
+          const kk = JSON.parse(localStorage.getItem(KAS_KECIL_STORAGE) || '[]');
+          kk.unshift({
+            id: `kk-refund-${Date.now()}`,
+            tanggal: new Date().toISOString().slice(0, 10),
+            jumlah: nilai,
+            jenis: 'masuk',
+            keterangan: `Refund ${item.noPO} - ${item.namaSku} (${item.supplierNama})`,
+            sumber: 'refund',
+          });
+          localStorage.setItem(KAS_KECIL_STORAGE, JSON.stringify(kk));
+          try { window.dispatchEvent(new Event('kas-kecil-updated')); } catch {}
+        }
+        // Kalau Kas Besar: ditandai tujuanKas='besar' → SaldoKas menambahkan nilai refund
+        // ke Kas Besar (uang balik dari supplier, mengembalikan pengeluaran PO yang sudah dicatat).
+      } catch {}
     }
     setPilihKasId(null);
   };
@@ -1340,6 +1366,7 @@ function RefundTab() {
     const updated = refundList.map(r => r.id === id ? { ...r, nilaiRefund: nilai } : r);
     setRefundList(updated);
     localStorage.setItem(REFUND_STORAGE, JSON.stringify(updated));
+    try { window.dispatchEvent(new Event('refund-updated')); } catch {}
   };
 
   const pending = refundList.filter(r => r.status === 'menunggu_refund');
