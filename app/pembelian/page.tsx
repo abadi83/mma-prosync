@@ -9,6 +9,7 @@ import InvoiceExport, { type InvoicePOData, type InvoicePOItem, InvoicePreview }
 import KoreksiPOTab from '@/app/pembelian/components/KoreksiPOTab';
 import { useSuppliers } from '@/app/hooks/useSuppliers';
 import { recordActivity } from '@/app/lib/recordActivity';
+import type { BuktiBayar } from '@/app/types';
 
 /* ================================================================ */
 /* Types                                                             */
@@ -1794,6 +1795,7 @@ function BiayaOpTab() {
 /* ================================================================ */
 function ArsipTab() {
   const [purchases, setPurchases] = useLocalStorage<HppPurchase[]>(HPP_STORAGE, []);
+  const [buktiList, setBuktiList] = useLocalStorage<BuktiBayar[]>('mma_bukti_bayar', []);
   const suppliers = useSuppliers();
   const { skus, setSkus, updateStok } = useSkus();
 
@@ -1812,6 +1814,36 @@ function ArsipTab() {
   const [koreksiFoto, setKoreksiFoto] = useState<{ base64: string; nama: string }>({ base64: '', nama: '' });
   const [koreksiLoading, setKoreksiLoading] = useState(false);
   const koreksiFileRef = useRef<HTMLInputElement>(null);
+
+  // Bukti bayar dari Keuangan — bisa dilihat di sini tanpa pindah modul
+  const [buktiLightbox, setBuktiLightbox] = useState<BuktiBayar | null>(null);
+  useEffect(() => {
+    const reload = () => {
+      try {
+        const raw = localStorage.getItem('mma_bukti_bayar');
+        if (raw) setBuktiList(JSON.parse(raw));
+      } catch {}
+    };
+    window.addEventListener('bukti-bayar-updated', reload);
+    window.addEventListener('storage', reload);
+    window.addEventListener('shared-data-updated', reload);
+    return () => {
+      window.removeEventListener('bukti-bayar-updated', reload);
+      window.removeEventListener('storage', reload);
+      window.removeEventListener('shared-data-updated', reload);
+    };
+  }, [setBuktiList]);
+
+  const buktiByPo = useMemo(() => {
+    const m = new Map<string, BuktiBayar[]>();
+    for (const b of buktiList) {
+      if (!b.noPO) continue;
+      const arr = m.get(b.noPO) || [];
+      arr.push(b);
+      m.set(b.noPO, arr);
+    }
+    return m;
+  }, [buktiList]);
 
   const openKoreksi = (g: PoGroupArchived) => {
     setKoreksiPo(g);
@@ -2053,9 +2085,48 @@ function ArsipTab() {
                     ✏️ Koreksi
                   </button>
                 </div>
+
+                {/* Bukti bayar dari Keuangan */}
+                {(() => {
+                  const bList = buktiByPo.get(g.noPO) || [];
+                  if (bList.length === 0) return null;
+                  return (
+                    <div className="flex flex-wrap items-center gap-1 pt-1.5 border-t border-slate-100">
+                      {bList.slice(0, 4).map(b => (
+                        <button key={b.id} onClick={() => setBuktiLightbox(b)}
+                          className="h-10 w-14 overflow-hidden rounded-lg border border-emerald-200 bg-slate-100"
+                          title={`Bukti bayar ${b.tanggalBayar} — Rp ${(b.jumlah || 0).toLocaleString('id-ID')}`}>
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={b.imageBase64} alt="Bukti Bayar" className="h-full w-full object-cover" />
+                        </button>
+                      ))}
+                      <span className="text-[10px] text-slate-400">💳 {bList.length} bukti bayar (Keuangan)</span>
+                    </div>
+                  );
+                })()}
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Lightbox Bukti Bayar dari Keuangan */}
+      {buktiLightbox && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={() => setBuktiLightbox(null)}>
+          <div className="w-full max-w-xl rounded-2xl bg-white shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
+              <div>
+                <p className="font-mono text-sm font-bold text-emerald-700">💳 Bukti Bayar — {buktiLightbox.noPO} <span className="text-[10px] font-normal text-slate-400">(dari Keuangan)</span></p>
+                <p className="text-xs text-slate-500">{buktiLightbox.supplierNama} · {buktiLightbox.tanggalBayar} · Rp {(buktiLightbox.jumlah || 0).toLocaleString('id-ID')}</p>
+              </div>
+              <button onClick={() => setBuktiLightbox(null)} className="rounded-full bg-slate-100 p-1.5 text-slate-500 hover:bg-slate-200">✕</button>
+            </div>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={buktiLightbox.imageBase64} alt="Bukti Bayar" className="max-h-[75vh] w-full object-contain bg-slate-50" />
+            {buktiLightbox.nomorRef && buktiLightbox.nomorRef !== '-' && (
+              <p className="px-5 py-2 text-xs text-slate-400 font-mono border-t border-slate-100">Ref: {buktiLightbox.nomorRef}</p>
+            )}
+          </div>
         </div>
       )}
 

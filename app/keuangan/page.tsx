@@ -531,19 +531,21 @@ function PembayaranTab() {
   const [filterStatus, setFilterStatus] = useState<'semua' | 'belum' | 'jatuhTempo'>('belum');
   const [filterSupplier, setFilterSupplier] = useState('');
   const [search, setSearch] = useState('');
+  const [notaLightbox, setNotaLightbox] = useState<{ noPO: string; fotoBase64: string } | null>(null);
 
   // Group by noPO
-  interface PoGroup { noPO: string; supplierId: string; supplierNama: string; items: HppPurchase[]; total: number; dibayar: number; sisa: number; lunas: boolean; jatuhTempo: string; metodeBayar: MetodeBayar; petugasLogistik: string; dibayarKePetugas: boolean; dikoreksi: boolean; koreksiPada: string; }
+  interface PoGroup { noPO: string; supplierId: string; supplierNama: string; items: HppPurchase[]; total: number; dibayar: number; sisa: number; lunas: boolean; jatuhTempo: string; metodeBayar: MetodeBayar; petugasLogistik: string; dibayarKePetugas: boolean; dikoreksi: boolean; koreksiPada: string; hasFoto: boolean; fotoBase64?: string; }
   const poGroups = useMemo(() => {
     const map = new Map<string, PoGroup>();
     for (const p of hppData) {
-      const g = map.get(p.noPO) || { noPO: p.noPO, supplierId: p.supplierId, supplierNama: p.supplierNama, items: [], total: 0, dibayar: 0, sisa: 0, lunas: true, jatuhTempo: p.jatuhTempo || '', metodeBayar: p.metodeBayar, petugasLogistik: p.petugasLogistik || '', dibayarKePetugas: !!p.dibayarKePetugas, dikoreksi: false, koreksiPada: '' };
+      const g = map.get(p.noPO) || { noPO: p.noPO, supplierId: p.supplierId, supplierNama: p.supplierNama, items: [], total: 0, dibayar: 0, sisa: 0, lunas: true, jatuhTempo: p.jatuhTempo || '', metodeBayar: p.metodeBayar, petugasLogistik: p.petugasLogistik || '', dibayarKePetugas: !!p.dibayarKePetugas, dikoreksi: false, koreksiPada: '', hasFoto: false, fotoBase64: undefined };
       g.items.push(p);
       g.total += p.total;
       g.dibayar += p.dibayar;
       g.sisa += p.sisaTagihan;
       if (!p.lunas) g.lunas = false;
       if (p.dikoreksi) { g.dikoreksi = true; if (!g.koreksiPada && p.koreksiPada) g.koreksiPada = p.koreksiPada; }
+      if (p.fotoBase64 && !g.hasFoto) { g.hasFoto = true; g.fotoBase64 = p.fotoBase64; }
       if (p.jatuhTempo && (!g.jatuhTempo || p.jatuhTempo < g.jatuhTempo)) g.jatuhTempo = p.jatuhTempo;
       if (p.petugasLogistik) g.petugasLogistik = p.petugasLogistik;
       if (!p.dibayarKePetugas) g.dibayarKePetugas = false;
@@ -688,6 +690,7 @@ function PembayaranTab() {
         createdAt: new Date().toISOString(),
       };
       setBuktiBayarList(prev => [bukti, ...prev]);
+      try { window.dispatchEvent(new Event('bukti-bayar-updated')); } catch {}
     }
 
     addJurnal({ tanggal:formBayar.tanggalBayar||today, akunDebitId:'2-1000', akunKreditId:'1-1000', nominal:jml, keterangan, referensi:bayarPoGroup.noPO });
@@ -769,6 +772,15 @@ function PembayaranTab() {
                             <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold text-amber-700" title={g.koreksiPada ? `Dikoreksi ${new Date(g.koreksiPada).toLocaleString('id-ID')}` : 'PO pernah dikoreksi'}>
                               ✏️ PO Dikoreksi{g.koreksiPada ? ` • ${new Date(g.koreksiPada).toLocaleDateString('id-ID')}` : ''}
                             </span>
+                          </div>
+                        )}
+                        {g.hasFoto && g.fotoBase64 && (
+                          <div className="mt-0.5">
+                            <button onClick={() => setNotaLightbox({ noPO: g.noPO, fotoBase64: g.fotoBase64! })}
+                              className="rounded bg-sky-100 px-1.5 py-0.5 text-[9px] font-bold text-sky-700 hover:bg-sky-200"
+                              title="Foto nota dari Pembelian">
+                              📸 Lihat Nota
+                            </button>
                           </div>
                         )}
                         {g.metodeBayar==='cash' && g.petugasLogistik && (
@@ -864,6 +876,20 @@ function PembayaranTab() {
               <button onClick={() => { setBayarOpex(false); setBayarBiaya(false); }} className="flex-1 rounded-xl bg-slate-100 py-2 text-sm font-semibold text-slate-600">Batal</button>
               <button onClick={() => handleBayarOpexBiaya(bayarOpex ? 'OPEX' : 'BIAYA')} className="flex-1 rounded-xl bg-indigo-500 py-2 text-sm font-bold text-white">✅ Konfirmasi Bayar</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Lightbox Nota dari Pembelian */}
+      {notaLightbox && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={() => setNotaLightbox(null)}>
+          <div className="max-w-xl w-full rounded-2xl bg-white shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
+              <p className="font-mono text-sm font-bold text-emerald-700">📸 Nota {notaLightbox.noPO} <span className="text-[10px] font-normal text-slate-400">(dari Pembelian)</span></p>
+              <button onClick={() => setNotaLightbox(null)} className="rounded-full bg-slate-100 p-1.5 text-slate-500 hover:bg-slate-200">✕</button>
+            </div>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={notaLightbox.fotoBase64} alt={"Nota " + notaLightbox.noPO} className="max-h-[75vh] w-full object-contain bg-slate-50" />
           </div>
         </div>
       )}
