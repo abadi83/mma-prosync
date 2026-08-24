@@ -202,7 +202,8 @@ function SaldoKas() {
   }, []);
 
   const totalPencairanSum = totalPencairan(pencairan);
-  const mpNet = mpOrders.reduce((s: number, o: any) => s + (o.pendapatanBersih || 0), 0);
+  // Uang yang bisa dicairkan dari marketplace = Pendapatan Kotor − Fee (= HPP + Keuntungan)
+  const mpNet = mpOrders.reduce((s: number, o: any) => s + ((o.pendapatanKotor || 0) - (o.totalBiaya || 0)), 0);
   const saldoMP = mpNet - totalPencairanSum; // masih di akun marketplace
 
   const kasBesar = saldoAwal - totalPengeluaran + totalPencairanSum; // pencairan masuk ke Kas Besar
@@ -314,12 +315,12 @@ function PencairanTab() {
     };
   }, []);
 
-  // Saldo per toko: Σ pendapatanBersih − Σ pencairan
+  // Saldo per toko: uang yang bisa dicairkan = Pendapatan Kotor − Fee (= HPP + Keuntungan)
   const tokoMap = new Map<string, { key: string; marketplace: string; tokoNama: string; net: number; cair: number }>();
   for (const o of mpOrders) {
     const key = `${o.marketplace || 'Marketplace'}||${o.tokoNama || 'Tanpa Toko'}`;
     const t = tokoMap.get(key) || { key, marketplace: o.marketplace || 'Marketplace', tokoNama: o.tokoNama || 'Tanpa Toko', net: 0, cair: 0 };
-    t.net += o.pendapatanBersih || 0;
+    t.net += (o.pendapatanKotor || 0) - (o.totalBiaya || 0);
     tokoMap.set(key, t);
   }
   for (const p of pencairan) {
@@ -374,7 +375,7 @@ function PencairanTab() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-bold text-slate-800 sm:text-xl">💸 Pencairan Saldo Marketplace</h2>
-          <p className="mt-1 text-sm text-slate-500">Saldo MP = Pendapatan Bersih (Kotor − Fee). Saat dicairkan, uang masuk ke Kas Besar.</p>
+          <p className="mt-1 text-sm text-slate-500">Saldo MP = Pendapatan Kotor − Fee (= HPP + Keuntungan). Saat dicairkan, uang masuk ke Kas Besar.</p>
         </div>
         <span className="rounded-full bg-sky-100 px-3 py-1 text-xs font-semibold text-sky-700">{tokos.length} toko terdeteksi</span>
       </div>
@@ -383,7 +384,7 @@ function PencairanTab() {
       <div className="mt-4 grid grid-cols-3 gap-3">
         <div className="rounded-xl bg-sky-50 border border-sky-200 p-3 text-center">
           <p className="text-lg font-bold text-sky-700">{fmt(totalNet)}</p>
-          <p className="text-[10px] text-sky-500 uppercase">Total Saldo MP</p>
+          <p className="text-[10px] text-sky-500 uppercase">Saldo MP (Kotor − Fee)</p>
         </div>
         <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-3 text-center">
           <p className="text-lg font-bold text-emerald-700">{fmt(totalCair)}</p>
@@ -399,7 +400,7 @@ function PencairanTab() {
       <div className="mt-4 overflow-x-auto rounded-xl border border-slate-100">
         <table className="w-full text-left text-xs">
           <thead><tr className="bg-sky-50 text-xs uppercase text-sky-600">
-            {['Toko', 'Marketplace', 'Saldo MP', 'Sudah Cair', 'Sisa', 'Aksi'].map(c => <th key={c} className="px-2 py-2.5 font-semibold whitespace-nowrap">{c}</th>)}
+            {['Toko', 'Marketplace', 'Saldo MP (Kotor−Fee)', 'Sudah Cair', 'Sisa', 'Aksi'].map(c => <th key={c} className="px-2 py-2.5 font-semibold whitespace-nowrap">{c}</th>)}
           </tr></thead>
           <tbody className="divide-y divide-slate-50 bg-white">
             {tokos.map(t => (
@@ -473,7 +474,8 @@ function PencairanTab() {
 
       {/* Alur */}
       <div className="mt-4 rounded-xl bg-indigo-50 border border-indigo-200 p-3 text-xs text-indigo-700">
-        🔄 <strong>Alur:</strong> Upload Input Keuangan → <strong>Saldo MP</strong> (per toko). Pencairan → uang pindah ke <strong>Kas Besar</strong> (bukan pendapatan baru). Total Saldo = <strong>Kas Besar + Kas Kecil + Saldo MP belum cair</strong>.
+        🔄 <strong>Alur:</strong> Saldo MP = <strong>Pendapatan Kotor − Fee Marketplace</strong> (= <strong>HPP + Keuntungan</strong>) — ini uang yang benar-benar cair ke rekening marketplace. Pencairan → uang pindah ke <strong>Kas Besar</strong> (bukan pendapatan baru). Total Saldo = <strong>Kas Besar + Kas Kecil + Saldo MP belum cair</strong>.<br />
+        📈 <strong>Laba Rugi</strong> tetap pakai Pendapatan Bersih (Kotor − Fee − HPP) dikurangi OPEX & biaya operasional.
       </div>
     </div>
   );

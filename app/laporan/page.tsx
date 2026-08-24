@@ -488,8 +488,8 @@ function ArusKas({ periode, customStart, customEnd, mpOrders }: { periode: Perio
       pencairanPeriode = f(pencairan, 'tanggal').reduce((s: number, p: any) => s + (p.jumlah || 0), 0);
       totalPencairanAll = pencairan.reduce((s: number, p: any) => s + (p.jumlah || 0), 0);
     } catch { }
-    // Saldo MP belum dicairkan = Σ pendapatanBersih (semua) − Σ pencairan (semua)
-    const saldoMP = mpOrders.reduce((s: number, o: any) => s + (o.pendapatanBersih || 0), 0) - totalPencairanAll;
+    // Saldo MP belum dicairkan = Σ (Pendapatan Kotor − Fee) semua order − Σ pencairan (semua)
+    const saldoMP = mpOrders.reduce((s: number, o: any) => s + ((o.pendapatanKotor || 0) - (o.totalBiaya || 0)), 0) - totalPencairanAll;
     return {
       saldoAwal: saldoAwal + kasKecil,
       pemasukan: [
