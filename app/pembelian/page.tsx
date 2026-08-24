@@ -1791,8 +1791,9 @@ function BiayaOpTab() {
 /* TAB 4: Arsip Invoice — semua PO dengan filter & ekspor           */
 /* ================================================================ */
 function ArsipTab() {
-  const [purchases] = useLocalStorage<HppPurchase[]>(HPP_STORAGE, []);
+  const [purchases, setPurchases] = useLocalStorage<HppPurchase[]>(HPP_STORAGE, []);
   const suppliers = useSuppliers();
+  const { skus, setSkus, updateStok } = useSkus();
 
   const [filterTglDari, setFilterTglDari] = useState('');
   const [filterTglSampai, setFilterTglSampai] = useState('');
@@ -1802,6 +1803,76 @@ function ArsipTab() {
   const [lightbox, setLightbox] = useState<HppPurchase | null>(null);
   const [exportPoData, setExportPoData] = useState<InvoicePOData | null>(null);
   const [detailPoData, setDetailPoData] = useState<InvoicePOData | null>(null);
+
+  // ── Koreksi PO: ubah harga beli/qty SKU & perbarui foto nota ──
+  const [koreksiPo, setKoreksiPo] = useState<PoGroupArchived | null>(null);
+  const [koreksiItems, setKoreksiItems] = useState<{ sku: string; namaSku: string; qty: number; hargaBeli: number }[]>([]);
+  const [koreksiFoto, setKoreksiFoto] = useState<{ base64: string; nama: string }>({ base64: '', nama: '' });
+  const [koreksiLoading, setKoreksiLoading] = useState(false);
+  const koreksiFileRef = useRef<HTMLInputElement>(null);
+
+  const openKoreksi = (g: PoGroupArchived) => {
+    setKoreksiPo(g);
+    setKoreksiItems(g.items.map(x => ({ sku: x.sku, namaSku: x.namaSku, qty: x.qty, hargaBeli: x.hargaBeli })));
+    const foto = g.items.find(x => x.namaFileFoto);
+    setKoreksiFoto({ base64: g.fotoBase64 || '', nama: foto?.namaFileFoto || '' });
+  };
+
+  const handleKoreksiFoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { alert('Hanya file gambar yang didukung (JPG, PNG).'); return; }
+    setKoreksiLoading(true);
+    try {
+      const { base64, nama } = await compressImage(file);
+      setKoreksiFoto({ base64, nama });
+    } catch { alert('Gagal mengompresi gambar.'); }
+    setKoreksiLoading(false);
+    e.target.value = '';
+  };
+
+  const saveKoreksi = () => {
+    if (!koreksiPo) return;
+    const bySku = new Map(koreksiItems.map(it => [it.sku, it]));
+    const updated = purchases.map(p => {
+      if (p.noPO !== koreksiPo.noPO) return p;
+      const it = bySku.get(p.sku);
+      if (!it) return p;
+      const newTotal = it.qty * it.hargaBeli;
+      const newSisa = Math.max(0, newTotal - (p.dibayar || 0));
+      const deltaQty = it.qty - (p.qty || 0);
+      if (deltaQty !== 0) void updateStok(p.sku, deltaQty);
+      // Koreksi harga modal + riwayat kalau harga beli berubah
+      if (it.hargaBeli > 0 && it.hargaBeli !== p.hargaBeli) {
+        const inv = skus.find(s => s.sku.toLowerCase() === p.sku.toLowerCase());
+        if (inv) {
+          const oldHarga = inv.hargaBaru || inv.hargaModalLama || 0;
+          if (oldHarga > 0 && it.hargaBeli !== oldHarga) {
+            const persen = (((it.hargaBeli - oldHarga) / oldHarga) * 100).toFixed(2);
+            const perubahan = `${persen.startsWith('-') ? '' : '+'}${persen}%`;
+            try {
+              const hist = JSON.parse(localStorage.getItem('mma_harga_modal_history') || '[]');
+              const entry = { id: `hist-koreksi-${Date.now()}-${p.sku}`, sku: p.sku, nama: p.namaSku, hargaLama: oldHarga, hargaBaru: it.hargaBeli, persen, supplier: p.supplierNama, noPO: p.noPO, tanggal: new Date().toISOString().slice(0, 10), keterangan: 'Koreksi PO' };
+              localStorage.setItem('mma_harga_modal_history', JSON.stringify([entry, ...hist].slice(0, 100)));
+            } catch {}
+            setSkus((prev: SkuItem[]) => prev.map(s => s.sku.toLowerCase() === p.sku.toLowerCase() ? { ...s, hargaModalLama: oldHarga, hargaBaru: it.hargaBeli, perubahanHargaBeli: perubahan } : s));
+          }
+        }
+      }
+      return {
+        ...p,
+        qty: it.qty,
+        hargaBeli: it.hargaBeli,
+        total: newTotal,
+        sisaTagihan: newSisa,
+        lunas: newSisa <= 0,
+        ...(koreksiFoto.base64 ? { fotoBase64: koreksiFoto.base64, namaFileFoto: koreksiFoto.nama || p.namaFileFoto } : {}),
+      };
+    });
+    setPurchases(updated);
+    setKoreksiPo(null);
+    alert(`✅ Koreksi ${koreksiPo.noPO} tersimpan.\nHarga beli, qty & foto nota sudah diperbarui.`);
+  };
 
   // Group purchases by noPO
   interface PoGroupArchived {
@@ -1969,10 +2040,73 @@ function ArsipTab() {
                   >
                     📤 Kirim
                   </button>
+                  <button
+                    onClick={() => openKoreksi(g)}
+                    className="rounded-lg bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-700 hover:bg-amber-200"
+                    title="Koreksi harga beli/qty SKU & perbarui foto nota"
+                  >
+                    ✏️ Koreksi
+                  </button>
                 </div>
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Modal Koreksi PO */}
+      {koreksiPo && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setKoreksiPo(null)}>
+          <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl bg-white shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="sticky top-0 bg-white border-b border-amber-200 px-5 py-3 rounded-t-2xl flex items-center justify-between">
+              <div>
+                <p className="text-sm font-bold text-amber-700">✏️ Koreksi PO</p>
+                <p className="text-xs text-slate-500 font-mono">{koreksiPo.noPO} — {koreksiPo.supplierNama}</p>
+              </div>
+              <button onClick={() => setKoreksiPo(null)} className="rounded-full bg-slate-100 p-1.5 text-slate-500 hover:bg-slate-200">✕</button>
+            </div>
+            <div className="p-5 space-y-3">
+              <p className="text-xs text-slate-500">Koreksi dari supplier (biasanya kontrabon): ubah harga beli/qty SKU & ganti foto nota. Total & sisa tagihan dihitung ulang otomatis.</p>
+              {koreksiItems.map((it, i) => (
+                <div key={it.sku} className="rounded-xl border border-slate-200 p-3">
+                  <p className="text-xs font-bold text-slate-700 mb-2">{it.sku} — <span className="font-normal text-slate-500">{it.namaSku}</span></p>
+                  <div className="flex gap-2">
+                    <label className="flex-1">
+                      <span className="block text-[10px] text-slate-500 mb-0.5">Qty</span>
+                      <input type="number" value={it.qty} onChange={e => setKoreksiItems(prev => prev.map((x, xi) => xi === i ? { ...x, qty: +e.target.value || 0 } : x))} className="w-full rounded-lg border px-2 py-1 text-sm font-semibold" />
+                    </label>
+                    <label className="flex-1">
+                      <span className="block text-[10px] text-slate-500 mb-0.5">Harga Beli (Rp)</span>
+                      <input type="number" value={it.hargaBeli} onChange={e => setKoreksiItems(prev => prev.map((x, xi) => xi === i ? { ...x, hargaBeli: +e.target.value || 0 } : x))} className="w-full rounded-lg border px-2 py-1 text-sm font-semibold" />
+                    </label>
+                  </div>
+                  <p className="mt-1 text-[10px] text-slate-400">Subtotal baru: Rp {(it.qty * it.hargaBeli).toLocaleString('id-ID')}</p>
+                </div>
+              ))}
+
+              {/* Foto nota */}
+              <div className="rounded-xl border border-slate-200 p-3">
+                <p className="text-xs font-bold text-slate-700 mb-2">📸 Foto Bukti Nota</p>
+                {koreksiFoto.base64 ? (
+                  <div className="mb-2 overflow-hidden rounded-lg bg-slate-100 aspect-[4/3]">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={koreksiFoto.base64} alt="Nota" className="h-full w-full object-contain" />
+                  </div>
+                ) : (
+                  <p className="mb-2 text-[11px] text-slate-400">Belum ada foto. Upload foto nota terbaru.</p>
+                )}
+                <div className="flex gap-2">
+                  <button onClick={() => koreksiFileRef.current?.click()} className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-bold text-white hover:bg-amber-600" disabled={koreksiLoading}>
+                    {koreksiLoading ? '⏳ Memproses…' : koreksiFoto.base64 ? '🔄 Ganti Foto' : '📤 Upload Foto'}
+                  </button>
+                  {koreksiFoto.base64 && <button onClick={() => setKoreksiFoto({ base64: '', nama: '' })} className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-200">🗑 Hapus</button>}
+                  <input ref={koreksiFileRef} type="file" accept="image/*" className="hidden" onChange={handleKoreksiFoto} />
+                </div>
+              </div>
+
+              <button onClick={saveKoreksi} className="w-full rounded-xl bg-amber-500 py-2.5 text-sm font-bold text-white hover:bg-amber-600 transition">💾 Simpan Koreksi</button>
+            </div>
+          </div>
         </div>
       )}
 
