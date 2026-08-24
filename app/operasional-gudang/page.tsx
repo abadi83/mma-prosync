@@ -6,6 +6,7 @@ import { useAgregasi, type AgregasiRow } from '@/app/context/AgregasiContext';
 import { useSkus } from '@/app/context/SkuContext';
 import { computeBelanjaOrders, skuInventoryStatus } from '@/app/lib/belanja';
 import { useSuppliers } from '@/app/hooks/useSuppliers';
+import { recordOpLog } from '@/app/lib/recordOpLog';
 
 type Tab = 'agregasi' | 'picking' | 'qc' | 'packing' | 'runner' | 'logistik' | 'belanja';
 
@@ -121,6 +122,10 @@ function AgregasiDashboard() {
         }
         if(items.length===0){setErr('Tidak ada data valid.');setUploading(false);return;}
         addRows(items);setErr('');
+        // Rekam permanen: setiap pesanan + resi yang masuk terekam di log operasional
+        const grp=new Map<string,(typeof items)[number]>();
+        for(const it of items)grp.set(`${it.noPesanan}||${it.noResi}`,it);
+        recordOpLog(Array.from(grp.values()).map(it=>({noPesanan:it.noPesanan,noResi:it.noResi,marketplace:it.marketplace,kurir:it.kurir,jenis:'proses' as const,aksi:'Upload Order',statusProses:'Perlu Dikirim'})));
         alert(`✅ ${items.length} baris berhasil diimpor.`);
       }catch{setErr('Gagal membaca file.');}
       setUploading(false);
@@ -154,6 +159,7 @@ function AgregasiDashboard() {
         }
         const result=updateStatusPicking(matches);
         setErr('');
+        recordOpLog(matches.filter(m=>m.noPesanan||m.noResi).map(m=>({noPesanan:m.noPesanan,noResi:m.noResi,jenis:'proses' as const,aksi:'Picking',statusProses:'Dipicking'})));
         // Cek SKU pesanan yang terpengaruh vs Inventory
         const opSet = new Set(matches.map(m => m.noPesanan.trim()).filter(Boolean));
         const orSet = new Set(matches.map(m => m.noResi.trim()).filter(Boolean));
@@ -355,6 +361,7 @@ function QCList() {
       }
       return r;
     }));
+    recordOpLog([{ noPesanan, noResi, jenis: 'proses', aksi: 'QC Lulus', statusProses: 'Dipacking', keterangan: `Jenis paket: ${jenis}` }]);
   };
 
   if (qcItems.length === 0) {
@@ -470,6 +477,7 @@ function PackingList() {
       }
       return r;
     }));
+    recordOpLog([{ noPesanan, noResi, jenis: 'proses', aksi: 'Packing Selesai', statusProses: 'DiScanRunner', keterangan: 'Diserahkan ke Runner' }]);
   };
 
   if (packingItems.length === 0) {
@@ -571,8 +579,8 @@ function RunnerScan() {
   const { allRows, setAllRows } = useAgregasi();
   const scanItems = allRows.filter(r => r.statusProses === 'DiScanRunner');
 
-  // Sub-tab: Scan Drop Off, Pickup, atau Riwayat
-  const [subTab, setSubTab] = useState<'scan' | 'pickup' | 'riwayat'>('scan');
+  // Sub-tab: Scan Drop Off, Pickup, Retur/Klaim, atau Riwayat
+  const [subTab, setSubTab] = useState<'scan' | 'pickup' | 'retur' | 'riwayat'>('scan');
   const [pickupMode, setPickupMode] = useState<'pending' | 'confirmed'>('pending');
 
   // Per-paket mode (hanya untuk scan dropoff)
@@ -590,6 +598,45 @@ function RunnerScan() {
     kurir: string; mode: string; hoId: string; count: number; items: typeof handoverList;
   }[]>([]);
   const [filterKurir, setFilterKurir] = useState('semua');
+
+  // Log operasional permanen dari server (proses + retur/klaim)
+  const [opLog, setOpLog] = useState<any[]>([]);
+  const loadOpLog = async () => {
+    try {
+      const r = await fetch('/api/operasional-log?limit=200', { cache: 'no-store' });
+      const d = await r.json();
+      if (Array.isArray(d)) setOpLog(d);
+    } catch {}
+  };
+  useEffect(() => { if (subTab === 'riwayat' || subTab === 'retur') loadOpLog(); }, [subTab]);
+
+  // Form Retur / Klaim — diterima lebih dulu oleh Runner
+  const [returForm, setReturForm] = useState<{ jenis: 'Retur' | 'Klaim'; noPesanan: string; noResi: string; marketplace: string; keterangan: string }>({ jenis: 'Retur', noPesanan: '', noResi: '', marketplace: '', keterangan: '' });
+  const submitRetur = async () => {
+    if (!returForm.noResi.trim() && !returForm.noPesanan.trim()) {
+      alert('⚠️ Isi No. Resi atau No. Pesanan dulu.');
+      return;
+    }
+    const jenisDb = returForm.jenis === 'Klaim' ? 'klaim' : 'retur';
+    await fetch('/api/operasional-log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        entries: [{
+          noPesanan: returForm.noPesanan.trim(),
+          noResi: returForm.noResi.trim(),
+          marketplace: returForm.marketplace.trim(),
+          jenis: jenisDb,
+          aksi: `${returForm.jenis} Diterima Runner`,
+          keterangan: returForm.keterangan.trim(),
+        }],
+      }),
+    });
+    setReturForm({ jenis: 'Retur', noPesanan: '', noResi: '', marketplace: '', keterangan: '' });
+    await loadOpLog();
+    alert(`✅ ${returForm.jenis} tercatat permanen + notifikasi terkirim ke halaman Notifikasi.`);
+  };
+
   const inputRef = useRef<HTMLInputElement>(null);
   const scannerRef = useRef<any>(null);
   const scannerDivRef = useRef<HTMLDivElement>(null);
@@ -728,6 +775,11 @@ function RunnerScan() {
         }
         return r;
       }));
+      recordOpLog(items.map(h => ({
+        noPesanan: h.noPesanan, noResi: h.noResi, marketplace: h.marketplace, kurir,
+        jenis: 'proses' as const, aksi: 'Hand Over Kurir', statusProses: 'Dikirim',
+        keterangan: `${hoId} • ${items.length} paket`,
+      })));
       results.push({ kurir, mode: 'dropoff', hoId, count: items.length, items });
     }
 
@@ -750,20 +802,150 @@ function RunnerScan() {
     return Array.from(map.values()).sort((a, b) => b.handoverAt.localeCompare(a.handoverAt));
   }, [historyItems]);
 
+  // ── Retur / Klaim diterima Runner ──
+  if (subTab === 'retur') {
+    const returList = opLog.filter((l: any) => l.jenis === 'retur' || l.jenis === 'klaim');
+    return (
+      <div>
+        <div className="mb-1 h-1 w-16 rounded-full bg-gradient-to-r from-amber-500 to-amber-300" />
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-lg font-bold text-slate-800 sm:text-xl">↩️ Retur & Klaim — Diterima Runner</h2>
+            <p className="mt-1 text-sm text-slate-500">Catat kiriman retur/klaim yang Runner terima lebih dulu. Terekam permanen + notifikasi ke bos.</p>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => setSubTab('riwayat')}
+              className="rounded-xl bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-200">📜 Riwayat</button>
+            <button onClick={() => setSubTab('scan')}
+              className="rounded-xl bg-indigo-100 px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-200">← Scan</button>
+          </div>
+        </div>
+
+        {/* Form pencatatan */}
+        <div className="rounded-2xl border-2 border-amber-200 bg-amber-50/40 p-4">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="flex flex-col gap-1">
+              <span className="text-xs font-semibold text-slate-600">Jenis Kejadian</span>
+              <select value={returForm.jenis} onChange={e => setReturForm(p => ({ ...p, jenis: e.target.value as 'Retur' | 'Klaim' }))}
+                className="rounded-xl border-2 border-amber-200 bg-white px-3 py-2.5 text-sm font-semibold focus:border-amber-500 focus:outline-none">
+                <option value="Retur">📦 Retur (kiriman balik)</option>
+                <option value="Klaim">⚖️ Klaim (komplain/refund)</option>
+              </select>
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-xs font-semibold text-slate-600">Marketplace (opsional)</span>
+              <input type="text" value={returForm.marketplace} onChange={e => setReturForm(p => ({ ...p, marketplace: e.target.value }))}
+                placeholder="Shopee / TikTok Shop / Lazada…"
+                className="rounded-xl border-2 border-amber-200 bg-white px-3 py-2.5 text-sm focus:border-amber-500 focus:outline-none" />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-xs font-semibold text-slate-600">No. Resi <span className="text-slate-400">(scan/ketik)</span></span>
+              <input type="text" value={returForm.noResi} onChange={e => setReturForm(p => ({ ...p, noResi: e.target.value }))}
+                placeholder="No. resi kiriman…"
+                className="rounded-xl border-2 border-amber-200 bg-white px-3 py-2.5 text-sm font-mono focus:border-amber-500 focus:outline-none" />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-xs font-semibold text-slate-600">No. Pesanan <span className="text-slate-400">(opsional)</span></span>
+              <input type="text" value={returForm.noPesanan} onChange={e => setReturForm(p => ({ ...p, noPesanan: e.target.value }))}
+                placeholder="No. pesanan asal…"
+                className="rounded-xl border-2 border-amber-200 bg-white px-3 py-2.5 text-sm font-mono focus:border-amber-500 focus:outline-none" />
+            </label>
+            <label className="flex flex-col gap-1 sm:col-span-2">
+              <span className="text-xs font-semibold text-slate-600">Keterangan <span className="text-slate-400">(alasan retur, kondisi paket, dll)</span></span>
+              <input type="text" value={returForm.keterangan} onChange={e => setReturForm(p => ({ ...p, keterangan: e.target.value }))}
+                placeholder="cth: barang rusak saat sampai, customer minta tukar…"
+                className="rounded-xl border-2 border-amber-200 bg-white px-3 py-2.5 text-sm focus:border-amber-500 focus:outline-none" />
+            </label>
+          </div>
+          <button onClick={submitRetur}
+            className="mt-4 w-full rounded-xl bg-amber-500 py-3 text-sm font-bold text-white hover:bg-amber-600 transition">
+            ↩️ Terima & Catat {returForm.jenis}
+          </button>
+        </div>
+
+        {/* Daftar retur/klaim tercatat */}
+        <div className="mt-4 rounded-xl border border-slate-200 bg-white overflow-hidden">
+          <div className="bg-slate-50 px-3 py-2 flex items-center justify-between">
+            <p className="text-xs font-bold text-slate-600">🗄️ Riwayat Retur/Klaim ({returList.length})</p>
+            <button onClick={loadOpLog} className="text-[10px] font-semibold text-indigo-500 hover:text-indigo-700">↻ Muat Ulang</button>
+          </div>
+          {returList.length === 0 ? (
+            <p className="px-3 py-6 text-center text-xs text-slate-400">Belum ada retur/klaim tercatat.</p>
+          ) : (
+            <div className="max-h-96 overflow-y-auto divide-y divide-slate-50">
+              {returList.map((l: any) => (
+                <div key={l.id} className="px-3 py-2.5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${l.jenis === 'klaim' ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'}`}>
+                      {l.jenis === 'klaim' ? '⚖️ Klaim' : '📦 Retur'}
+                    </span>
+                    <span className="text-[11px] font-semibold text-slate-700">{l.aksi}</span>
+                    <span className="text-[10px] text-slate-400 ml-auto whitespace-nowrap">{l.tanggal} {l.petugas ? `• ${l.petugas}` : ''}</span>
+                  </div>
+                  <p className="mt-1 text-[10px] font-mono text-slate-500">
+                    {l.no_resi && `resi ${l.no_resi}`}{l.no_pesanan && ` • pesanan ${l.no_pesanan}`}{l.marketplace && ` • ${l.marketplace}`}
+                  </p>
+                  {l.keterangan && <p className="mt-0.5 text-[11px] text-slate-600">💬 {l.keterangan}</p>}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   if (subTab === 'riwayat') {
     return (
       <div>
         <div className="mb-1 h-1 w-16 rounded-full bg-gradient-to-r from-brand-500 to-brand-300" />
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h2 className="text-lg font-bold text-slate-800 sm:text-xl">📜 Riwayat Hand Over</h2>
-            <p className="mt-1 text-sm text-slate-500">{historyGrouped.length} hand over • {historyItems.length} paket sudah dikirim</p>
+            <h2 className="text-lg font-bold text-slate-800 sm:text-xl">📜 Riwayat Operasional</h2>
+            <p className="mt-1 text-sm text-slate-500">Semua proses pesanan & resi terekam permanen di server</p>
           </div>
-          <button onClick={() => setSubTab('scan')}
-            className="rounded-xl bg-indigo-100 px-4 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-200">
-            ← Kembali ke Scan
-          </button>
+          <div className="flex gap-2">
+            <button onClick={() => setSubTab('retur')}
+              className="rounded-xl bg-amber-100 px-3 py-1.5 text-xs font-semibold text-amber-700 hover:bg-amber-200">
+              ↩️ Retur/Klaim
+            </button>
+            <button onClick={() => setSubTab('scan')}
+              className="rounded-xl bg-indigo-100 px-4 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-200">
+              ← Kembali ke Scan
+            </button>
+          </div>
         </div>
+
+        {/* Log permanen dari server */}
+        <div className="mb-4 rounded-xl border border-slate-200 bg-white overflow-hidden">
+          <div className="bg-slate-50 px-3 py-2 flex items-center justify-between">
+            <p className="text-xs font-bold text-slate-600">🗄️ Log Server ({opLog.length} kejadian terakhir)</p>
+            <button onClick={loadOpLog} className="text-[10px] font-semibold text-indigo-500 hover:text-indigo-700">↻ Muat Ulang</button>
+          </div>
+          {opLog.length === 0 ? (
+            <p className="px-3 py-4 text-center text-xs text-slate-400">Belum ada catatan. Log terisi otomatis saat ada proses pesanan.</p>
+          ) : (
+            <div className="max-h-80 overflow-y-auto divide-y divide-slate-50">
+              {opLog.slice(0, 100).map((l: any) => {
+                const badgeCls = l.jenis === 'retur' ? 'bg-orange-100 text-orange-700' : l.jenis === 'klaim' ? 'bg-red-100 text-red-700' : 'bg-indigo-100 text-indigo-700';
+                const badgeLabel = l.jenis === 'retur' ? '↩️ Retur' : l.jenis === 'klaim' ? '⚖️ Klaim' : '📦 Proses';
+                return (
+                  <div key={l.id} className="px-3 py-2 flex flex-wrap items-center gap-2">
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold whitespace-nowrap ${badgeCls}`}>{badgeLabel}</span>
+                    <span className="text-[11px] font-semibold text-slate-700">{l.aksi}</span>
+                    <span className="font-mono text-[10px] text-slate-500">{l.no_pesanan || '-'}</span>
+                    <span className="font-mono text-[10px] text-slate-400">{l.no_resi ? `resi ${l.no_resi}` : ''}</span>
+                    <span className="text-[10px] text-slate-400">{l.marketplace}{l.kurir ? ` • ${l.kurir}` : ''}</span>
+                    <span className="text-[10px] text-slate-300 ml-auto whitespace-nowrap">{l.tanggal}{l.petugas ? ` • ${l.petugas}` : ''}</span>
+                    {l.keterangan && <span className="w-full text-[10px] text-slate-400">{l.keterangan}</span>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <p className="mb-2 text-xs font-bold text-slate-500">📦 Hand Over Lokal ({historyGrouped.length} hand over • {historyItems.length} paket dikirim)</p>
         {historyGrouped.length === 0 ? (
           <div className="text-center py-12 text-slate-400">
             <p className="text-4xl mb-2">📜</p>
@@ -953,6 +1135,10 @@ function RunnerScan() {
               className="rounded-xl bg-cyan-100 px-3 py-1.5 text-xs font-semibold text-cyan-700 hover:bg-cyan-200">
               📥 Pickup
             </button>
+            <button onClick={() => setSubTab('retur')}
+              className="rounded-xl bg-amber-100 px-3 py-1.5 text-xs font-semibold text-amber-700 hover:bg-amber-200">
+              ↩️ Retur/Klaim
+            </button>
             <button onClick={() => setSubTab('riwayat')}
               className="rounded-xl bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-200">
               📜 Riwayat HO {historyItems.length > 0 ? `(${historyGrouped.length})` : ''}
@@ -984,6 +1170,10 @@ function RunnerScan() {
           <button onClick={() => setSubTab('pickup')}
             className="rounded-xl bg-cyan-100 px-3 py-1.5 text-xs font-semibold text-cyan-700 hover:bg-cyan-200">
             📥 Pickup {pickupGroups.size > 0 ? `(${Array.from(pickupGroups.values()).reduce((s, m) => s + Array.from(m.values()).reduce((s2, arr) => s2 + arr.length, 0), 0)})` : ''}
+          </button>
+          <button onClick={() => setSubTab('retur')}
+            className="rounded-xl bg-amber-100 px-3 py-1.5 text-xs font-semibold text-amber-700 hover:bg-amber-200">
+            ↩️ Retur/Klaim
           </button>
           <button onClick={() => setSubTab('riwayat')}
             className="rounded-xl bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-200">
@@ -1174,9 +1364,11 @@ function RunnerScan() {
                 }
                 return r;
               }));
+              recordOpLog([{ noPesanan: g.noPesanan, noResi: g.noResi, marketplace: g.marketplace, kurir, jenis: 'proses', aksi: 'Pickup Dikirim', statusProses: 'Dikirim', keterangan: hoId }]);
             };
 
             const failOne = (key: string) => {
+              const g = grouped.get(key);
               setAllRows((prev: AgregasiRow[]) => prev.map((r: AgregasiRow) => {
                 const rk = `${r.noPesanan}||${r.noResi}`;
                 if (rk === key && r.statusProses === 'DiScanRunner') {
@@ -1184,6 +1376,7 @@ function RunnerScan() {
                 }
                 return r;
               }));
+              if (g) recordOpLog([{ noPesanan: g.noPesanan, noResi: g.noResi, marketplace: g.marketplace, kurir, jenis: 'proses', aksi: 'Pickup Gagal', statusProses: 'PendingPickup' }]);
             };
 
             const confirmAll = () => {
@@ -1198,6 +1391,7 @@ function RunnerScan() {
                 }
                 return r;
               }));
+              recordOpLog(activeKeys.map(k => { const g = grouped.get(k); return g ? { noPesanan: g.noPesanan, noResi: g.noResi, marketplace: g.marketplace, kurir, jenis: 'proses' as const, aksi: 'Pickup Dikirim', statusProses: 'Dikirim', keterangan: hoId } : null; }).filter((e): e is NonNullable<typeof e> => !!e));
             };
 
             const failAll = () => {
@@ -1210,6 +1404,7 @@ function RunnerScan() {
                 }
                 return r;
               }));
+              recordOpLog(activeKeys.map(k => { const g = grouped.get(k); return g ? { noPesanan: g.noPesanan, noResi: g.noResi, marketplace: g.marketplace, kurir, jenis: 'proses' as const, aksi: 'Pickup Gagal', statusProses: 'PendingPickup' } : null; }).filter((e): e is NonNullable<typeof e> => !!e));
             };
 
             return (
