@@ -2,6 +2,7 @@
 
 import React, { useState, useCallback, useEffect } from 'react';
 import { useSkus } from '@/app/context/SkuContext';
+import { recordActivity } from '@/app/lib/recordActivity';
 
 type Tab = 'kasir' | 'daftar' | 'ringkasan';
 
@@ -48,6 +49,16 @@ export default function PenjualanPage() {
         });
       } catch {}
     }
+    // ── Rekam aktivitas kasir (KPI) ──
+    recordActivity([{
+      modul: 'transaksi', aksi: 'tambah',
+      refLabel: `${items.length} item kasir`,
+      detail: {
+        jumlahItem: items.length,
+        total: items.reduce((s, i) => s + i.harga * i.qty, 0),
+        pelanggan: pelanggan.trim() || 'Umum',
+      },
+    }]);
     // Refresh daftar
     fetchTransaksi();
   }, [fetchTransaksi]);

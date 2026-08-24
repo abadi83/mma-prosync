@@ -99,7 +99,7 @@ const TABS_ADMIN: { key: Tab; label: string; icon: string }[] = [
   { key: 'gaji', label: 'Gaji / Payroll', icon: '💰' },
   { key: 'approval', label: 'Approval Izin', icon: '✅' },
   { key: 'kpi', label: 'KPI Pegawai', icon: '🎯' },
-  { key: 'aktivitas', label: 'Aktivitas SKU', icon: '📜' },
+  { key: 'aktivitas', label: 'Aktivitas User', icon: '📜' },
   { key: 'face', label: 'Face Absensi', icon: '🤳' },
 ];
 
@@ -1652,7 +1652,7 @@ function GajiTab({ pegawai }: { pegawai: Pegawai[] }) {
 /* ═══════════════════════════════════════════════════════════════════ */
 interface SkuActivity {
   id: string; username: string; namaUser: string; aksi: string;
-  sku: string; nama: string; detail: any; createdAt: string;
+  modul: string; refLabel: string; sku: string; nama: string; detail: any; createdAt: string;
 }
 
 function AktivitasSkuTab() {
@@ -1660,11 +1660,12 @@ function AktivitasSkuTab() {
   const [loading, setLoading] = useState(true);
   const [filterUser, setFilterUser] = useState('semua');
   const [filterAksi, setFilterAksi] = useState('semua');
+  const [filterModul, setFilterModul] = useState('semua');
 
   const load = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/sku-activity?limit=500');
+      const res = await fetch('/api/activity?limit=500');
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data)) setRows(data);
@@ -1683,19 +1684,17 @@ function AktivitasSkuTab() {
   const filtered = rows.filter(r => {
     if (filterUser !== 'semua' && r.username !== filterUser) return false;
     if (filterAksi !== 'semua' && r.aksi !== filterAksi) return false;
+    if (filterModul !== 'semua' && r.modul !== filterModul) return false;
     return true;
   });
 
-  // Ringkasan per user → dasar KPI
+  // Ringkasan per user per modul → dasar KPI
   const summary = useMemo(() => {
-    const map = new Map<string, { namaUser: string; total: number; tambah: number; ubah: number; hapus: number; upload: number }>();
+    const map = new Map<string, { namaUser: string; total: number; perModul: Record<string, number> }>();
     for (const r of rows) {
-      const s = map.get(r.username) || { namaUser: r.namaUser, total: 0, tambah: 0, ubah: 0, hapus: 0, upload: 0 };
+      const s = map.get(r.username) || { namaUser: r.namaUser, total: 0, perModul: {} };
       s.total++;
-      if (r.aksi === 'tambah') s.tambah++;
-      else if (r.aksi === 'ubah') s.ubah++;
-      else if (r.aksi === 'hapus') s.hapus++;
-      else if (r.aksi === 'upload') s.upload++;
+      s.perModul[r.modul] = (s.perModul[r.modul] || 0) + 1;
       map.set(r.username, s);
     }
     return Array.from(map.entries()).map(([username, s]) => ({ username, ...s })).sort((a, b) => b.total - a.total);
@@ -1706,20 +1705,46 @@ function AktivitasSkuTab() {
     ubah: 'bg-blue-100 text-blue-700',
     hapus: 'bg-red-100 text-red-700',
     upload: 'bg-purple-100 text-purple-700',
+    po: 'bg-violet-100 text-violet-700',
+    'barang-masuk': 'bg-emerald-100 text-emerald-700',
+    'barang-keluar': 'bg-red-100 text-red-700',
+  };
+
+  const modulBadge: Record<string, string> = {
+    sku: 'bg-brand-100 text-brand-700',
+    supplier: 'bg-orange-100 text-orange-700',
+    pelanggan: 'bg-cyan-100 text-cyan-700',
+    'marketplace-toko': 'bg-pink-100 text-pink-700',
+    fleet: 'bg-amber-100 text-amber-700',
+    transaksi: 'bg-emerald-100 text-emerald-700',
+    pembelian: 'bg-violet-100 text-violet-700',
+    stok: 'bg-blue-100 text-blue-700',
+  };
+  const MODUL_LABEL: Record<string, string> = {
+    sku: '📦 SKU', supplier: '🏭 Supplier', pelanggan: '👥 Pelanggan', 'marketplace-toko': '🏬 Toko MP',
+    fleet: '🚛 Fleet', transaksi: '💰 Transaksi', pembelian: '🛒 Pembelian', stok: '📦 Stok',
   };
 
   const fmtDetail = (r: SkuActivity): string => {
     const d = r.detail || {};
-    if (r.aksi === 'ubah') {
-      const b = d.sebelum || {}; const a = d.sesudah || {};
-      const parts: string[] = [];
-      if ((b.hargaBaru ?? 0) !== (a.hargaBaru ?? 0)) parts.push(`HPP Rp ${Number(b.hargaBaru || 0).toLocaleString('id-ID')} → Rp ${Number(a.hargaBaru || 0).toLocaleString('id-ID')}`);
-      if ((b.hargaJual ?? 0) !== (a.hargaJual ?? 0)) parts.push(`Jual Rp ${Number(b.hargaJual || 0).toLocaleString('id-ID')} → Rp ${Number(a.hargaJual || 0).toLocaleString('id-ID')}`);
-      return parts.join(' • ') || 'Update data SKU';
+    if (r.modul === 'sku') {
+      if (r.aksi === 'ubah') {
+        const b = d.sebelum || {}; const a = d.sesudah || {};
+        const parts: string[] = [];
+        if ((b.hargaBaru ?? 0) !== (a.hargaBaru ?? 0)) parts.push(`HPP Rp ${Number(b.hargaBaru || 0).toLocaleString('id-ID')} → Rp ${Number(a.hargaBaru || 0).toLocaleString('id-ID')}`);
+        if ((b.hargaJual ?? 0) !== (a.hargaJual ?? 0)) parts.push(`Jual Rp ${Number(b.hargaJual || 0).toLocaleString('id-ID')} → Rp ${Number(a.hargaJual || 0).toLocaleString('id-ID')}`);
+        return parts.join(' • ') || 'Update data SKU';
+      }
+      if (r.aksi === 'hapus') return `Hapus SKU • HPP Rp ${Number(d.hargaBaru || 0).toLocaleString('id-ID')}`;
+      if (r.aksi === 'upload') return `${d.mode === 'insert' ? 'Insert' : 'Upsert'} ${d.inserted ?? 0} baru, ${d.updated ?? 0} diupdate${d.skipped ? `, ${d.skipped} dilewati` : ''} • ${d.fileName || 'file'}`;
+      return `Tambah SKU • HPP Rp ${Number(d.hargaBaru || 0).toLocaleString('id-ID')}`;
     }
-    if (r.aksi === 'hapus') return `Hapus SKU • HPP Rp ${Number(d.hargaBaru || 0).toLocaleString('id-ID')}`;
-    if (r.aksi === 'upload') return `${d.mode === 'insert' ? 'Insert' : 'Upsert'} ${d.inserted ?? 0} baru, ${d.updated ?? 0} diupdate${d.skipped ? `, ${d.skipped} dilewati` : ''} • ${d.fileName || 'file'}`;
-    return `Tambah SKU • HPP Rp ${Number(d.hargaBaru || 0).toLocaleString('id-ID')}`;
+    // Modul lain: tampilkan isi detail ringkas
+    const parts = Object.entries(d)
+      .filter(([k]) => !['sku', 'nama'].includes(k))
+      .slice(0, 4)
+      .map(([k, v]) => `${k}: ${typeof v === 'number' ? Number(v).toLocaleString('id-ID') : v}`);
+    return parts.join(' • ') || '—';
   };
 
   return (
@@ -1727,8 +1752,8 @@ function AktivitasSkuTab() {
       <div className="mb-1 h-1 w-16 rounded-full bg-gradient-to-r from-purple-500 to-purple-300" />
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h2 className="text-lg font-bold text-slate-800 sm:text-xl">📜 Aktivitas SKU per User</h2>
-          <p className="mt-1 text-sm text-slate-500">Rekaman tambah / ubah / hapus / upload SKU — bahan penilaian kinerja (KPI).</p>
+          <h2 className="text-lg font-bold text-slate-800 sm:text-xl">📜 Aktivitas User (Semua Modul)</h2>
+          <p className="mt-1 text-sm text-slate-500">Rekaman kerja tiap user di semua modul — bahan penilaian kinerja (KPI).</p>
         </div>
         <button onClick={load} className="rounded-xl bg-purple-100 px-3 py-1.5 text-xs font-semibold text-purple-700 hover:bg-purple-200">🔄 Refresh</button>
       </div>
@@ -1742,11 +1767,10 @@ function AktivitasSkuTab() {
                 <p className="text-sm font-bold text-slate-800">{s.namaUser || s.username}</p>
                 <span className="rounded-full bg-purple-100 px-2 py-0.5 text-xs font-bold text-purple-700">{s.total} aksi</span>
               </div>
-              <div className="mt-3 grid grid-cols-4 gap-2 text-center text-[11px]">
-                <div className="rounded-lg bg-emerald-50 py-1.5"><p className="font-bold text-emerald-600">{s.tambah}</p><p className="text-emerald-500">Tambah</p></div>
-                <div className="rounded-lg bg-blue-50 py-1.5"><p className="font-bold text-blue-600">{s.ubah}</p><p className="text-blue-500">Ubah</p></div>
-                <div className="rounded-lg bg-red-50 py-1.5"><p className="font-bold text-red-600">{s.hapus}</p><p className="text-red-500">Hapus</p></div>
-                <div className="rounded-lg bg-purple-50 py-1.5"><p className="font-bold text-purple-600">{s.upload}</p><p className="text-purple-500">Upload</p></div>
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {Object.entries(s.perModul).map(([m, n]) => (
+                  <span key={m} className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${modulBadge[m] || 'bg-slate-100 text-slate-600'}`}>{MODUL_LABEL[m] || m}: {n}</span>
+                ))}
               </div>
             </div>
           ))}
@@ -1758,6 +1782,10 @@ function AktivitasSkuTab() {
         <select value={filterUser} onChange={e => setFilterUser(e.target.value)} className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600">
           <option value="semua">👤 Semua User</option>
           {users.map(u => <option key={u.username} value={u.username}>{u.namaUser || u.username}</option>)}
+        </select>
+        <select value={filterModul} onChange={e => setFilterModul(e.target.value)} className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600">
+          <option value="semua">🗂 Semua Modul</option>
+          {Array.from(new Set(rows.map(r => r.modul))).map(m => <option key={m} value={m}>{MODUL_LABEL[m] || m}</option>)}
         </select>
         <select value={filterAksi} onChange={e => setFilterAksi(e.target.value)} className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600">
           <option value="semua">Semua Aksi</option>
@@ -1773,17 +1801,18 @@ function AktivitasSkuTab() {
       <div className="mt-3 overflow-x-auto rounded-xl border border-slate-100">
         <table className="w-full text-left text-xs">
           <thead><tr className="bg-purple-50 text-[11px] uppercase text-purple-500">
-            {['Waktu', 'User', 'Aksi', 'SKU', 'Detail Perubahan'].map(c => <th key={c} className="px-3 py-2 font-semibold whitespace-nowrap">{c}</th>)}
+            {['Waktu', 'User', 'Modul', 'Aksi', 'Ref', 'Detail'].map(c => <th key={c} className="px-3 py-2 font-semibold whitespace-nowrap">{c}</th>)}
           </tr></thead>
           <tbody className="divide-y divide-slate-50 bg-white">
-            {loading ? <tr><td colSpan={5} className="py-8 text-center text-slate-400">⏳ Memuat aktivitas...</td></tr>
-              : filtered.length === 0 ? <tr><td colSpan={5} className="py-8 text-center text-slate-400">Belum ada aktivitas SKU tercatat.</td></tr>
+            {loading ? <tr><td colSpan={6} className="py-8 text-center text-slate-400">⏳ Memuat aktivitas...</td></tr>
+              : filtered.length === 0 ? <tr><td colSpan={6} className="py-8 text-center text-slate-400">Belum ada aktivitas tercatat.</td></tr>
               : filtered.map(r => (
                 <tr key={r.id} className="hover:bg-purple-50/30">
                   <td className="px-3 py-2 text-[10px] text-slate-400 whitespace-nowrap">{new Date(r.createdAt).toLocaleString('id-ID')}</td>
                   <td className="px-3 py-2 font-semibold text-slate-700">{r.namaUser || r.username}</td>
+                  <td className="px-3 py-2"><span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${modulBadge[r.modul] || 'bg-slate-100 text-slate-600'}`}>{MODUL_LABEL[r.modul] || r.modul}</span></td>
                   <td className="px-3 py-2"><span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${badge[r.aksi] || 'bg-slate-100 text-slate-600'}`}>{r.aksi}</span></td>
-                  <td className="px-3 py-2"><span className="font-mono text-[11px] text-brand-700">{r.sku || '-'}</span><span className="text-slate-400 ml-1">{r.nama ? `• ${r.nama}` : ''}</span></td>
+                  <td className="px-3 py-2"><span className="font-mono text-[11px] text-brand-700">{r.refLabel || r.sku || '-'}</span><span className="text-slate-400 ml-1">{r.nama ? `• ${r.nama}` : ''}</span></td>
                   <td className="px-3 py-2 text-[11px] text-slate-600">{fmtDetail(r)}</td>
                 </tr>
               ))}

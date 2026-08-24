@@ -1,5 +1,6 @@
-import { NextResponse } from 'next/server';
+import { NextResponse, NextRequest } from 'next/server';
 import { getBarangKeluar, addBarangKeluar } from '@/app/services/barangKeluarService';
+import { recordActivities } from '@/app/services/activityService';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,7 +18,7 @@ export async function GET(request: Request) {
   }
 }
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const { produk, jumlah, keperluan, tanggal } = body;
@@ -31,6 +32,14 @@ export async function POST(request: Request) {
 
     const tokoId = body.toko_id ?? DEFAULT_TOKO;
     const entry = await addBarangKeluar(tokoId, { produk, jumlah, keperluan, tanggal });
+
+    // Rekam aktivitas user (KPI) — identitas dari cookie login
+    try {
+      const username = request.cookies.get('user_pegawai_id')?.value || request.cookies.get('user_name')?.value || 'unknown';
+      const namaUser = request.cookies.get('user_name')?.value || username;
+      await recordActivities([{ modul: 'stok', aksi: 'barang-keluar', refLabel: produk, detail: { jumlah, keperluan, tanggal } }], { username, namaUser });
+    } catch {}
+
     return NextResponse.json(entry, { status: 201 });
   } catch (error) {
     console.error('POST /api/barang-keluar error:', error);

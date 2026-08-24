@@ -1,5 +1,6 @@
-import { NextResponse } from 'next/server';
+import { NextResponse, NextRequest } from 'next/server';
 import { getBarangMasuk, addBarangMasuk } from '@/app/services/barangMasukService';
+import { recordActivities } from '@/app/services/activityService';
 import { apiSuccess, apiCreated, apiBadRequest, apiServerError } from '@/app/lib/apiResponse';
 import { validateRequired, validatePositiveNumber, runValidations } from '@/app/lib/validation';
 
@@ -18,7 +19,7 @@ export async function GET(request: Request) {
   }
 }
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const { produk, jumlah, supplier, tanggal } = body;
@@ -32,6 +33,14 @@ export async function POST(request: Request) {
 
     const tokoId = body.toko_id ?? DEFAULT_TOKO;
     const entry = await addBarangMasuk(tokoId, { produk, jumlah, supplier, tanggal });
+
+    // Rekam aktivitas user (KPI) — identitas dari cookie login
+    try {
+      const username = request.cookies.get('user_pegawai_id')?.value || request.cookies.get('user_name')?.value || 'unknown';
+      const namaUser = request.cookies.get('user_name')?.value || username;
+      await recordActivities([{ modul: 'stok', aksi: 'barang-masuk', refLabel: produk, detail: { jumlah, supplier, tanggal } }], { username, namaUser });
+    } catch {}
+
     return apiCreated(entry);
   } catch (error) {
     return apiServerError('POST /api/barang-masuk');

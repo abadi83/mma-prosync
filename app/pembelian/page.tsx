@@ -8,6 +8,7 @@ import { useAkuntansi } from '@/app/context/AkuntansiContext';
 import InvoiceExport, { type InvoicePOData, type InvoicePOItem, InvoicePreview } from '@/app/components/InvoicePO';
 import KoreksiPOTab from '@/app/pembelian/components/KoreksiPOTab';
 import { useSuppliers } from '@/app/hooks/useSuppliers';
+import { recordActivity } from '@/app/lib/recordActivity';
 
 /* ================================================================ */
 /* Types                                                             */
@@ -321,6 +322,10 @@ function BelanjaPickingTab({ onGoHpp }: { onGoHpp?: () => void }) {
     setSelected(new Set());
     setSupplierBySku({}); setQtyBySku({}); setHargaBySku({});
     setDpAmount('');
+
+    // ── Rekam aktivitas (KPI) ──
+    recordActivity([{ modul: 'pembelian', aksi: 'po', refLabel: `${poCount} PO • ${lines.length} SKU`, detail: { poCount, skuCount: lines.length, total: estTotal } }]);
+
     alert(`✅ ${poCount} PO dibuat untuk ${lines.length} SKU dari daftar belanja picking. Cek tab Pembelian HPP SKU / Arsip Invoice.`);
   };
 
@@ -1042,6 +1047,9 @@ function HppSkuTab() {
     setTanggal(new Date().toISOString().slice(0, 10));
     setMetodeBayar('cash'); setDpAmount(''); setFotoBase64(''); setFotoNama('');
     const d = new Date(); d.setDate(d.getDate() + 30); setJatuhTempo(d.toISOString().slice(0, 10));
+
+    // ── Rekam aktivitas (KPI) ──
+    recordActivity([{ modul: 'pembelian', aksi: 'po', refLabel: poNumber, detail: { skuCount: cart.length, total: totalHpp, supplier: selectedSupplierData?.nama || '', metodeBayar } }]);
   };
 
   /* Summary */

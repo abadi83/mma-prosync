@@ -35,10 +35,15 @@ function perubahanColor(p: string): string {
 function recordAktivitas(entries: { aksi: string; sku?: string; nama?: string; detail: any }[]) {
   if (typeof window === 'undefined') return;
   try {
-    fetch('/api/sku-activity', {
+    fetch('/api/activity', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ entries }),
+      body: JSON.stringify({
+        entries: entries.map(e => ({
+          modul: 'sku', aksi: e.aksi, refLabel: e.sku,
+          detail: { sku: e.sku, nama: e.nama, ...(e.detail || {}) },
+        })),
+      }),
     });
   } catch {}
 }
