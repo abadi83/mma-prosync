@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
         nama: String(e.nama || '').slice(0, 255),
         detail: e.detail && typeof e.detail === 'object' ? e.detail : {},
       }))
-      .filter(e => e.aksi);
+      .filter((e: any) => e.aksi);
 
     const count = await recordSkuActivities(mapped);
     return json({ success: true, count, username, namaUser });
