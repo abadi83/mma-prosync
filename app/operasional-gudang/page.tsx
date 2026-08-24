@@ -633,8 +633,66 @@ function RunnerScan() {
       }),
     });
     setReturForm({ jenis: 'Retur', noPesanan: '', noResi: '', marketplace: '', keterangan: '' });
+    setReturMatch(null);
     await loadOpLog();
     alert(`✅ ${returForm.jenis} tercatat permanen + notifikasi terkirim ke halaman Notifikasi.`);
+  };
+
+  // Auto-lookup: ketik No. Resi / No. Pesanan lama → data otomatis muncul & terisi
+  const [returMatch, setReturMatch] = useState<{
+    noPesanan: string; noResi: string; marketplace: string; namaToko: string; kurir: string;
+    statusProses?: string; items: { sku: string; namaProduk: string; qty: number }[]; dariLog?: boolean;
+  } | null>(null);
+
+  const cariRetur = async (val: string) => {
+    const v = val.trim().toLowerCase();
+    if (v.length < 3) { setReturMatch(null); return; }
+    // 1) Cari di data Operasional aktif (termasuk yang sudah Dipacking / Dikirim)
+    let rows = allRows.filter(r =>
+      (r.noResi && r.noResi.toLowerCase() === v) ||
+      (r.noPesanan && r.noPesanan.toLowerCase() === v));
+    if (rows.length === 0 && v.length >= 6) {
+      rows = allRows.filter(r =>
+        (r.noResi && r.noResi.toLowerCase().includes(v)) ||
+        (r.noPesanan && r.noPesanan.toLowerCase().includes(v)));
+    }
+    if (rows.length > 0) {
+      const r0 = rows[0];
+      setReturMatch({
+        noPesanan: r0.noPesanan, noResi: r0.noResi, marketplace: r0.marketplace,
+        namaToko: r0.namaToko, kurir: r0.kurir, statusProses: r0.statusProses,
+        items: rows.map(r => ({ sku: r.sku, namaProduk: r.namaProduk, qty: r.kuantity })),
+      });
+      setReturForm(p => ({
+        ...p,
+        noPesanan: p.noPesanan || r0.noPesanan || '',
+        noResi: p.noResi || r0.noResi || '',
+        marketplace: p.marketplace || r0.marketplace || '',
+      }));
+      return;
+    }
+    // 2) Fallback: cari di log server (pesanan lama yang sudah keluar dari dashboard)
+    try {
+      const r = await fetch(`/api/operasional-log?search=${encodeURIComponent(val.trim())}&limit=5`, { cache: 'no-store' });
+      const d = await r.json();
+      const hits = Array.isArray(d) ? d.filter((l: any) => l.jenis === 'proses' && (l.no_resi || l.no_pesanan)) : [];
+      if (hits.length > 0) {
+        const l0 = hits[0];
+        setReturMatch({
+          noPesanan: l0.no_pesanan || '', noResi: l0.no_resi || '', marketplace: l0.marketplace || '',
+          namaToko: '', kurir: l0.kurir || '', statusProses: l0.status_proses || undefined,
+          items: [], dariLog: true,
+        });
+        setReturForm(p => ({
+          ...p,
+          noPesanan: p.noPesanan || l0.no_pesanan || '',
+          noResi: p.noResi || l0.no_resi || '',
+          marketplace: p.marketplace || l0.marketplace || '',
+        }));
+        return;
+      }
+    } catch {}
+    setReturMatch(null);
   };
 
   const inputRef = useRef<HTMLInputElement>(null);
@@ -839,14 +897,14 @@ function RunnerScan() {
                 className="rounded-xl border-2 border-amber-200 bg-white px-3 py-2.5 text-sm focus:border-amber-500 focus:outline-none" />
             </label>
             <label className="flex flex-col gap-1">
-              <span className="text-xs font-semibold text-slate-600">No. Resi <span className="text-slate-400">(scan/ketik)</span></span>
-              <input type="text" value={returForm.noResi} onChange={e => setReturForm(p => ({ ...p, noResi: e.target.value }))}
+              <span className="text-xs font-semibold text-slate-600">No. Resi <span className="text-slate-400">(scan/ketik — data lama otomatis muncul)</span></span>
+              <input type="text" value={returForm.noResi} onChange={e => { const v = e.target.value; setReturForm(p => ({ ...p, noResi: v })); cariRetur(v); }}
                 placeholder="No. resi kiriman…"
                 className="rounded-xl border-2 border-amber-200 bg-white px-3 py-2.5 text-sm font-mono focus:border-amber-500 focus:outline-none" />
             </label>
             <label className="flex flex-col gap-1">
               <span className="text-xs font-semibold text-slate-600">No. Pesanan <span className="text-slate-400">(opsional)</span></span>
-              <input type="text" value={returForm.noPesanan} onChange={e => setReturForm(p => ({ ...p, noPesanan: e.target.value }))}
+              <input type="text" value={returForm.noPesanan} onChange={e => { const v = e.target.value; setReturForm(p => ({ ...p, noPesanan: v })); cariRetur(v); }}
                 placeholder="No. pesanan asal…"
                 className="rounded-xl border-2 border-amber-200 bg-white px-3 py-2.5 text-sm font-mono focus:border-amber-500 focus:outline-none" />
             </label>
@@ -857,6 +915,31 @@ function RunnerScan() {
                 className="rounded-xl border-2 border-amber-200 bg-white px-3 py-2.5 text-sm focus:border-amber-500 focus:outline-none" />
             </label>
           </div>
+
+          {/* Data lama yang cocok — otomatis terisi */}
+          {returMatch && (
+            <div className="mt-3 rounded-xl border-2 border-emerald-300 bg-emerald-50 p-3">
+              <p className="text-xs font-bold text-emerald-700 mb-1.5">✅ Ditemukan di Operasional — data otomatis terisi</p>
+              <div className="flex flex-wrap gap-1.5">
+                <span className="rounded-full bg-white border border-emerald-200 px-2 py-0.5 text-[10px] font-mono font-semibold text-slate-700">{returMatch.noPesanan || '-'}</span>
+                {returMatch.noResi && <span className="rounded-full bg-white border border-emerald-200 px-2 py-0.5 text-[10px] font-mono text-slate-500">resi {returMatch.noResi}</span>}
+                {returMatch.marketplace && <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold text-blue-700">{returMatch.marketplace}</span>}
+                {returMatch.namaToko && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-600">🏪 {returMatch.namaToko}</span>}
+                {returMatch.kurir && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-600">🚚 {returMatch.kurir}</span>}
+                {returMatch.statusProses && <span className="rounded-full bg-purple-100 px-2 py-0.5 text-[10px] font-bold text-purple-700">{returMatch.statusProses}</span>}
+              </div>
+              {returMatch.items.length > 0 && (
+                <div className="mt-1.5 flex flex-wrap gap-1">
+                  {returMatch.items.slice(0, 6).map((it, i) => (
+                    <span key={i} className="rounded-full bg-white border border-emerald-200 px-2 py-0.5 text-[10px] text-slate-600">{it.sku || '-'} × {it.qty}</span>
+                  ))}
+                  {returMatch.items.length > 6 && <span className="text-[10px] font-semibold text-emerald-600 self-center">+{returMatch.items.length - 6} item</span>}
+                </div>
+              )}
+              {returMatch.dariLog && <p className="mt-1 text-[10px] text-slate-400">Data diambil dari log server (pesanan lama).</p>}
+            </div>
+          )}
+
           <button onClick={submitRetur}
             className="mt-4 w-full rounded-xl bg-amber-500 py-3 text-sm font-bold text-white hover:bg-amber-600 transition">
             ↩️ Terima & Catat {returForm.jenis}
