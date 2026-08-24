@@ -18,6 +18,8 @@ interface HppPurchase {
   tanggal: string; jatuhTempo: string; lunas: boolean;
   petugasLogistik?: string;  // Nama petugas logistik yang menjemput PO (untuk cash: yg talangi dulu)
   dibayarKePetugas?: boolean; // Finance sudah reimburs ke petugas?
+  dikoreksi?: boolean;   // PO pernah dikoreksi di Pembelian (harga/qty/foto)
+  koreksiPada?: string;  // waktu koreksi terakhir
 }
 
 const HPP_STORAGE = 'mma_hpp_purchases';
@@ -531,16 +533,17 @@ function PembayaranTab() {
   const [search, setSearch] = useState('');
 
   // Group by noPO
-  interface PoGroup { noPO: string; supplierId: string; supplierNama: string; items: HppPurchase[]; total: number; dibayar: number; sisa: number; lunas: boolean; jatuhTempo: string; metodeBayar: MetodeBayar; petugasLogistik: string; dibayarKePetugas: boolean; }
+  interface PoGroup { noPO: string; supplierId: string; supplierNama: string; items: HppPurchase[]; total: number; dibayar: number; sisa: number; lunas: boolean; jatuhTempo: string; metodeBayar: MetodeBayar; petugasLogistik: string; dibayarKePetugas: boolean; dikoreksi: boolean; koreksiPada: string; }
   const poGroups = useMemo(() => {
     const map = new Map<string, PoGroup>();
     for (const p of hppData) {
-      const g = map.get(p.noPO) || { noPO: p.noPO, supplierId: p.supplierId, supplierNama: p.supplierNama, items: [], total: 0, dibayar: 0, sisa: 0, lunas: true, jatuhTempo: p.jatuhTempo || '', metodeBayar: p.metodeBayar, petugasLogistik: p.petugasLogistik || '', dibayarKePetugas: !!p.dibayarKePetugas };
+      const g = map.get(p.noPO) || { noPO: p.noPO, supplierId: p.supplierId, supplierNama: p.supplierNama, items: [], total: 0, dibayar: 0, sisa: 0, lunas: true, jatuhTempo: p.jatuhTempo || '', metodeBayar: p.metodeBayar, petugasLogistik: p.petugasLogistik || '', dibayarKePetugas: !!p.dibayarKePetugas, dikoreksi: false, koreksiPada: '' };
       g.items.push(p);
       g.total += p.total;
       g.dibayar += p.dibayar;
       g.sisa += p.sisaTagihan;
       if (!p.lunas) g.lunas = false;
+      if (p.dikoreksi) { g.dikoreksi = true; if (!g.koreksiPada && p.koreksiPada) g.koreksiPada = p.koreksiPada; }
       if (p.jatuhTempo && (!g.jatuhTempo || p.jatuhTempo < g.jatuhTempo)) g.jatuhTempo = p.jatuhTempo;
       if (p.petugasLogistik) g.petugasLogistik = p.petugasLogistik;
       if (!p.dibayarKePetugas) g.dibayarKePetugas = false;
@@ -761,6 +764,13 @@ function PembayaranTab() {
                       </td>
                       <td className="px-3 py-2.5 text-xs text-slate-700">
                         {g.supplierNama}
+                        {g.dikoreksi && (
+                          <div className="mt-0.5">
+                            <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold text-amber-700" title={g.koreksiPada ? `Dikoreksi ${new Date(g.koreksiPada).toLocaleString('id-ID')}` : 'PO pernah dikoreksi'}>
+                              ✏️ PO Dikoreksi{g.koreksiPada ? ` • ${new Date(g.koreksiPada).toLocaleDateString('id-ID')}` : ''}
+                            </span>
+                          </div>
+                        )}
                         {g.metodeBayar==='cash' && g.petugasLogistik && (
                           <div className="mt-0.5 flex items-center gap-1">
                             <span className="text-[10px] text-amber-600">🛵 {g.petugasLogistik}</span>

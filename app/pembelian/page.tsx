@@ -40,6 +40,8 @@ interface HppPurchase {
   tanggal: string;
   jatuhTempo: string;    // untuk kontrabon
   lunas: boolean;
+  dikoreksi?: boolean;   // PO pernah dikoreksi (harga/qty/foto nota)
+  koreksiPada?: string;  // waktu koreksi terakhir
   petugasLogistik?: string;  // Nama petugas yang menjemput PO (cash: yg talangi dulu)
   pickupStatus?: 'belum' | 'sedang' | 'sampai'; // status penjemputan oleh logistik
   fotoBase64?: string;   // foto nota/invoice (compressed)
@@ -1866,6 +1868,8 @@ function ArsipTab() {
         total: newTotal,
         sisaTagihan: newSisa,
         lunas: newSisa <= 0,
+        dikoreksi: true,
+        koreksiPada: new Date().toISOString(),
         ...(koreksiFoto.base64 ? { fotoBase64: koreksiFoto.base64, namaFileFoto: koreksiFoto.nama || p.namaFileFoto } : {}),
       };
     });
