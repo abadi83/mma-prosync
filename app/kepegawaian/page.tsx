@@ -90,7 +90,7 @@ const ROLE_LABELS: Record<string, string> = {
 };
 
 /* ── Tabs ── */
-type Tab = 'daftar' | 'absensi' | 'rekap' | 'kpi' | 'face' | 'izin' | 'approval' | 'gaji';
+type Tab = 'daftar' | 'absensi' | 'rekap' | 'kpi' | 'face' | 'izin' | 'approval' | 'gaji' | 'aktivitas';
 
 const TABS_ADMIN: { key: Tab; label: string; icon: string }[] = [
   { key: 'daftar', label: 'Daftar Pegawai', icon: '👥' },
@@ -99,6 +99,7 @@ const TABS_ADMIN: { key: Tab; label: string; icon: string }[] = [
   { key: 'gaji', label: 'Gaji / Payroll', icon: '💰' },
   { key: 'approval', label: 'Approval Izin', icon: '✅' },
   { key: 'kpi', label: 'KPI Pegawai', icon: '🎯' },
+  { key: 'aktivitas', label: 'Aktivitas SKU', icon: '📜' },
   { key: 'face', label: 'Face Absensi', icon: '🤳' },
 ];
 
@@ -371,6 +372,7 @@ export default function KepegawaianPage() {
 
       <section className="card-blue">
         {tab === 'daftar' && isAdmin && <DaftarPegawai pegawai={pegawai} setPegawai={setPegawai} />}
+        {tab === 'aktivitas' && isAdmin && <AktivitasSkuTab />}
         {tab === 'absensi' && <AbsensiHarian pegawai={isAdmin ? pegawai : myPegawai} absensi={myAbsensi} isAdmin={isAdmin} />}
         {tab === 'rekap' && isAdmin && <RekapAbsensi pegawai={pegawai} absensi={absensiWithAlfa} />}
         {tab === 'approval' && isAdmin && <ApprovalIzin izinList={izinList} setIzinList={setIzinList} pegawai={pegawai} />}
@@ -1641,6 +1643,153 @@ function GajiTab({ pegawai }: { pegawai: Pegawai[] }) {
             <tr key={periode} className="hover:bg-slate-50"><td className="px-2 py-2 font-mono font-semibold">{periode}</td><td className="px-2 py-2">{d.jmlPegawai} org</td><td className="px-2 py-2">Rp {d.totalPokok.toLocaleString('id-ID')}</td><td className="px-2 py-2 text-blue-600">Rp {d.totalTunjangan.toLocaleString('id-ID')}</td><td className="px-2 py-2 text-amber-600">Rp {d.totalLembur.toLocaleString('id-ID')}</td><td className="px-2 py-2 text-purple-600">Rp {d.totalBonus.toLocaleString('id-ID')}</td><td className="px-2 py-2 text-red-500">−Rp {d.totalPotongan.toLocaleString('id-ID')}</td><td className="px-2 py-2 font-bold">Rp {d.totalGaji.toLocaleString('id-ID')}</td><td className="px-2 py-2"><span className="text-emerald-600">{d.dibayar}/{d.jmlPegawai}</span></td></tr>
           ))}</tbody></table></div></div>
       )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════ */
+/* AKTIVITAS SKU — audit trail per user (bahan KPI kinerja)           */
+/* ═══════════════════════════════════════════════════════════════════ */
+interface SkuActivity {
+  id: string; username: string; namaUser: string; aksi: string;
+  sku: string; nama: string; detail: any; createdAt: string;
+}
+
+function AktivitasSkuTab() {
+  const [rows, setRows] = useState<SkuActivity[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [filterUser, setFilterUser] = useState('semua');
+  const [filterAksi, setFilterAksi] = useState('semua');
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/sku-activity?limit=500');
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data)) setRows(data);
+      }
+    } catch {}
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, []);
+
+  const users = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const r of rows) if (!map.has(r.username)) map.set(r.username, r.namaUser);
+    return Array.from(map.entries()).map(([username, namaUser]) => ({ username, namaUser }));
+  }, [rows]);
+
+  const filtered = rows.filter(r => {
+    if (filterUser !== 'semua' && r.username !== filterUser) return false;
+    if (filterAksi !== 'semua' && r.aksi !== filterAksi) return false;
+    return true;
+  });
+
+  // Ringkasan per user → dasar KPI
+  const summary = useMemo(() => {
+    const map = new Map<string, { namaUser: string; total: number; tambah: number; ubah: number; hapus: number; upload: number }>();
+    for (const r of rows) {
+      const s = map.get(r.username) || { namaUser: r.namaUser, total: 0, tambah: 0, ubah: 0, hapus: 0, upload: 0 };
+      s.total++;
+      if (r.aksi === 'tambah') s.tambah++;
+      else if (r.aksi === 'ubah') s.ubah++;
+      else if (r.aksi === 'hapus') s.hapus++;
+      else if (r.aksi === 'upload') s.upload++;
+      map.set(r.username, s);
+    }
+    return Array.from(map.entries()).map(([username, s]) => ({ username, ...s })).sort((a, b) => b.total - a.total);
+  }, [rows]);
+
+  const badge: Record<string, string> = {
+    tambah: 'bg-emerald-100 text-emerald-700',
+    ubah: 'bg-blue-100 text-blue-700',
+    hapus: 'bg-red-100 text-red-700',
+    upload: 'bg-purple-100 text-purple-700',
+  };
+
+  const fmtDetail = (r: SkuActivity): string => {
+    const d = r.detail || {};
+    if (r.aksi === 'ubah') {
+      const b = d.sebelum || {}; const a = d.sesudah || {};
+      const parts: string[] = [];
+      if ((b.hargaBaru ?? 0) !== (a.hargaBaru ?? 0)) parts.push(`HPP Rp ${Number(b.hargaBaru || 0).toLocaleString('id-ID')} → Rp ${Number(a.hargaBaru || 0).toLocaleString('id-ID')}`);
+      if ((b.hargaJual ?? 0) !== (a.hargaJual ?? 0)) parts.push(`Jual Rp ${Number(b.hargaJual || 0).toLocaleString('id-ID')} → Rp ${Number(a.hargaJual || 0).toLocaleString('id-ID')}`);
+      return parts.join(' • ') || 'Update data SKU';
+    }
+    if (r.aksi === 'hapus') return `Hapus SKU • HPP Rp ${Number(d.hargaBaru || 0).toLocaleString('id-ID')}`;
+    if (r.aksi === 'upload') return `${d.mode === 'insert' ? 'Insert' : 'Upsert'} ${d.inserted ?? 0} baru, ${d.updated ?? 0} diupdate${d.skipped ? `, ${d.skipped} dilewati` : ''} • ${d.fileName || 'file'}`;
+    return `Tambah SKU • HPP Rp ${Number(d.hargaBaru || 0).toLocaleString('id-ID')}`;
+  };
+
+  return (
+    <div>
+      <div className="mb-1 h-1 w-16 rounded-full bg-gradient-to-r from-purple-500 to-purple-300" />
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h2 className="text-lg font-bold text-slate-800 sm:text-xl">📜 Aktivitas SKU per User</h2>
+          <p className="mt-1 text-sm text-slate-500">Rekaman tambah / ubah / hapus / upload SKU — bahan penilaian kinerja (KPI).</p>
+        </div>
+        <button onClick={load} className="rounded-xl bg-purple-100 px-3 py-1.5 text-xs font-semibold text-purple-700 hover:bg-purple-200">🔄 Refresh</button>
+      </div>
+
+      {/* Ringkasan per user */}
+      {summary.length > 0 && (
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {summary.map(s => (
+            <div key={s.username} className="rounded-2xl border border-purple-100 bg-white p-4">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-bold text-slate-800">{s.namaUser || s.username}</p>
+                <span className="rounded-full bg-purple-100 px-2 py-0.5 text-xs font-bold text-purple-700">{s.total} aksi</span>
+              </div>
+              <div className="mt-3 grid grid-cols-4 gap-2 text-center text-[11px]">
+                <div className="rounded-lg bg-emerald-50 py-1.5"><p className="font-bold text-emerald-600">{s.tambah}</p><p className="text-emerald-500">Tambah</p></div>
+                <div className="rounded-lg bg-blue-50 py-1.5"><p className="font-bold text-blue-600">{s.ubah}</p><p className="text-blue-500">Ubah</p></div>
+                <div className="rounded-lg bg-red-50 py-1.5"><p className="font-bold text-red-600">{s.hapus}</p><p className="text-red-500">Hapus</p></div>
+                <div className="rounded-lg bg-purple-50 py-1.5"><p className="font-bold text-purple-600">{s.upload}</p><p className="text-purple-500">Upload</p></div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Filter */}
+      <div className="mt-4 flex flex-wrap gap-2">
+        <select value={filterUser} onChange={e => setFilterUser(e.target.value)} className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600">
+          <option value="semua">👤 Semua User</option>
+          {users.map(u => <option key={u.username} value={u.username}>{u.namaUser || u.username}</option>)}
+        </select>
+        <select value={filterAksi} onChange={e => setFilterAksi(e.target.value)} className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600">
+          <option value="semua">Semua Aksi</option>
+          <option value="tambah">➕ Tambah</option>
+          <option value="ubah">✏️ Ubah</option>
+          <option value="hapus">🗑️ Hapus</option>
+          <option value="upload">📥 Upload</option>
+        </select>
+        <span className="self-center text-xs text-slate-400">{filtered.length} aktivitas</span>
+      </div>
+
+      {/* Tabel aktivitas */}
+      <div className="mt-3 overflow-x-auto rounded-xl border border-slate-100">
+        <table className="w-full text-left text-xs">
+          <thead><tr className="bg-purple-50 text-[11px] uppercase text-purple-500">
+            {['Waktu', 'User', 'Aksi', 'SKU', 'Detail Perubahan'].map(c => <th key={c} className="px-3 py-2 font-semibold whitespace-nowrap">{c}</th>)}
+          </tr></thead>
+          <tbody className="divide-y divide-slate-50 bg-white">
+            {loading ? <tr><td colSpan={5} className="py-8 text-center text-slate-400">⏳ Memuat aktivitas...</td></tr>
+              : filtered.length === 0 ? <tr><td colSpan={5} className="py-8 text-center text-slate-400">Belum ada aktivitas SKU tercatat.</td></tr>
+              : filtered.map(r => (
+                <tr key={r.id} className="hover:bg-purple-50/30">
+                  <td className="px-3 py-2 text-[10px] text-slate-400 whitespace-nowrap">{new Date(r.createdAt).toLocaleString('id-ID')}</td>
+                  <td className="px-3 py-2 font-semibold text-slate-700">{r.namaUser || r.username}</td>
+                  <td className="px-3 py-2"><span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${badge[r.aksi] || 'bg-slate-100 text-slate-600'}`}>{r.aksi}</span></td>
+                  <td className="px-3 py-2"><span className="font-mono text-[11px] text-brand-700">{r.sku || '-'}</span><span className="text-slate-400 ml-1">{r.nama ? `• ${r.nama}` : ''}</span></td>
+                  <td className="px-3 py-2 text-[11px] text-slate-600">{fmtDetail(r)}</td>
+                </tr>
+              ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

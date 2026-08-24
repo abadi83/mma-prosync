@@ -30,6 +30,19 @@ function perubahanColor(p: string): string {
   return 'text-slate-400';
 }
 
+/* ── Rekam aktivitas user ke server (audit trail → KPI kinerja) ──
+   Identitas user diambil server dari cookie login, klien cuma kirim aksinya. */
+function recordAktivitas(entries: { aksi: string; sku?: string; nama?: string; detail: any }[]) {
+  if (typeof window === 'undefined') return;
+  try {
+    fetch('/api/sku-activity', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ entries }),
+    });
+  } catch {}
+}
+
 export function SkuTab() {
   const { skus, setSkus } = useSkus();
   const [search, setSearch] = useState('');
@@ -157,6 +170,16 @@ export function SkuTab() {
 
     setShowForm(false);
 
+    // ── Rekam aktivitas user (untuk KPI) ──
+    recordAktivitas([{
+      aksi: editId ? 'ubah' : 'tambah',
+      sku: f.sku, nama: f.nama,
+      detail: editId ? {
+        sebelum: { hargaModalLama: oldItem?.hargaModalLama ?? 0, hargaBaru: oldItem?.hargaBaru ?? 0, hargaJual: oldItem?.hargaJual ?? 0 },
+        sesudah: { hargaModalLama: hargaModalFinal, hargaBaru: hargaBaruFinal, hargaJual: +f.hargaJual || 0 },
+      } : { hargaBaru: hargaBaruFinal, hargaJual: +f.hargaJual || 0 },
+    }]);
+
     if (typeof window !== 'undefined') {
       const newHargaJual = +f.hargaJual || 0;
       window.dispatchEvent(new CustomEvent('sku-saved', { detail: { sku: f.sku, oldHargaJual, newHargaJual } }));
@@ -172,9 +195,13 @@ export function SkuTab() {
 
   const del = async () => {
     if (!deleteId) return;
+    const item = skus.find(x => x.id === deleteId);
     try { await fetch(`/api/sku-master?id=${encodeURIComponent(deleteId)}`, { method: 'DELETE' }); } catch {}
     setSkus(prev => prev.filter(x => x.id !== deleteId));
     setDeleteId(null);
+
+    // ── Rekam aktivitas hapus (untuk KPI) ──
+    recordAktivitas([{ aksi: 'hapus', sku: item?.sku, nama: item?.nama, detail: { hargaBaru: item?.hargaBaru ?? 0, hargaJual: item?.hargaJual ?? 0 } }]);
   };
 
   const [upsertMode, setUpsertMode] = useState<'insert' | 'upsert'>('upsert');
@@ -249,6 +276,9 @@ export function SkuTab() {
         inserted = incoming.filter(it => !existingSkus.has(it.sku)).length;
         updated = incoming.filter(it => existingSkus.has(it.sku)).length;
       }
+
+      // ── Rekam aktivitas upload (untuk KPI) ──
+      recordAktivitas([{ aksi: 'upload', sku: '', nama: '', detail: { fileName: file.name, mode: upsertMode, inserted, updated, skipped } }]);
 
       if (typeof window !== 'undefined') {
         try {
