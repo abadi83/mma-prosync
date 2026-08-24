@@ -166,6 +166,28 @@ function StokOpname() {
   const safePage = Math.min(page, totalPages);
   const paginatedItems = items.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
+  // ── Muat foto SKU halaman aktif (biar opname tidak salah barang) ──
+  const [gambarMap, setGambarMap] = useState<Record<string, string>>({});
+  useEffect(() => {
+    const ids = paginatedItems.map(p => p.id).filter(Boolean);
+    if (ids.length === 0) return;
+    let active = true;
+    (async () => {
+      try {
+        const res = await fetch(`/api/sku-gambar?sku=${encodeURIComponent(ids.join(','))}`);
+        if (res.ok && active) {
+          const map = await res.json();
+          setGambarMap(prev => {
+            const next = { ...prev };
+            for (const [k, v] of Object.entries(map || {})) if (v) next[k] = v as string;
+            return next;
+          });
+        }
+      } catch {}
+    })();
+    return () => { active = false; };
+  }, [paginatedItems]);
+
   /* Scan/pilih manual → lompat ke halaman tempat SKU itu berada */
   const goToItem = (id: string) => {
     const idx = items.findIndex(p => p.id === id);
@@ -481,7 +503,14 @@ function StokOpname() {
                   {/* SKU */}
                   <td className="px-3 py-3 font-mono text-xs font-semibold text-brand-700">{item.id}</td>
                   {/* Nama Produk */}
-                  <td className="px-3 py-3 max-w-[200px] truncate font-medium text-slate-800" title={item.nama}>{item.nama}</td>
+                  <td className="px-3 py-3 font-medium text-slate-800" title={item.nama}>
+                    <div className="flex items-center gap-2">
+                      {gambarMap[item.id]
+                        ? <img src={gambarMap[item.id]} alt="" className="h-9 w-9 shrink-0 rounded-lg border border-slate-100 bg-white object-contain" />
+                        : <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-50 text-base">📦</span>}
+                      <span className="max-w-[200px] truncate">{item.nama}</span>
+                    </div>
+                  </td>
                   {/* Kategori (hidden on mobile) */}
                   <td className="px-3 py-3 text-xs text-slate-500 hidden sm:table-cell">
                     {item.kategori ? <span className="rounded-full bg-slate-100 px-2 py-0.5">{item.kategori}</span> : <span className="text-slate-300">-</span>}

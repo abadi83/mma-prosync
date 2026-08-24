@@ -98,12 +98,33 @@ function KasirTab({ onCheckout }: { onCheckout: (items: CartItem[], pelanggan: s
   const { skus } = useSkus();
   const [cart, setCart] = useState<CartItem[]>([]);
   const [search, setSearch] = useState('');
+  const [gambarMap, setGambarMap] = useState<Record<string, string>>({});
 
   // Ambil 50 SKU pertama yang aktif sebagai katalog
   const katalogProduk = skus.filter(s => s.aktif===1 && s.hargaJual>0).slice(0, 50).map(s => ({
     id: s.sku, nama: s.nama, harga: s.hargaJual, icon: '📦'
   }));
   const filtered = katalogProduk.filter(p => p.nama.toLowerCase().includes(search.toLowerCase()));
+
+  // ── Muat foto SKU untuk katalog (biar tidak salah ambil barang) ──
+  useEffect(() => {
+    const ids = katalogProduk.map(p => p.id);
+    if (ids.length === 0) return;
+    let active = true;
+    (async () => {
+      try {
+        const res = await fetch(`/api/sku-gambar?sku=${encodeURIComponent(ids.join(','))}`);
+        if (res.ok && active) {
+          const map = await res.json();
+          const clean: Record<string, string> = {};
+          for (const [k, v] of Object.entries(map || {})) if (v) clean[k] = v as string;
+          setGambarMap(clean);
+        }
+      } catch {}
+    })();
+    return () => { active = false; };
+  }, [skus]);
+
   const [pelanggan, setPelanggan] = useState('Umum');
   const [showBayar, setShowBayar] = useState(false);
   const [jumlahBayar, setJumlahBayar] = useState('');
@@ -257,7 +278,7 @@ function KasirTab({ onCheckout }: { onCheckout: (items: CartItem[], pelanggan: s
           <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-4">
             {filtered.map(p => (
               <button key={p.id} onClick={() => addToCart(p)} className="flex flex-col items-center gap-1 rounded-2xl border border-slate-100 bg-white p-3 text-center shadow-sm transition active:scale-95 hover:border-brand-300 hover:shadow-md">
-                <span className="text-2xl">{p.icon}</span>
+                {gambarMap[p.id] ? <img src={gambarMap[p.id]} alt={p.nama} className="h-14 w-14 rounded-lg object-contain" /> : <span className="text-2xl">{p.icon}</span>}
                 <span className="text-xs font-medium text-slate-700 leading-tight line-clamp-2">{p.nama}</span>
                 <span className="text-xs font-bold text-brand-600">Rp {p.harga.toLocaleString('id-ID')}</span>
               </button>
@@ -279,6 +300,7 @@ function KasirTab({ onCheckout }: { onCheckout: (items: CartItem[], pelanggan: s
               <div className="space-y-2">
                 {cart.map(item => (
                   <div key={item.id} className="flex items-center gap-2 rounded-xl bg-slate-50 p-2">
+                    {gambarMap[item.id] && <img src={gambarMap[item.id]} alt="" className="h-9 w-9 shrink-0 rounded-lg border border-slate-100 object-contain bg-white" />}
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-slate-800 truncate">{item.produk}</p>
                       <p className="text-xs text-slate-400">Rp {item.harga.toLocaleString('id-ID')}</p>

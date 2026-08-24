@@ -48,6 +48,44 @@ function recordAktivitas(entries: { aksi: string; sku?: string; nama?: string; d
   } catch {}
 }
 
+/* ── Kompres gambar ke max N px (otomatis jadi kecil) ── */
+function resizeToMax(src: Blob | string, max: number, mime: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const url = typeof src === 'string' ? src : URL.createObjectURL(src);
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const scale = Math.min(1, max / Math.max(img.width, img.height));
+        const w = Math.max(1, Math.round(img.width * scale));
+        const h = Math.max(1, Math.round(img.height * scale));
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) { reject(new Error('no canvas')); return; }
+        if (mime !== 'image/png') { ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, w, h); }
+        ctx.drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL(mime, 0.8));
+      } catch (e) { reject(e); }
+      if (typeof src !== 'string') URL.revokeObjectURL(url);
+    };
+    img.onerror = () => reject(new Error('gagal load gambar'));
+    img.src = url;
+  });
+}
+
+/* ── Proses foto SKU: compress → hapus background (AI client-side) → fallback compress biasa ── */
+async function processSkuGambar(file: File): Promise<string> {
+  // Coba hapus background (client-side AI, tanpa API key)
+  try {
+    const { removeBackground } = await import('@imgly/background-removal');
+    const blob = await removeBackground(file, { output: { format: 'image/png', quality: 0.8 } } as any);
+    const png = await resizeToMax(blob, 256, 'image/png');
+    if (png && png.length < 600_000) return png;
+  } catch (e) { console.warn('Hapus background gagal, pakai gambar biasa:', e); }
+  // Fallback: compress biasa (JPEG)
+  return resizeToMax(file, 256, 'image/jpeg');
+}
+
 export function SkuTab() {
   const { skus, setSkus } = useSkus();
   const [search, setSearch] = useState('');
@@ -61,6 +99,11 @@ export function SkuTab() {
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const hargaBaruManual = useRef(false);
+
+  /* ── Foto SKU (compress + background dihapus otomatis) ── */
+  const [foto, setFoto] = useState('');
+  const [fotoDirty, setFotoDirty] = useState(false);
+  const [gambarLoading, setGambarLoading] = useState(false);
 
   interface PurchaseHistory {
     id: string; sku: string; supplier: string; hargaLama: number; hargaBaru: number;
@@ -97,6 +140,22 @@ export function SkuTab() {
     setF(p => ({ ...p, hargaJual: String(hj) })); setFerr('');
   };
 
+  /* ── Pilih & proses foto SKU ── */
+  const onPilihGambar = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setGambarLoading(true);
+    try {
+      const hasil = await processSkuGambar(file);
+      setFoto(hasil);
+      setFotoDirty(true);
+    } catch {
+      setFerr('Gagal memproses gambar. Coba file lain.');
+    }
+    setGambarLoading(false);
+  };
+
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim();
     let list = skus;
@@ -128,10 +187,20 @@ export function SkuTab() {
   const goPage = (p: number) => setPage(Math.max(1, Math.min(totalPages, p)));
 
   const blank = () => ({ sku: '', nama: '', grade: '', kodeSupplierVarian: '', statusEditGambar: '', statusUploadToko: '', supplier: '', kategori: '', satuan: 'pcs', hargaModalLama: '', hargaBaru: '', hargaJual: '', minStok: '', aktif: 1 });
-  const openAdd = () => { setF(blank()); setFerr(''); setShowForm(true); setEditId(null); hargaBaruManual.current = false; };
-  const openEdit = (i: SkuItem) => {
+  const openAdd = () => { setF(blank()); setFerr(''); setShowForm(true); setEditId(null); hargaBaruManual.current = false; setFoto(''); setFotoDirty(false); };
+  const openEdit = async (i: SkuItem) => {
     setF({ sku: i.sku, nama: i.nama, grade: i.grade, kodeSupplierVarian: i.kodeSupplierVarian, statusEditGambar: i.statusEditGambar, statusUploadToko: i.statusUploadToko, supplier: i.supplier, kategori: i.kategori, satuan: i.satuan, hargaModalLama: i.hargaModalLama ? String(i.hargaModalLama) : '', hargaBaru: String(i.hargaBaru), hargaJual: String(i.hargaJual), minStok: String(i.minStok), aktif: i.aktif });
     setFerr(''); setEditId(i.id); setShowForm(true);
+    // Muat foto existing
+    setFoto(''); setFotoDirty(false); setGambarLoading(true);
+    try {
+      const res = await fetch(`/api/sku-gambar?sku=${encodeURIComponent(i.sku)}`);
+      if (res.ok) {
+        const map = await res.json();
+        if (map && map[i.sku]) setFoto(map[i.sku]);
+      }
+    } catch {}
+    setGambarLoading(false);
   };
 
   const save = async () => {
@@ -171,6 +240,11 @@ export function SkuTab() {
     } catch (err: any) {
       setFerr('Gagal menyimpan ke server: ' + (err?.message || 'koneksi gagal'));
       return;
+    }
+
+    // Simpan foto kalau berubah
+    if (fotoDirty) {
+      try { await fetch('/api/sku-gambar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sku: f.sku, gambar: foto }) }); } catch {}
     }
 
     setShowForm(false);
@@ -364,6 +438,28 @@ export function SkuTab() {
           <label className="flex flex-col gap-1"><span className="text-xs font-semibold text-slate-600">SKU *</span><input value={f.sku} onChange={e => setF({ ...f, sku: e.target.value })} className="rounded-xl border px-2 py-1.5 text-sm focus:border-brand-500 focus:outline-none" /></label>
           <label className="flex flex-col gap-1"><span className="text-xs font-semibold text-slate-600">Grade</span><input value={f.grade} onChange={e => setF({ ...f, grade: e.target.value })} className="rounded-xl border px-2 py-1.5 text-sm focus:border-brand-500 focus:outline-none" /></label>
           <label className="flex flex-col gap-1 col-span-2"><span className="text-xs font-semibold text-slate-600">Nama *</span><input value={f.nama} onChange={e => setF({ ...f, nama: e.target.value })} className="rounded-xl border px-2 py-1.5 text-sm focus:border-brand-500 focus:outline-none" /></label>
+
+          {/* ── Foto SKU: auto compress + background dihapus ── */}
+          <div className="col-span-2 rounded-xl border-2 border-dashed border-slate-200 bg-slate-50/60 p-3">
+            <p className="text-xs font-semibold text-slate-600 mb-2">🖼️ Foto SKU <span className="font-normal text-[10px] text-slate-400">(otomatis kecil + background dihapus)</span></p>
+            <div className="flex items-center gap-3">
+              <div className="h-20 w-20 shrink-0 overflow-hidden rounded-xl border border-slate-200 bg-white flex items-center justify-center">
+                {gambarLoading ? <span className="text-xs text-slate-400">⏳ Proses...</span>
+                  : foto ? <img src={foto} alt="foto SKU" className="h-full w-full object-contain" />
+                  : <span className="text-3xl text-slate-300">📦</span>}
+              </div>
+              <div className="flex flex-col gap-2">
+                <label className={`cursor-pointer rounded-xl px-3 py-1.5 text-xs font-semibold text-white transition ${gambarLoading ? 'bg-slate-300' : 'bg-brand-500 hover:bg-brand-700'}`}>
+                  {foto ? '🔄 Ganti Foto' : '📷 Upload Foto'}
+                  <input type="file" accept="image/*" onChange={onPilihGambar} className="hidden" disabled={gambarLoading} />
+                </label>
+                {foto && (
+                  <button type="button" onClick={() => { setFoto(''); setFotoDirty(true); }} className="rounded-xl bg-red-100 px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-200">🗑 Hapus Foto</button>
+                )}
+                <p className="text-[10px] text-slate-400">Background dihapus otomatis (AI). Kalau gagal, foto tetap dipakai apa adanya.</p>
+              </div>
+            </div>
+          </div>
           <label className="flex flex-col gap-1"><span className="text-xs font-semibold text-slate-600">Kategori</span><input value={f.kategori} onChange={e => setF({ ...f, kategori: e.target.value })} className="rounded-xl border px-2 py-1.5 text-sm focus:border-brand-500 focus:outline-none" /></label>
           <label className="flex flex-col gap-1"><span className="text-xs font-semibold text-slate-600">Satuan</span><input value={f.satuan} onChange={e => setF({ ...f, satuan: e.target.value })} className="rounded-xl border px-2 py-1.5 text-sm focus:border-brand-500 focus:outline-none" /></label>
           <label className="flex flex-col gap-1"><span className="text-xs font-semibold text-slate-600">Supplier</span><input value={f.supplier} onChange={e => setF({ ...f, supplier: e.target.value })} className="rounded-xl border px-2 py-1.5 text-sm focus:border-brand-500 focus:outline-none" /></label>

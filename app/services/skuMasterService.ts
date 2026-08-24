@@ -33,6 +33,27 @@ export async function getSkuByCode(sku: string, tokoId?: string): Promise<SkuIte
   return row ? mapRow(row) : null;
 }
 
+/** Ambil gambar SKU per kode (terpisah dari getAllSku supaya localStorage tidak membengkak) */
+export async function getSkuGambarMap(skus: string[], tokoId?: string): Promise<Record<string, string | null>> {
+  if (!skus || skus.length === 0) return {};
+  const { rows } = await query(
+    `SELECT sku, gambar FROM sku_master WHERE toko_id = $1 AND sku = ANY($2::text[])`,
+    [tokoId || DEFAULT_TOKO, skus]
+  );
+  const map: Record<string, string | null> = {};
+  for (const s of skus) map[s] = null;
+  for (const r of rows) map[r.sku] = r.gambar || null;
+  return map;
+}
+
+export async function setSkuGambar(sku: string, gambar: string, tokoId?: string): Promise<boolean> {
+  const { rowCount } = await query(
+    `UPDATE sku_master SET gambar = $3, updated_at = NOW() WHERE toko_id = $1 AND sku = $2`,
+    [tokoId || DEFAULT_TOKO, sku, gambar || null]
+  );
+  return (rowCount || 0) > 0;
+}
+
 export async function createSku(data: Omit<SkuItem, 'id'>, tokoId?: string): Promise<SkuItem> {
   const { rows } = await query(
     `INSERT INTO sku_master (toko_id, sku, nama, grade, kode_supplier_varian, status_edit_gambar, status_upload_toko,
