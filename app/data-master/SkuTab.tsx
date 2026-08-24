@@ -33,6 +33,7 @@ function perubahanColor(p: string): string {
 export function SkuTab() {
   const { skus, setSkus } = useSkus();
   const [search, setSearch] = useState('');
+  const [hppFilter, setHppFilter] = useState<'semua' | 'tanpa-hpp' | 'tanpa-hj'>('semua');
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -80,9 +81,15 @@ export function SkuTab() {
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim();
-    if (!q) return skus;
-    return skus.filter(i => i.nama.toLowerCase().includes(q) || i.sku.toLowerCase().includes(q));
-  }, [skus, search]);
+    let list = skus;
+    if (q) list = list.filter(i => i.nama.toLowerCase().includes(q) || i.sku.toLowerCase().includes(q));
+    if (hppFilter === 'tanpa-hpp') list = list.filter(i => !i.hargaBaru || i.hargaBaru <= 0);
+    if (hppFilter === 'tanpa-hj') list = list.filter(i => !i.hargaJual || i.hargaJual <= 0);
+    return list;
+  }, [skus, search, hppFilter]);
+
+  // ⚠️ Jumlah SKU yang belum punya HPP (Harga Beli/Baru) — biar user/pegawai tahu harus ngelengkapi apa
+  const tanpaHppCount = useMemo(() => skus.filter(s => !s.hargaBaru || s.hargaBaru <= 0).length, [skus]);
 
   // ⚡ Pagination: jangan render 4700+ baris sekaligus (penyebab lambat)
   const PAGE_SIZE = 50;
@@ -297,9 +304,14 @@ export function SkuTab() {
     <div>
       <div className="mb-1 h-1 w-16 rounded-full bg-gradient-to-r from-brand-500 to-brand-300" />
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div><h2 className="text-lg font-bold text-slate-800 sm:text-xl">📦 Master SKU</h2><p className="text-sm text-slate-500">{filtered.length} dari {skus.length} SKU</p></div>
+        <div><h2 className="text-lg font-bold text-slate-800 sm:text-xl">📦 Master SKU</h2><p className="text-sm text-slate-500">{filtered.length} dari {skus.length} SKU{tanpaHppCount > 0 && <span className="ml-2 inline-block rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">⚠️ {tanpaHppCount} tanpa HPP</span>}</p></div>
         <div className="flex gap-2 flex-wrap">
           <input type="text" value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} placeholder="🔍 Cari SKU / Nama..." className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none sm:max-w-[180px]" />
+          <select value={hppFilter} onChange={e => { setHppFilter(e.target.value as 'semua' | 'tanpa-hpp' | 'tanpa-hj'); setPage(1); }} className="rounded-xl border border-slate-200 bg-white px-2 py-1.5 text-xs font-semibold text-slate-600 focus:border-brand-500 focus:outline-none" title="Filter Harga">
+            <option value="semua">Semua Harga</option>
+            <option value="tanpa-hpp">⚠️ Tanpa HPP (Harga Beli)</option>
+            <option value="tanpa-hj">💰 Tanpa Harga Jual</option>
+          </select>
           <button onClick={openAdd} className="rounded-xl bg-brand-500 px-3 py-1.5 text-sm font-semibold text-white hover:bg-brand-700">+ Tambah</button>
           <select value={upsertMode} onChange={e => setUpsertMode(e.target.value as 'insert' | 'upsert')} className="rounded-xl border border-slate-200 bg-white px-2 py-1.5 text-xs font-semibold text-slate-600 focus:border-brand-500 focus:outline-none" title="Mode Upload">
             <option value="upsert">🔄 Upsert</option>
@@ -400,13 +412,13 @@ export function SkuTab() {
             <th className="px-1.5 py-2 font-semibold w-[56px]">Aksi</th>
           </tr></thead>
           <tbody className="divide-y divide-slate-50 bg-white">
-            {paginated.length === 0 ? <tr><td colSpan={10} className="py-10 text-center text-slate-400">Tidak ada SKU. Upload file Excel atau tambah manual.</td></tr>
+            {paginated.length === 0 ? <tr><td colSpan={10} className="py-10 text-center text-slate-400">{hppFilter !== 'semua' ? 'Tidak ada SKU yang cocok dengan filter ini. 🎉' : 'Tidak ada SKU. Upload file Excel atau tambah manual.'}</td></tr>
               : paginated.map((item, i) => (<tr key={item.id} className={`${i % 2 === 0 ? 'bg-white' : 'bg-slate-50/30'} ${item.stok < item.minStok ? 'border-l-4 border-l-red-400' : ''} cursor-pointer hover:bg-brand-50/50`} onClick={() => setDetailId(item.id)}>
                 <td className="px-1.5 py-1.5 font-mono text-[11px] text-brand-700 truncate" title={item.sku}>{item.sku}</td>
                 <td className="px-1.5 py-1.5 truncate text-[11px] font-medium text-slate-800" title={item.nama}>{item.nama}</td>
                 <td className="px-1.5 py-1.5"><span className={`rounded-full px-1 py-0.5 text-[10px] font-semibold ${item.grade === 'A' ? 'bg-emerald-100 text-emerald-700' : item.grade === 'B' ? 'bg-amber-100 text-amber-700' : item.grade === 'C' ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-600'}`}>{item.grade || '-'}</span></td>
                 <td className="px-1.5 py-1.5 text-[10px] text-slate-600 truncate" title={item.kategori}>{item.kategori || '-'}</td>
-                <td className="px-1.5 py-1.5 text-[11px] text-slate-700 whitespace-nowrap">Rp {item.hargaBaru.toLocaleString('id-ID')}</td>
+                <td className="px-1.5 py-1.5 text-[11px] whitespace-nowrap">{item.hargaBaru > 0 ? `Rp ${item.hargaBaru.toLocaleString('id-ID')}` : <span className="rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-600">⚠ 0</span>}</td>
                 <td className="px-1.5 py-1.5 text-[11px] font-semibold text-brand-700 whitespace-nowrap">Rp {item.hargaJual.toLocaleString('id-ID')}</td>
                 <td className="px-1.5 py-1.5"><span className={`text-[11px] font-semibold ${item.stok < item.minStok ? 'text-red-500' : item.stok === 0 ? 'text-slate-400' : 'text-slate-700'}`}>{item.stok}{item.stok < item.minStok && ' ⚠'}</span></td>
                 <td className="px-1.5 py-1.5"><div className="flex flex-wrap gap-0.5">{(() => { const mps = mpCache.get(item.id) || []; return <>{mps.slice(0, 2).map((mp, j) => <span key={j} className={`rounded-full px-1 py-0.5 text-[10px] font-semibold leading-none ${mp.color}`}>{mp.name}</span>)}{mps.length > 2 && <span className="text-[10px] text-slate-400">+{mps.length - 2}</span>}</>; })()}</div></td>
