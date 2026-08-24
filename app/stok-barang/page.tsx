@@ -168,6 +168,7 @@ function StokOpname() {
 
   // ── Muat foto SKU halaman aktif (biar opname tidak salah barang) ──
   const [gambarMap, setGambarMap] = useState<Record<string, string>>({});
+  const [zoomImg, setZoomImg] = useState<{ src: string; nama: string } | null>(null);
   useEffect(() => {
     const ids = paginatedItems.map(p => p.id).filter(Boolean);
     if (ids.length === 0) return;
@@ -506,7 +507,16 @@ function StokOpname() {
                   <td className="px-3 py-3 font-medium text-slate-800" title={item.nama}>
                     <div className="flex items-center gap-2">
                       {gambarMap[item.id]
-                        ? <img src={gambarMap[item.id]} alt="" className="h-9 w-9 shrink-0 rounded-lg border border-slate-100 bg-white object-contain" />
+                        ? (
+                          <button
+                            type="button"
+                            onClick={() => setZoomImg({ src: gambarMap[item.id], nama: item.nama })}
+                            title="Klik untuk perbesar"
+                            className="shrink-0 rounded-lg border border-slate-100 bg-white p-0 transition hover:scale-110 hover:border-brand-300"
+                          >
+                            <img src={gambarMap[item.id]} alt="" className="h-9 w-9 rounded-lg object-contain" />
+                          </button>
+                        )
                         : <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-50 text-base">📦</span>}
                       <span className="max-w-[200px] truncate">{item.nama}</span>
                     </div>
@@ -559,6 +569,19 @@ function StokOpname() {
             <span className="px-2 py-1 text-xs font-bold text-slate-700">Hal {safePage} / {totalPages}</span>
             <button onClick={() => setPage(safePage + 1)} disabled={safePage === totalPages} className="rounded-lg border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-brand-50 disabled:opacity-40">›</button>
             <button onClick={() => setPage(totalPages)} disabled={safePage === totalPages} className="rounded-lg border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-brand-50 disabled:opacity-40">»</button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Zoom gambar (lightbox) ── */}
+      {zoomImg && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/60 p-4" onClick={() => setZoomImg(null)}>
+          <div className="max-w-md rounded-2xl bg-white p-3 shadow-2xl" onClick={e => e.stopPropagation()}>
+            <img src={zoomImg.src} alt={zoomImg.nama} className="max-h-[60vh] w-auto rounded-xl object-contain" />
+            <div className="mt-2 flex items-center justify-between gap-2">
+              <p className="flex-1 truncate text-sm font-bold text-slate-800">{zoomImg.nama}</p>
+              <button onClick={() => setZoomImg(null)} className="rounded-xl bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-200">Tutup</button>
+            </div>
           </div>
         </div>
       )}
