@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { useSkus } from '@/app/context/SkuContext';
 
 const KOREKSI_STORAGE = 'mma_koreksi_po';
 
@@ -17,6 +18,7 @@ interface KoreksiPOItem {
   diajukanOleh: string;
   diajukanPada: string;
   diprosesPada?: string;
+  stokDikurangi?: boolean; // penanda stok inventory sudah dikoreksi (hindari dobel)
 }
 
 const JENIS_LABEL: Record<string, string> = {
@@ -27,20 +29,33 @@ const JENIS_LABEL: Record<string, string> = {
 };
 
 export default function KoreksiPOTab() {
+  const { updateStok } = useSkus();
   const [koreksiList, setKoreksiList] = useState<KoreksiPOItem[]>(() => {
     if (typeof window === 'undefined') return [];
     try { const r = localStorage.getItem(KOREKSI_STORAGE); return r ? JSON.parse(r) : []; } catch { return []; }
   });
 
   const updateStatus = (id: string, status: KoreksiPOItem['status']) => {
+    const item = koreksiList.find(k => k.id === id);
+    // Koreksi stok inventory otomatis:
+    // retur → barang balik ke supplier (stok turun)
+    // tidak_datang + selesai → barang tak pernah sampai (stok yang sudah nambah dibalikin)
+    const harusKurangi = !!item && !item.stokDikurangi &&
+      (status === 'retur' || (status === 'selesai' && item.jenisKoreksi === 'tidak_datang'));
+
     const updated = koreksiList.map(k =>
-      k.id === id ? { ...k, status, diprosesPada: new Date().toISOString() } : k
+      k.id === id ? { ...k, status, diprosesPada: new Date().toISOString(), ...(harusKurangi ? { stokDikurangi: true } : {}) } : k
     );
     setKoreksiList(updated);
     localStorage.setItem(KOREKSI_STORAGE, JSON.stringify(updated));
+    try { window.dispatchEvent(new Event('koreksi-updated')); } catch {}
+
+    // Kurangi stok Inventory otomatis (sekali saja per koreksi)
+    if (harusKurangi && item) {
+      updateStok(item.sku, -item.qty);
+    }
 
     if (status === 'retur') {
-      const item = koreksiList.find(k => k.id === id);
       if (item) {
         try {
           const refunds = JSON.parse(localStorage.getItem('mma_koreksi_refund') || '[]');
@@ -58,8 +73,10 @@ export default function KoreksiPOTab() {
           localStorage.setItem('mma_koreksi_refund', JSON.stringify(refunds));
           try { window.dispatchEvent(new Event('refund-updated')); } catch {}
         } catch {}
-        alert(`↩️ Retur tercatat: ${item.noPO} — ${item.namaSku} ×${item.qty}\n\n💰 Antrean refund otomatis masuk ke Keuangan → tab "Refund / Koreksi".\nDi sana: konfirmasi nilai refund & pilih masuk Kas Besar atau Kas Kecil.`);
+        alert(`↩️ Retur tercatat: ${item.noPO} — ${item.namaSku} ×${item.qty}\n📦 Stok Inventory otomatis dikurangi ${item.qty}.\n\n💰 Antrean refund otomatis masuk ke Keuangan → tab "Refund / Koreksi".\nDi sana: konfirmasi nilai refund & pilih masuk Kas Besar atau Kas Kecil.`);
       }
+    } else if (status === 'selesai' && item?.jenisKoreksi === 'tidak_datang') {
+      alert(`✅ Koreksi selesai: ${item.noPO} — ${item.namaSku} ×${item.qty}\n📦 Stok Inventory dikurangi ${item.qty} (barang tidak datang).`);
     }
   };
 
