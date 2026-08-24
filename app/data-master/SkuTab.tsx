@@ -73,14 +73,18 @@ function resizeToMax(src: Blob | string, max: number, mime: string): Promise<str
   });
 }
 
-/* ── Proses foto SKU: compress → hapus background (AI client-side) → fallback compress biasa ── */
+/* ── Proses foto SKU: compress → hapus background (AI client-side) → fallback compress biasa ──
+   Library AI dimuat dari CDN saat runtime (webpackIgnore) supaya tidak bikin error bundling. */
 async function processSkuGambar(file: File): Promise<string> {
   // Coba hapus background (client-side AI, tanpa API key)
   try {
-    const { removeBackground } = await import('@imgly/background-removal');
-    const blob = await removeBackground(file, { output: { format: 'image/png', quality: 0.8 } } as any);
-    const png = await resizeToMax(blob, 256, 'image/png');
-    if (png && png.length < 600_000) return png;
+    const mod: any = await import(/* webpackIgnore: true */ 'https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.7.0/+esm');
+    const removeBackground = mod?.removeBackground ?? mod?.default?.removeBackground ?? mod?.default;
+    if (typeof removeBackground === 'function') {
+      const blob = await removeBackground(file, { output: { format: 'image/png', quality: 0.8 } });
+      const png = await resizeToMax(blob, 256, 'image/png');
+      if (png && png.length < 600_000) return png;
+    }
   } catch (e) { console.warn('Hapus background gagal, pakai gambar biasa:', e); }
   // Fallback: compress biasa (JPEG)
   return resizeToMax(file, 256, 'image/jpeg');
