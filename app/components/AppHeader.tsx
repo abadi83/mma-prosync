@@ -5,11 +5,10 @@ import { BellIcon } from '@/app/components/BellIcon';
 import { useUser } from '@/app/hooks/useUser';
 import Link from 'next/link';
 
-const UNREAD = 2;
-
 export function AppHeader() {
   const [logo, setLogo] = useState('');
   const [namaToko, setNamaToko] = useState('');
+  const [unread, setUnread] = useState(0);
   const { nama } = useUser();
 
   useEffect(() => {
@@ -27,6 +26,23 @@ export function AppHeader() {
       window.removeEventListener('shared-data-updated', refresh);
       window.removeEventListener('storage', refresh);
       window.removeEventListener('refresh-toko-info', refresh);
+    };
+  }, []);
+
+  // Badge notifikasi live dari server (unread count), refresh tiap 20 detik
+  useEffect(() => {
+    const refreshUnread = () => {
+      fetch('/api/notifikasi?count=1', { cache: 'no-store' })
+        .then((r) => r.json())
+        .then((data) => setUnread(typeof data.jumlah === 'number' ? data.jumlah : 0))
+        .catch(() => {});
+    };
+    refreshUnread();
+    const timer = setInterval(refreshUnread, 20000);
+    window.addEventListener('notifikasi-updated', refreshUnread);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('notifikasi-updated', refreshUnread);
     };
   }, []);
 
@@ -64,7 +80,7 @@ export function AppHeader() {
             👤 {nama}
           </span>
         )}
-        <BellIcon count={UNREAD} onClick={() => window.location.href = '/notifikasi'} />
+        <BellIcon count={unread} onClick={() => window.location.href = '/notifikasi'} />
         <button
           onClick={handleLogout}
           className="rounded-lg bg-red-500 px-3 py-1.5 text-xs font-semibold text-white shadow transition hover:bg-red-600"

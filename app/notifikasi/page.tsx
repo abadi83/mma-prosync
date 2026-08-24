@@ -26,14 +26,20 @@ export default function NotifikasiPage() {
   const filtered = filter === 'semua' ? list : list.filter((n) => n.tipe === filter);
   const unread = list.filter((n) => !n.dibaca).length;
 
+  const notifyHeader = () => {
+    try { window.dispatchEvent(new Event('notifikasi-updated')); } catch {}
+  };
+
   const markAllRead = async () => {
     setList((prev) => prev.map((n) => ({ ...n, dibaca: true })));
     try { await fetch('/api/notifikasi', { method: 'PUT' }); } catch {}
+    notifyHeader();
   };
 
   const markOne = async (id: string) => {
     setList((prev) => prev.map((n) => (n.id === id ? { ...n, dibaca: true } : n)));
     try { await fetch(`/api/notifikasi?id=${encodeURIComponent(id)}`, { method: 'PUT' }); } catch {}
+    notifyHeader();
   };
 
   return (
