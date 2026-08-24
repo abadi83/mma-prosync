@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useMemo } from 'react';
+import React, { useState, useRef, useMemo, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { useSkus, type SkuItem } from '@/app/context/SkuContext';
 import { ModalConfirm } from './modals';
@@ -186,6 +186,30 @@ export function SkuTab() {
       map.set(item.id, extractMarketplaces(item.statusUploadToko));
     }
     return map;
+  }, [paginated]);
+
+  /* ── Gambar SKU halaman aktif + hover popup (tidak mengubah alur klik/edit) ── */
+  const [gambarMap, setGambarMap] = useState<Record<string, string>>({});
+  const [hoverImg, setHoverImg] = useState<{ src: string; nama: string; x: number; y: number } | null>(null);
+
+  useEffect(() => {
+    const ids = paginated.map(p => p.id).filter(Boolean);
+    if (ids.length === 0) return;
+    let active = true;
+    (async () => {
+      try {
+        const res = await fetch(`/api/sku-gambar?sku=${encodeURIComponent(ids.join(','))}`);
+        if (res.ok && active) {
+          const map = await res.json();
+          setGambarMap(prev => {
+            const next = { ...prev };
+            for (const [k, v] of Object.entries(map || {})) if (v) next[k] = v as string;
+            return next;
+          });
+        }
+      } catch {}
+    })();
+    return () => { active = false; };
   }, [paginated]);
 
   const goPage = (p: number) => setPage(Math.max(1, Math.min(totalPages, p)));
@@ -548,8 +572,15 @@ export function SkuTab() {
           </tr></thead>
           <tbody className="divide-y divide-slate-50 bg-white">
             {paginated.length === 0 ? <tr><td colSpan={10} className="py-10 text-center text-slate-400">{hppFilter !== 'semua' ? 'Tidak ada SKU yang cocok dengan filter ini. 🎉' : 'Tidak ada SKU. Upload file Excel atau tambah manual.'}</td></tr>
-              : paginated.map((item, i) => (<tr key={item.id} className={`${i % 2 === 0 ? 'bg-white' : 'bg-slate-50/30'} ${item.stok < item.minStok ? 'border-l-4 border-l-red-400' : ''} cursor-pointer hover:bg-brand-50/50`} onClick={() => setDetailId(item.id)}>
-                <td className="px-1.5 py-1.5 font-mono text-[11px] text-brand-700 truncate" title={item.sku}>{item.sku}</td>
+              : paginated.map((item, i) => (<tr
+                key={item.id}
+                className={`${i % 2 === 0 ? 'bg-white' : 'bg-slate-50/30'} ${item.stok < item.minStok ? 'border-l-4 border-l-red-400' : ''} cursor-pointer hover:bg-brand-50/50`}
+                onClick={() => setDetailId(item.id)}
+                onMouseEnter={e => { const src = gambarMap[item.id]; if (src) setHoverImg({ src, nama: item.nama, x: e.clientX, y: e.clientY }); }}
+                onMouseMove={e => { const src = gambarMap[item.id]; if (src) setHoverImg({ src, nama: item.nama, x: e.clientX, y: e.clientY }); }}
+                onMouseLeave={() => setHoverImg(null)}
+              >
+                <td className="px-1.5 py-1.5 font-mono text-[11px] text-brand-700 truncate" title={item.sku}>{item.sku}{gambarMap[item.id] && <span className="ml-0.5" title="Ada foto — arahkan kursor untuk preview">📷</span>}</td>
                 <td className="px-1.5 py-1.5 truncate text-[11px] font-medium text-slate-800" title={item.nama}>{item.nama}</td>
                 <td className="px-1.5 py-1.5"><span className={`rounded-full px-1 py-0.5 text-[10px] font-semibold ${item.grade === 'A' ? 'bg-emerald-100 text-emerald-700' : item.grade === 'B' ? 'bg-amber-100 text-amber-700' : item.grade === 'C' ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-600'}`}>{item.grade || '-'}</span></td>
                 <td className="px-1.5 py-1.5 text-[10px] text-slate-600 truncate" title={item.kategori}>{item.kategori || '-'}</td>
@@ -580,6 +611,16 @@ export function SkuTab() {
         </div>
       )}
       {deleteId && <ModalConfirm title="Konfirmasi Hapus" msg="Yakin hapus SKU ini?" onCancel={() => setDeleteId(null)} onConfirm={del} />}
+
+      {/* ── Hover popup gambar SKU (mengikuti kursor, tidak mengubah alur) ── */}
+      {hoverImg && (
+        <div className="pointer-events-none fixed z-[100]" style={{ left: hoverImg.x + 16, top: hoverImg.y + 12 }}>
+          <div className="rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl">
+            <img src={hoverImg.src} alt={hoverImg.nama} className="h-44 w-44 rounded-xl bg-white object-contain" />
+            <p className="mt-1.5 w-44 truncate text-center text-[10px] font-semibold text-slate-600">{hoverImg.nama}</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
