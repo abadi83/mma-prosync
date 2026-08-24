@@ -1870,6 +1870,7 @@ function ArsipTab() {
       };
     });
     setPurchases(updated);
+    try { window.dispatchEvent(new Event('pembelian-updated')); } catch {}
     setKoreksiPo(null);
     alert(`✅ Koreksi ${koreksiPo.noPO} tersimpan.\nHarga beli, qty & foto nota sudah diperbarui.`);
   };

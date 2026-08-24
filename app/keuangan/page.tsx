@@ -508,6 +508,24 @@ function PembayaranTab() {
   const [payments, setPayments] = useLocalStorage<PaymentRecord[]>(PAYMENT_STORAGE, []);
   const { addJurnal } = useAkuntansi();
 
+  // Live sync: PO yang dikoreksi di Pembelian (tab/page lain) langsung terlihat di sini
+  useEffect(() => {
+    const reload = () => {
+      try {
+        const raw = localStorage.getItem(HPP_STORAGE);
+        if (raw) setHppData(JSON.parse(raw));
+      } catch {}
+    };
+    window.addEventListener('storage', reload);
+    window.addEventListener('shared-data-updated', reload);
+    window.addEventListener('pembelian-updated', reload);
+    return () => {
+      window.removeEventListener('storage', reload);
+      window.removeEventListener('shared-data-updated', reload);
+      window.removeEventListener('pembelian-updated', reload);
+    };
+  }, [setHppData]);
+
   const [filterStatus, setFilterStatus] = useState<'semua' | 'belum' | 'jatuhTempo'>('belum');
   const [filterSupplier, setFilterSupplier] = useState('');
   const [search, setSearch] = useState('');
