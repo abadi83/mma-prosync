@@ -20,6 +20,8 @@ interface HppPurchase {
   dibayarKePetugas?: boolean; // Finance sudah reimburs ke petugas?
   dikoreksi?: boolean;   // PO pernah dikoreksi di Pembelian (harga/qty/foto)
   koreksiPada?: string;  // waktu koreksi terakhir
+  fotoBase64?: string;   // foto nota dari Pembelian (untuk dilihat di Keuangan)
+  namaFileFoto?: string;
 }
 
 const HPP_STORAGE = 'mma_hpp_purchases';
