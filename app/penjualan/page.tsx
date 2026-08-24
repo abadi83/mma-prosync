@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { useSkus } from '@/app/context/SkuContext';
 import { recordActivity } from '@/app/lib/recordActivity';
 
@@ -100,15 +100,23 @@ function KasirTab({ onCheckout }: { onCheckout: (items: CartItem[], pelanggan: s
   const [search, setSearch] = useState('');
   const [gambarMap, setGambarMap] = useState<Record<string, string>>({});
 
-  // Ambil 50 SKU pertama yang aktif sebagai katalog
-  const katalogProduk = skus.filter(s => s.aktif===1 && s.hargaJual>0).slice(0, 50).map(s => ({
+  // Katalog: SEMUA SKU aktif dengan harga jual (bukan cuma 50 pertama)
+  const katalogProduk = useMemo(() => skus.filter(s => s.aktif === 1 && s.hargaJual > 0).map(s => ({
     id: s.sku, nama: s.nama, harga: s.hargaJual, icon: '📦'
-  }));
-  const filtered = katalogProduk.filter(p => p.nama.toLowerCase().includes(search.toLowerCase()));
+  })), [skus]);
 
-  // ── Muat foto SKU untuk katalog (biar tidak salah ambil barang) ──
+  // Pencarian: cocokkan NAMA atau KODE SKU (case-insensitive)
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase().trim();
+    const list = q
+      ? katalogProduk.filter(p => p.nama.toLowerCase().includes(q) || p.id.toLowerCase().includes(q))
+      : katalogProduk;
+    return list.slice(0, 100);
+  }, [katalogProduk, search]);
+
+  // ── Muat foto SKU yang sedang tampil (biar tidak salah ambil barang) ──
   useEffect(() => {
-    const ids = katalogProduk.map(p => p.id);
+    const ids = filtered.map(p => p.id);
     if (ids.length === 0) return;
     let active = true;
     (async () => {
@@ -116,14 +124,16 @@ function KasirTab({ onCheckout }: { onCheckout: (items: CartItem[], pelanggan: s
         const res = await fetch(`/api/sku-gambar?sku=${encodeURIComponent(ids.join(','))}`);
         if (res.ok && active) {
           const map = await res.json();
-          const clean: Record<string, string> = {};
-          for (const [k, v] of Object.entries(map || {})) if (v) clean[k] = v as string;
-          setGambarMap(clean);
+          setGambarMap(prev => {
+            const next = { ...prev };
+            for (const [k, v] of Object.entries(map || {})) if (v) next[k] = v as string;
+            return next;
+          });
         }
       } catch {}
     })();
     return () => { active = false; };
-  }, [skus]);
+  }, [filtered]);
 
   const [pelanggan, setPelanggan] = useState('Umum');
   const [showBayar, setShowBayar] = useState(false);
@@ -283,6 +293,13 @@ function KasirTab({ onCheckout }: { onCheckout: (items: CartItem[], pelanggan: s
                 <span className="text-xs font-bold text-brand-600">Rp {p.harga.toLocaleString('id-ID')}</span>
               </button>
             ))}
+            {filtered.length === 0 && (
+              <div className="col-span-full py-8 text-center text-sm text-slate-400">
+                <p className="text-3xl mb-2">🔍</p>
+                <p>Tidak ada produk cocok dengan "{search}".</p>
+                <p className="text-xs mt-1">Cari pakai nama produk atau kode SKU.</p>
+              </div>
+            )}
           </div>
         </div>
 
