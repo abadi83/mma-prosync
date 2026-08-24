@@ -263,7 +263,7 @@ export default function LaporanPage() {
       <section className="card-blue">
         {jenis === 'laba-rugi' && <LabaRugi periode={periode} customStart={customStart} customEnd={customEnd} orders={mpOrdersApi} />}
         {jenis === 'omset' && <OmsetTab data={omsetData} />}
-        {jenis === 'arus-kas' && <ArusKas periode={periode} customStart={customStart} customEnd={customEnd} />}
+        {jenis === 'arus-kas' && <ArusKas periode={periode} customStart={customStart} customEnd={customEnd} mpOrders={mpOrdersApi} />}
         {jenis === 'stok' && <LaporanStok periode={periode} />}
       </section>
     </main>
@@ -471,38 +471,41 @@ function LabaRugi({ periode, customStart, customEnd, orders }: { periode: Period
   );
 }
 
-function ArusKas({ periode, customStart, customEnd }: { periode: Periode; customStart?: string; customEnd?: string }) {
+function ArusKas({ periode, customStart, customEnd, mpOrders }: { periode: Periode; customStart?: string; customEnd?: string; mpOrders: any[] }) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => { setMounted(true); }, []);
   const data = useMemo(() => {
-    if (!mounted) return { saldoAwal: 0, pemasukan: [], pengeluaran: [] };
+    if (!mounted) return { saldoAwal: 0, pemasukan: [], pengeluaran: [], info: [] };
     const { penjualan, payments, biaya, opex, modal } = getRealData();
     const f = (list: any[], field: string) => filterByPeriode(list, field, periode, customStart, customEnd);
     const saldoAwal = modal.reduce((s: number, m: any) => s + (m.jumlah || 0), 0);
     const kasKecil = (() => { try { const kk = JSON.parse(localStorage.getItem('mma_kas_kecil') || '[]'); return kk.reduce((s: number, e: any) => s + (e.jenis === 'masuk' ? e.jumlah : -e.jumlah), 0); } catch { return 0; } })();
-    // Marketplace income (upload + manual)
-    let mpNet = 0;
+    // Pencairan saldo marketplace → uang masuk kas besar (per periode)
+    let pencairanPeriode = 0;
+    let totalPencairanAll = 0;
     try {
-      const mpIncome = JSON.parse(localStorage.getItem('mma_marketplace_income') || '[]');
-      mpNet += f(mpIncome, 'tanggal').reduce((s: number, e: any) => s + (e.pendapatanBersih || 0), 0);
-      const manual = JSON.parse(localStorage.getItem('mma_keuangan_manual') || '[]');
-      mpNet += f(manual, 'tanggal').reduce((s: number, e: any) => s + (e.pendapatanBersih || 0), 0);
-      const mpOrders = JSON.parse(localStorage.getItem('mma_marketplace_orders') || '[]');
-      mpNet += f(mpOrders, 'tanggal').reduce((s: number, o: any) => s + (o.pendapatanBersih || 0), 0);
+      const pencairan = JSON.parse(localStorage.getItem('mma_pencairan') || '[]');
+      pencairanPeriode = f(pencairan, 'tanggal').reduce((s: number, p: any) => s + (p.jumlah || 0), 0);
+      totalPencairanAll = pencairan.reduce((s: number, p: any) => s + (p.jumlah || 0), 0);
     } catch { }
+    // Saldo MP belum dicairkan = Σ pendapatanBersih (semua) − Σ pencairan (semua)
+    const saldoMP = mpOrders.reduce((s: number, o: any) => s + (o.pendapatanBersih || 0), 0) - totalPencairanAll;
     return {
       saldoAwal: saldoAwal + kasKecil,
       pemasukan: [
         { sumber: 'Penjualan Kasir', jumlah: f(penjualan, 'tanggal').reduce((s: number, t: any) => s + (t.total || 0), 0) },
-        { sumber: 'Pendapatan Bersih Marketplace', jumlah: mpNet },
+        { sumber: 'Pencairan Marketplace', jumlah: pencairanPeriode },
       ],
       pengeluaran: [
         { sumber: 'Pembayaran PO', jumlah: f(payments, 'tanggalBayar').reduce((s: number, p2: any) => s + p2.jumlahDibayar, 0) },
         { sumber: 'Biaya Operasional', jumlah: f(biaya, 'tanggal').reduce((s: number, b2: any) => s + b2.jumlah, 0) },
         { sumber: 'OPEX', jumlah: f(opex, 'tanggal').reduce((s: number, o2: any) => s + o2.total, 0) },
       ],
+      info: [
+        { sumber: 'Saldo Marketplace (Belum Dicairkan)', jumlah: saldoMP },
+      ],
     };
-  }, [mounted, periode, customStart, customEnd]);
+  }, [mounted, periode, customStart, customEnd, mpOrders]);
   return <ArusKasReport data={data} periode={PERIODE_LABELS[periode]} />;
 }
 

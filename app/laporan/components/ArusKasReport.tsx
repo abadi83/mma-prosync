@@ -11,6 +11,7 @@ export interface ArusKasData {
   saldoAwal: number;
   pemasukan: CashItem[];
   pengeluaran: CashItem[];
+  info?: CashItem[]; // baris informasi (misal saldo MP belum dicairkan — bukan kas)
 }
 
 interface Props {
@@ -81,6 +82,19 @@ export function ArusKasReport({ data, periode }: Props) {
           {netCash >= 0 ? '+' : ''}Rp {netCash.toLocaleString('id-ID')}
         </span>
       </div>
+
+      {/* Info tambahan (bukan kas) */}
+      {data.info && data.info.length > 0 && (
+        <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+          {data.info.map((i, idx) => (
+            <div key={idx} className="flex items-center justify-between">
+              <span className="text-sm font-medium text-amber-700">💳 {i.sumber}</span>
+              <span className="text-sm font-bold text-amber-700">Rp {i.jumlah.toLocaleString('id-ID')}</span>
+            </div>
+          ))}
+          <p className="mt-1 text-[11px] text-amber-600">Uang masih di akun marketplace — otomatis masuk Kas Besar saat dicairkan.</p>
+        </div>
+      )}
     </div>
   );
 }

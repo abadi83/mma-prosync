@@ -27,6 +27,7 @@ const SYNC_KEYS = [
   'mma_hpp_purchases',
   'mma_modal',
   'mma_kas_kecil',
+  'mma_pencairan',
   'mma_koreksi_po',
   'mma_koreksi_refund',
   'mma_bukti_bayar',

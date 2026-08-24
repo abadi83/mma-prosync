@@ -4,6 +4,8 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useAkuntansi } from '@/app/context/AkuntansiContext';
 import BuktiBayarUpload from '@/app/components/BuktiBayarUpload';
 import type { BuktiBayar, OcrResult } from '@/app/types';
+import { fetchMarketplaceOrders } from '@/app/lib/marketplaceOrdersClient';
+import { loadPencairan, savePencairan, totalPencairan, PENCAIRAN_STORAGE, type PencairanEntry } from '@/app/lib/pencairan';
 
 /* ================================================================ */
 /* Types (shared key dengan Purchasing)                              */
@@ -83,11 +85,12 @@ const METODE_OPTIONS = [
 /* ================================================================ */
 /* Tab type                                                          */
 /* ================================================================ */
-type Tab = 'pembayaran' | 'aruskas' | 'riwayat' | 'arsip' | 'refund';
+type Tab = 'pembayaran' | 'aruskas' | 'pencairan' | 'riwayat' | 'arsip' | 'refund';
 
 const TABS: { key: Tab; label: string; icon: string }[] = [
   { key: 'pembayaran', label: 'Pembayaran PO', icon: '💳' },
   { key: 'aruskas', label: 'Arus Kas', icon: '📈' },
+  { key: 'pencairan', label: 'Pencairan MP', icon: '💸' },
   { key: 'riwayat', label: 'Riwayat Bayar', icon: '📋' },
   { key: 'arsip', label: 'Arsip Bukti', icon: '🗄️' },
   { key: 'refund', label: 'Refund / Koreksi', icon: '↩️' },
@@ -125,6 +128,7 @@ export default function KeuanganPage() {
       <section className="card-blue">
         {tab === 'pembayaran' && <PembayaranTab />}
         {tab === 'aruskas' && <ArusKasTab />}
+        {tab === 'pencairan' && <PencairanTab />}
         {tab === 'riwayat' && <RiwayatTab />}
         {tab === 'arsip' && <ArsipBuktiTab />}
         {tab === 'refund' && <RefundTab />}
@@ -150,6 +154,8 @@ interface KasKecilEntry {
 function SaldoKas() {
   const [saldoAwal, setSaldoAwal] = useState(0);
   const [kasKecilList, setKasKecilList] = useState<KasKecilEntry[]>([]);
+  const [pencairan, setPencairan] = useState<PencairanEntry[]>([]);
+  const [mpOrders, setMpOrders] = useState<any[]>([]);
   const [mounted, setMounted] = useState(false);
   const [showTambah, setShowTambah] = useState(false);
   const [formKK, setFormKK] = useState({ jumlah: '', jenis: 'masuk' as 'masuk' | 'keluar', keterangan: '' });
@@ -164,7 +170,18 @@ function SaldoKas() {
       const kk = localStorage.getItem(KAS_KECIL_STORAGE);
       if (kk) setKasKecilList(JSON.parse(kk));
     } catch {}
+    setPencairan(loadPencairan());
+    fetchMarketplaceOrders().then(setMpOrders).catch(() => {});
+    const onUpdate = () => { setPencairan(loadPencairan()); };
+    window.addEventListener('pencairan-updated', onUpdate);
+    window.addEventListener('storage', onUpdate);
+    window.addEventListener('refresh-laporan', onUpdate);
     setMounted(true);
+    return () => {
+      window.removeEventListener('pencairan-updated', onUpdate);
+      window.removeEventListener('storage', onUpdate);
+      window.removeEventListener('refresh-laporan', onUpdate);
+    };
   }, []);
 
   // Hitung saldo kas kecil
@@ -184,8 +201,12 @@ function SaldoKas() {
     } catch { return 0; }
   }, []);
 
-  const kasBesar = saldoAwal - totalPengeluaran;
-  const totalSaldo = kasBesar + kasKecil;
+  const totalPencairanSum = totalPencairan(pencairan);
+  const mpNet = mpOrders.reduce((s: number, o: any) => s + (o.pendapatanBersih || 0), 0);
+  const saldoMP = mpNet - totalPencairanSum; // masih di akun marketplace
+
+  const kasBesar = saldoAwal - totalPengeluaran + totalPencairanSum; // pencairan masuk ke Kas Besar
+  const totalSaldo = kasBesar + kasKecil + saldoMP;
 
   const tambahKasKecil = () => {
     const jml = +formKK.jumlah || 0;
@@ -211,11 +232,11 @@ function SaldoKas() {
 
   return (
     <div>
-      <div className="grid grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-3 text-center">
           <p className="text-[10px] text-emerald-500 uppercase">Kas Besar</p>
           <p className="text-sm font-bold text-emerald-700">{fmt(kasBesar)}</p>
-          <p className="text-[9px] text-emerald-400">Bank / Modal</p>
+          <p className="text-[9px] text-emerald-400">Bank / Modal + Pencairan</p>
         </div>
         <div className="rounded-xl bg-amber-50 border border-amber-200 p-3 text-center">
           <p className="text-[10px] text-amber-500 uppercase">Kas Kecil</p>
@@ -230,10 +251,15 @@ function SaldoKas() {
           <p className="text-sm font-bold text-red-600">{fmt(totalPengeluaran)}</p>
           <p className="text-[9px] text-red-400">PO + OPEX + Biaya</p>
         </div>
+        <div className="rounded-xl bg-sky-50 border border-sky-200 p-3 text-center">
+          <p className="text-[10px] text-sky-500 uppercase">Saldo MP</p>
+          <p className="text-sm font-bold text-sky-700">{fmt(saldoMP)}</p>
+          <p className="text-[9px] text-sky-400">Belum Dicairkan</p>
+        </div>
         <div className={`rounded-xl border p-3 text-center ${totalSaldo >= 0 ? 'bg-blue-50 border-blue-200' : 'bg-red-100 border-red-300'}`}>
           <p className="text-[10px] text-slate-500 uppercase">Total Saldo</p>
           <p className={`text-sm font-bold ${totalSaldo >= 0 ? 'text-blue-700' : 'text-red-700'}`}>{fmt(totalSaldo)}</p>
-          <p className="text-[9px] text-slate-400">Besar + Kecil</p>
+          <p className="text-[9px] text-slate-400">Besar + Kecil + Saldo MP</p>
         </div>
       </div>
 
@@ -264,6 +290,191 @@ function SaldoKas() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/* ================================================================ */
+/* TAB: Pencairan Saldo Marketplace → Kas Besar                     */
+/* ================================================================ */
+function PencairanTab() {
+  const [pencairan, setPencairan] = useState<PencairanEntry[]>([]);
+  const [mpOrders, setMpOrders] = useState<any[]>([]);
+  const [form, setForm] = useState({ tokoKey: '', jumlah: '', tanggal: new Date().toISOString().slice(0, 10), keterangan: '' });
+
+  const reload = () => { setPencairan(loadPencairan()); };
+  useEffect(() => {
+    reload();
+    fetchMarketplaceOrders().then(setMpOrders).catch(() => {});
+    window.addEventListener('pencairan-updated', reload);
+    window.addEventListener('storage', reload);
+    return () => {
+      window.removeEventListener('pencairan-updated', reload);
+      window.removeEventListener('storage', reload);
+    };
+  }, []);
+
+  // Saldo per toko: Σ pendapatanBersih − Σ pencairan
+  const tokoMap = new Map<string, { key: string; marketplace: string; tokoNama: string; net: number; cair: number }>();
+  for (const o of mpOrders) {
+    const key = `${o.marketplace || 'Marketplace'}||${o.tokoNama || 'Tanpa Toko'}`;
+    const t = tokoMap.get(key) || { key, marketplace: o.marketplace || 'Marketplace', tokoNama: o.tokoNama || 'Tanpa Toko', net: 0, cair: 0 };
+    t.net += o.pendapatanBersih || 0;
+    tokoMap.set(key, t);
+  }
+  for (const p of pencairan) {
+    if (!p.tokoId) continue;
+    const t = tokoMap.get(p.tokoId);
+    if (t) t.cair += p.jumlah;
+    else tokoMap.set(p.tokoId, { key: p.tokoId, marketplace: p.marketplace, tokoNama: p.tokoNama, net: 0, cair: p.jumlah });
+  }
+  const tokos = Array.from(tokoMap.values()).sort((a, b) => (b.net - b.cair) - (a.net - a.cair));
+  const totalNet = tokos.reduce((s, t) => s + t.net, 0);
+  const totalCair = tokos.reduce((s, t) => s + t.cair, 0);
+  const totalSisa = totalNet - totalCair;
+
+  const selected = tokos.find(t => t.key === form.tokoKey);
+  const sisaSelected = selected ? selected.net - selected.cair : 0;
+
+  const submit = () => {
+    const jml = +form.jumlah || 0;
+    if (!form.tokoKey || !selected) { alert('⚠️ Pilih toko dulu.'); return; }
+    if (jml <= 0) { alert('⚠️ Jumlah harus lebih dari 0.'); return; }
+    if (jml > sisaSelected + 1) { alert(`⚠️ Jumlah melebihi saldo ${selected.tokoNama}. Sisa: Rp ${sisaSelected.toLocaleString('id-ID')}`); return; }
+    const entry: PencairanEntry = {
+      id: `pc-${Date.now()}`,
+      tanggal: form.tanggal,
+      marketplace: selected.marketplace,
+      tokoId: selected.key,
+      tokoNama: selected.tokoNama,
+      jumlah: jml,
+      keterangan: form.keterangan.trim() || 'Pencairan saldo marketplace',
+    };
+    const next = [entry, ...pencairan];
+    setPencairan(next);
+    savePencairan(next);
+    setForm(p => ({ ...p, jumlah: '', keterangan: '' }));
+    try { window.dispatchEvent(new Event('refresh-laporan')); } catch {}
+    alert(`✅ Pencairan Rp ${jml.toLocaleString('id-ID')} dari ${selected.tokoNama} tercatat → masuk Kas Besar.`);
+  };
+
+  const hapus = (id: string) => {
+    if (!confirm('Hapus catatan pencairan ini?')) return;
+    const next = pencairan.filter(p => p.id !== id);
+    setPencairan(next);
+    savePencairan(next);
+    try { window.dispatchEvent(new Event('refresh-laporan')); } catch {}
+  };
+
+  const fmt = (n: number) => `Rp ${n.toLocaleString('id-ID')}`;
+
+  return (
+    <div>
+      <div className="mb-1 h-1 w-16 rounded-full bg-gradient-to-r from-sky-500 to-sky-300" />
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-bold text-slate-800 sm:text-xl">💸 Pencairan Saldo Marketplace</h2>
+          <p className="mt-1 text-sm text-slate-500">Saldo MP = Pendapatan Bersih (Kotor − Fee). Saat dicairkan, uang masuk ke Kas Besar.</p>
+        </div>
+        <span className="rounded-full bg-sky-100 px-3 py-1 text-xs font-semibold text-sky-700">{tokos.length} toko terdeteksi</span>
+      </div>
+
+      {/* KPI */}
+      <div className="mt-4 grid grid-cols-3 gap-3">
+        <div className="rounded-xl bg-sky-50 border border-sky-200 p-3 text-center">
+          <p className="text-lg font-bold text-sky-700">{fmt(totalNet)}</p>
+          <p className="text-[10px] text-sky-500 uppercase">Total Saldo MP</p>
+        </div>
+        <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-3 text-center">
+          <p className="text-lg font-bold text-emerald-700">{fmt(totalCair)}</p>
+          <p className="text-[10px] text-emerald-500 uppercase">Sudah Dicairkan</p>
+        </div>
+        <div className="rounded-xl bg-amber-50 border border-amber-200 p-3 text-center">
+          <p className="text-lg font-bold text-amber-700">{fmt(totalSisa)}</p>
+          <p className="text-[10px] text-amber-500 uppercase">Belum Dicairkan</p>
+        </div>
+      </div>
+
+      {/* Daftar toko */}
+      <div className="mt-4 overflow-x-auto rounded-xl border border-slate-100">
+        <table className="w-full text-left text-xs">
+          <thead><tr className="bg-sky-50 text-xs uppercase text-sky-600">
+            {['Toko', 'Marketplace', 'Saldo MP', 'Sudah Cair', 'Sisa', 'Aksi'].map(c => <th key={c} className="px-2 py-2.5 font-semibold whitespace-nowrap">{c}</th>)}
+          </tr></thead>
+          <tbody className="divide-y divide-slate-50 bg-white">
+            {tokos.map(t => (
+              <tr key={t.key} className={form.tokoKey === t.key ? 'bg-sky-50/60' : 'hover:bg-slate-50/50'}>
+                <td className="px-2 py-2 font-semibold text-slate-700">{t.tokoNama}</td>
+                <td className="px-2 py-2"><span className="rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">{t.marketplace}</span></td>
+                <td className="px-2 py-2 text-slate-600">{fmt(t.net)}</td>
+                <td className="px-2 py-2 text-emerald-600 font-semibold">{fmt(t.cair)}</td>
+                <td className="px-2 py-2 font-bold text-sky-700">{fmt(t.net - t.cair)}</td>
+                <td className="px-2 py-2">
+                  <button onClick={() => setForm(p => ({ ...p, tokoKey: t.key }))}
+                    className="rounded-lg bg-sky-500 px-2 py-1 text-[10px] font-bold text-white hover:bg-sky-600 whitespace-nowrap">
+                    💸 Cairkan
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {tokos.length === 0 && <p className="px-3 py-6 text-center text-xs text-slate-400">Belum ada data keuangan marketplace. Upload di Data Entry → Input Keuangan dulu.</p>}
+      </div>
+
+      {/* Form pencairan */}
+      {form.tokoKey && (
+        <div className="mt-4 rounded-2xl border-2 border-sky-200 bg-sky-50/40 p-4">
+          <p className="text-xs font-semibold text-sky-700 mb-2">💸 Catat Pencairan — {selected?.tokoNama} (sisa Rp {sisaSelected.toLocaleString('id-ID')})</p>
+          <div className="flex flex-wrap gap-2 items-end">
+            <div>
+              <label className="block text-[10px] text-slate-500 mb-0.5">Jumlah</label>
+              <input type="number" value={form.jumlah} onChange={e => setForm(p => ({ ...p, jumlah: e.target.value }))}
+                className="w-40 rounded-lg border px-2 py-1 text-xs font-bold" placeholder="0" />
+            </div>
+            <div>
+              <label className="block text-[10px] text-slate-500 mb-0.5">Tanggal</label>
+              <input type="date" value={form.tanggal} onChange={e => setForm(p => ({ ...p, tanggal: e.target.value }))}
+                className="rounded-lg border px-2 py-1 text-xs" />
+            </div>
+            <div className="flex-1 min-w-[160px]">
+              <label className="block text-[10px] text-slate-500 mb-0.5">Keterangan</label>
+              <input type="text" value={form.keterangan} onChange={e => setForm(p => ({ ...p, keterangan: e.target.value }))}
+                className="w-full rounded-lg border px-2 py-1 text-xs" placeholder="contoh: penarikan harian ke BCA…" />
+            </div>
+            <button onClick={submit} className="rounded-lg bg-sky-500 px-4 py-1.5 text-xs font-bold text-white hover:bg-sky-600">✅ Simpan Pencairan</button>
+            <button onClick={() => setForm(p => ({ ...p, tokoKey: '' }))} className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-200">✕</button>
+          </div>
+        </div>
+      )}
+
+      {/* Riwayat pencairan */}
+      <div className="mt-4 rounded-xl border border-slate-200 bg-white overflow-hidden">
+        <div className="bg-slate-50 px-3 py-2">
+          <p className="text-xs font-bold text-slate-600">🗄️ Riwayat Pencairan ({pencairan.length})</p>
+        </div>
+        {pencairan.length === 0 ? (
+          <p className="px-3 py-6 text-center text-xs text-slate-400">Belum ada pencairan tercatat.</p>
+        ) : (
+          <div className="max-h-80 overflow-y-auto divide-y divide-slate-50">
+            {pencairan.map(p => (
+              <div key={p.id} className="px-3 py-2 flex flex-wrap items-center gap-2">
+                <span className="text-[10px] text-slate-400 whitespace-nowrap">{p.tanggal}</span>
+                <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold text-blue-700">{p.marketplace}</span>
+                <span className="text-[11px] font-semibold text-slate-700">{p.tokoNama}</span>
+                <span className="text-[11px] font-bold text-emerald-600">+ {fmt(p.jumlah)}</span>
+                {p.keterangan && <span className="text-[10px] text-slate-400">— {p.keterangan}</span>}
+                <button onClick={() => hapus(p.id)} className="ml-auto text-[10px] text-red-400 hover:text-red-600">🗑 Hapus</button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Alur */}
+      <div className="mt-4 rounded-xl bg-indigo-50 border border-indigo-200 p-3 text-xs text-indigo-700">
+        🔄 <strong>Alur:</strong> Upload Input Keuangan → <strong>Saldo MP</strong> (per toko). Pencairan → uang pindah ke <strong>Kas Besar</strong> (bukan pendapatan baru). Total Saldo = <strong>Kas Besar + Kas Kecil + Saldo MP belum cair</strong>.
+      </div>
     </div>
   );
 }
@@ -674,6 +885,8 @@ function ArusKasTab() {
   const [payments] = useLocalStorage<PaymentRecord[]>(PAYMENT_STORAGE, []);
   const [biayaData] = useLocalStorage<BiayaOp[]>(BIAYA_STORAGE, []);
   const [opexData] = useLocalStorage<OpexPurchase[]>(OPEX_STORAGE, []);
+  const [pencairan] = useLocalStorage<PencairanEntry[]>(PENCAIRAN_STORAGE, []);
+  const [penjualan] = useLocalStorage<any[]>('mma_penjualan_transaksi', []);
 
   const [bulan, setBulan] = useState(() => {
     const now = new Date();
@@ -687,8 +900,10 @@ function ArusKasTab() {
   const totalOpex = opexData.filter(o => o.tanggal.startsWith(prefix)).reduce((s, o) => s + o.total, 0);
   const totalKeluar = totalPembayaran + totalBiaya + totalOpex;
 
-  // Simulasi pemasukan (dari penjualan - static untuk sekarang)
-  const totalMasuk = 12500000; // placeholder
+  // Pemasukan nyata: penjualan kasir + pencairan saldo marketplace
+  const totalPenjualan = penjualan.filter(t => t.tanggal && t.tanggal.startsWith(prefix)).reduce((s, t) => s + (t.total || 0), 0);
+  const totalPencairanBulan = pencairan.filter(p => p.tanggal && p.tanggal.startsWith(prefix)).reduce((s, p) => s + (p.jumlah || 0), 0);
+  const totalMasuk = totalPenjualan + totalPencairanBulan;
 
   const saldoAkhir = totalMasuk - totalKeluar;
 
@@ -702,16 +917,20 @@ function ArusKasTab() {
       const bayarHari = payments.filter(p => p.tanggalBayar === tgl).reduce((s, p) => s + p.jumlahDibayar, 0);
       const biayaHari = biayaData.filter(b => b.tanggal === tgl).reduce((s, b) => s + b.jumlah, 0);
       const opexHari = opexData.filter(o => o.tanggal === tgl).reduce((s, o) => s + o.total, 0);
+      const jualHari = penjualan.filter(t => t.tanggal === tgl).reduce((s, t) => s + (t.total || 0), 0);
+      const cairHari = pencairan.filter(p => p.tanggal === tgl).reduce((s, p) => s + (p.jumlah || 0), 0);
       days.push({
         tgl: String(d),
-        masuk: 0, // placeholder
+        masuk: jualHari + cairHari,
         keluar: bayarHari + biayaHari + opexHari,
       });
     }
     return days;
-  }, [payments, biayaData, opexData, bulan]);
+  }, [payments, biayaData, opexData, penjualan, pencairan, bulan]);
 
-  const maxFlow = Math.max(...dailyFlow.map(d => d.keluar), 1);
+  const maxMasuk = Math.max(...dailyFlow.map(d => d.masuk), 1);
+  const maxKeluar = Math.max(...dailyFlow.map(d => d.keluar), 1);
+  const maxFlow = Math.max(maxMasuk, maxKeluar, 1);
 
   const fmtRp = (n: number) => n >= 1000000 ? `Rp ${(n/1000000).toFixed(1)}jt` : n >= 1000 ? `Rp ${(n/1000).toFixed(0)}rb` : `Rp ${n}`;
 
@@ -735,9 +954,30 @@ function ArusKasTab() {
       </div>
 
       {/* Detail */}
-      <div className="mt-4 grid gap-4 sm:grid-cols-2">
+      <div className="mt-4 grid gap-4 lg:grid-cols-3">
         <div className="rounded-2xl border border-slate-200 bg-white p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-3">📥 Pengeluaran Bulan Ini</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-3">📥 Pemasukan Bulan Ini</p>
+          <div className="space-y-2">
+            {[
+              { label: 'Penjualan Kasir', amount: totalPenjualan, color: 'bg-emerald-400', icon: '🛒' },
+              { label: 'Pencairan Marketplace', amount: totalPencairanBulan, color: 'bg-sky-400', icon: '💸' },
+            ].map(item => {
+              const max = Math.max(totalPenjualan, totalPencairanBulan, 1);
+              return (
+                <div key={item.label} className="flex items-center gap-2">
+                  <span className="text-sm">{item.icon}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex justify-between text-xs mb-0.5"><span className="text-slate-600">{item.label}</span><span className="font-semibold text-slate-700">{fmtRp(item.amount)}</span></div>
+                    <div className="h-2 w-full rounded-full bg-slate-100 overflow-hidden"><div className={`h-full rounded-full ${item.color}`} style={{ width: `${(item.amount/max)*100}%` }} /></div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-3">📤 Pengeluaran Bulan Ini</p>
           <div className="space-y-2">
             {[
               { label: 'Pembayaran PO', amount: totalPembayaran, color: 'bg-red-400', icon: '💳' },
@@ -760,11 +1000,12 @@ function ArusKasTab() {
 
         {/* Tren harian */}
         <div className="rounded-2xl border border-slate-200 bg-white p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-3">📊 Pengeluaran Harian</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-3">📊 Arus Harian <span className="text-emerald-500">▲masuk</span> <span className="text-red-400">▼keluar</span></p>
           <div className="flex items-end gap-[1px] h-24">
             {dailyFlow.map((d, i) => (
-              <div key={i} className="flex-1 flex flex-col items-center min-w-[6px]">
-                <div className="w-full bg-red-400 rounded-t-sm transition-all" style={{ height: `${Math.max((d.keluar/maxFlow)*100, d.keluar > 0 ? 2 : 0)}%` }} title={`${d.tgl}: ${fmtRp(d.keluar)}`} />
+              <div key={i} className="flex-1 flex flex-col items-center justify-end min-w-[6px] h-full">
+                <div className="w-full bg-emerald-400 rounded-t-sm transition-all" style={{ height: `${Math.max((d.masuk/maxFlow)*100, d.masuk > 0 ? 2 : 0)}%` }} title={`${d.tgl}: masuk ${fmtRp(d.masuk)}`} />
+                <div className="w-full bg-red-400 transition-all" style={{ height: `${Math.max((d.keluar/maxFlow)*100, d.keluar > 0 ? 2 : 0)}%` }} title={`${d.tgl}: keluar ${fmtRp(d.keluar)}`} />
                 {dailyFlow.length <= 31 && (i % 5 === 0 || i === dailyFlow.length-1) && <span className="text-[8px] text-slate-400 mt-0.5">{d.tgl}</span>}
               </div>
             ))}
