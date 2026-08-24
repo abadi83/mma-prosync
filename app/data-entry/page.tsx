@@ -4,6 +4,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { useAgregasi, type AgregasiRow } from '@/app/context/AgregasiContext';
 import { fetchMarketplaceOrders } from '@/app/lib/marketplaceOrdersClient';
+import { markMasukSaldoByResi, syncSaldoKeOperasional } from '@/app/lib/saldoMarketplace';
 
 type Tab = 'shopee' | 'operasional' | 'keuangan' | 'riwayat';
 
@@ -37,6 +38,7 @@ interface MpOrderItem {
 interface MpOrder {
   id: string;
   noPesanan: string;
+  noResi?: string;        // resi (kalau ada di Excel) — untuk cocokkan dengan Operasional
   tanggal: string;
   marketplaceId: string;
   marketplace: string;
@@ -203,7 +205,7 @@ function groupOrders(orders: ShopeeOrder[]): GroupedOrder[] {
 interface UploadHistory { id: string; waktu: string; marketplace: string; namaToko: string; jumlah: number; fileName: string; }
 
 function PesananShopee() {
-  const { addRows } = useAgregasi();
+  const { addRows, setAllRows } = useAgregasi();
   const [orders, setOrders] = useState<ShopeeOrder[]>([]);
   const [staged, setStaged] = useState<ShopeeOrder[]|null>(null); // data sebelum konfirmasi
   const [stagedFile, setStagedFile] = useState(''); // nama file yang di-upload
@@ -329,6 +331,8 @@ function PesananShopee() {
       statusPesanan: o.statusPesanan, dibuat: o.waktuDibuat, sla: o.sla,
     }));
     addRows(ctxRows);
+    // Cocokkan dengan keuangan yang sudah pernah diupload (resi sama → status "Masuk Saldo")
+    void syncSaldoKeOperasional(setAllRows);
 
     // Log ke Riwayat Entry
     appendRiwayat({
@@ -578,6 +582,7 @@ function InputOperasional() {
 /* INPUT DATA KEUANGAN PER MARKETPLACE                               */
 /* ═══════════════════════════════════════════════════════════════════ */
 function InputKeuangan() {
+  const { setAllRows } = useAgregasi();
   const [entries, setEntries] = useState<KeuEntry[]>(() => {
     if (typeof window === 'undefined') return [];
     try {
@@ -737,6 +742,7 @@ function InputKeuangan() {
           const iStatusPesanan = lazadaH.findIndex(hh => hh.includes('status pesanan')); // Kolom Q
           const iWht = lazadaH.findIndex(hh => hh.includes('wht'));             // Kolom O
           const iTanggalTransaksi = lazadaH.findIndex(hh => hh.includes('tanggal transaksi') || hh.includes('tgl transaksi')); // Kolom C
+          const iNoResiLaz = lazadaH.findIndex(hh => hh.includes('no resi') || hh.includes('tracking') || hh.includes('nomor resi'));
 
           if (iNamaBiaya < 0 || iJumlah < 0 || iNoPesanan < 0) {
             const allHeaders = lazadaH.map((hh, i) => `[${i}] ${hh || '(kosong)'}`).join('\n');
@@ -746,7 +752,7 @@ function InputKeuangan() {
 
           // Group by Nomor Pesanan
           const orderMapLazada = new Map<string, {
-            noPesanan: string; tanggal: string; items: { sku: string; nama: string; qty: number; hargaJual: number }[];
+            noPesanan: string; tanggal: string; noResi: string; items: { sku: string; nama: string; qty: number; hargaJual: number }[];
             omset: number; komisi: number; freeShipping: number; promosi: number;
             processingFee: number; biayaTransaksi: number; diskon: number; wht: number;
             statusPesanan: string;
@@ -766,7 +772,8 @@ function InputKeuangan() {
             if (!orderMapLazada.has(key)) {
               const tgl = iTanggalTransaksi >= 0 ? String(row[iTanggalTransaksi] || '').trim().slice(0, 10) : '';
               const st = iStatusPesanan >= 0 ? String(row[iStatusPesanan] || '').trim() : '';
-              orderMapLazada.set(key, { noPesanan: key, tanggal: tgl, items: [], omset: 0, komisi: 0, freeShipping: 0, promosi: 0, processingFee: 0, biayaTransaksi: 0, diskon: 0, wht: 0, statusPesanan: st });
+              const nr = iNoResiLaz >= 0 ? String(row[iNoResiLaz] || '').trim() : '';
+              orderMapLazada.set(key, { noPesanan: key, tanggal: tgl, noResi: nr, items: [], omset: 0, komisi: 0, freeShipping: 0, promosi: 0, processingFee: 0, biayaTransaksi: 0, diskon: 0, wht: 0, statusPesanan: st });
             }
             const order = orderMapLazada.get(key)!;
 
@@ -835,6 +842,7 @@ function InputKeuangan() {
             const labaFinal = gross - totalFeeLazada - effectiveHpp;
             newOrders.push({
               id: `mp-${Date.now()}-${orderId.slice(-6)}`, noPesanan: orderId,
+              noResi: o.noResi || '',
               tanggal: o.tanggal || new Date().toISOString().slice(0, 10),
               marketplaceId: mpObj.id, marketplace: marketplaceLabel, tokoNama,
               pendapatanKotor: gross,
@@ -863,6 +871,7 @@ function InputKeuangan() {
           let ordersSaved = false;
           let dbInserted = fresh.length;
           let dbUpdated = 0;
+          let saldoMatched = 0;
           try {
             const existing = JSON.parse(localStorage.getItem('mma_marketplace_orders') || '[]');
             const seen = new Map<string, any>();
@@ -897,6 +906,11 @@ function InputKeuangan() {
             window.dispatchEvent(new Event('refresh-upload-history'));
           } catch { }
 
+          // Tandai omset operasional: resi sama = "Masuk Saldo" (keuangan tetap terpisah)
+          try {
+            saldoMatched = markMasukSaldoByResi(setAllRows, fresh.filter((o: any) => o.noResi).map((o: any) => ({ noResi: o.noResi, tanggal: o.tanggal || '' })));
+          } catch { }
+
           if (!ordersSaved) {
             setUploading(false);
             setErr('⚠️ Penyimpanan browser penuh — upload TIDAK tersimpan. Klik tombol 🗑️ Reset Data di halaman ini (kanan atas), lalu coba upload lagi.');
@@ -915,7 +929,7 @@ function InputKeuangan() {
             jumlah: freshCount, keterangan: `Upload ${file.name}${skippedCount > 0 ? ` (${skippedCount} dilewati)` : ''}`,
           });
 
-          alert(`✅ Upload ${marketplaceLabel} - Lazada selesai.\n📥 ${dbInserted} baru • ${dbUpdated} diperbarui${skippedCount > 0 ? ` • ${skippedCount} dilewati` : ''}.\n\n📊 Ringkasan (file ini):\n💰 Kotor: Rp ${totalKotor.toLocaleString('id-ID')}\n🛒 Fee: Rp ${totalFee.toLocaleString('id-ID')}\n📦 HPP: Rp ${totalHppFresh.toLocaleString('id-ID')}\n📈 Profit: Rp ${totalNet.toLocaleString('id-ID')}${unmatchedSku>0?`\n⚠️ ${unmatchedSku} SKU tidak match`:'\n✅ Semua SKU match'}`);
+          alert(`✅ Upload ${marketplaceLabel} - Lazada selesai.\n📥 ${dbInserted} baru • ${dbUpdated} diperbarui${skippedCount > 0 ? ` • ${skippedCount} dilewati` : ''}.\n\n📊 Ringkasan (file ini):\n💰 Kotor: Rp ${totalKotor.toLocaleString('id-ID')}\n🛒 Fee: Rp ${totalFee.toLocaleString('id-ID')}\n📦 HPP: Rp ${totalHppFresh.toLocaleString('id-ID')}\n📈 Profit: Rp ${totalNet.toLocaleString('id-ID')}${unmatchedSku>0?`\n⚠️ ${unmatchedSku} SKU tidak match`:'\n✅ Semua SKU match'}${saldoMatched>0?`\n\n💰 ${saldoMatched} pesanan operasional ditandai "Masuk Saldo".`:''}`);
           setTimeout(() => setSuccess(false), 5000);
           setUploading(false);
           if (fileRef.current) fileRef.current.value = '';
@@ -954,6 +968,8 @@ function InputKeuangan() {
         const iKomisi = idx('komisi', 'commission', 'biaya komisi');
         // ── Status Pesanan (kolom AB / Q) ──
         const iStatusPesanan = idx('status pesanan', 'status order', 'status');
+        // ── No. Resi (kalau ada) — untuk cocokkan dengan Operasional ──
+        const iNoResiKeu = idx('no. resi', 'no resi', 'tracking code', 'tracking number', 'tracking id', 'trackingcode', 'nomor resi');
 
         if (iPenghasilan < 0) {
           setErr('Kolom pendapatan tidak ditemukan.\n\nHeader (' + h.length + ' kolom):\n' + h.slice(0, 14).join(', ') + (h.length > 14 ? '...' : '') + '\n\n⚠️ Jika ini file Lazada, pilih Marketplace: Lazada sebelum upload.');
@@ -961,7 +977,7 @@ function InputKeuangan() {
         }
 
         // Kumpulkan data per order (handle multi-SKU)
-        const orderMap = new Map<string, { id: string; tanggal: string; totalHargaProduk: number; penghasilan: number; laba: number; totalBiaya: number; feeAdmin: number; feeLayanan: number; ongkirAktual: number; subsidiOngkir: number; biayaPemrosesan: number; premiProteksi: number; biayaAMS: number; biayaTransaksi: number; komisi: number; statusPesanan: string; items: MpOrderItem[] }>();
+        const orderMap = new Map<string, { id: string; tanggal: string; noResi: string; totalHargaProduk: number; penghasilan: number; laba: number; totalBiaya: number; feeAdmin: number; feeLayanan: number; ongkirAktual: number; subsidiOngkir: number; biayaPemrosesan: number; premiProteksi: number; biayaAMS: number; biayaTransaksi: number; komisi: number; statusPesanan: string; items: MpOrderItem[] }>();
 
         for (let i = 1; i < raw.length; i++) {
           const row = raw[i]; if (!row || row.length < 2) continue;
@@ -996,6 +1012,7 @@ function InputKeuangan() {
           const biayaTransaksi = iBiayaTransaksi >= 0 ? parseRp(row[iBiayaTransaksi] || '0') : 0;
           const komisi = iKomisi >= 0 ? parseRp(row[iKomisi] || '0') : 0;
           const status = iStatusPesanan >= 0 ? String(row[iStatusPesanan] || '').trim() : '';
+          const noResi = iNoResiKeu >= 0 ? String(row[iNoResiKeu] || '').trim() : '';
 
           // SKU baris pertama (INDUK juga bisa punya produk)
           const sku = iSku >= 0 ? String(row[iSku] || '').trim() : '';
@@ -1004,7 +1021,7 @@ function InputKeuangan() {
           const harga = iHargaJual >= 0 ? parseRp(row[iHargaJual] || '0') : 0;
 
           orderMap.set(orderId, {
-            id: orderId, tanggal, totalHargaProduk,
+            id: orderId, tanggal, noResi, totalHargaProduk,
             penghasilan, laba: laba || penghasilan,
             totalBiaya, feeAdmin, feeLayanan, ongkirAktual, subsidiOngkir,
             biayaPemrosesan, premiProteksi, biayaAMS, biayaTransaksi, komisi,
@@ -1061,6 +1078,7 @@ function InputKeuangan() {
           newOrders.push({
             id: `mp-${Date.now()}-${orderId.slice(-6)}`,
             noPesanan: orderId,
+            noResi: o.noResi || '',
             tanggal: o.tanggal || new Date().toISOString().slice(0, 10),
             marketplaceId: mpObj.id,
             marketplace: marketplaceLabel,
@@ -1098,6 +1116,7 @@ function InputKeuangan() {
         let ordersSaved = false;
         let dbInserted = fresh.length;
         let dbUpdated = 0;
+        let saldoMatched = 0;
         try {
           const existing = JSON.parse(localStorage.getItem('mma_marketplace_orders') || '[]');
           const seen = new Map<string, any>();
@@ -1131,6 +1150,11 @@ function InputKeuangan() {
           // ── Trigger refresh Laba Rugi ──
           window.dispatchEvent(new Event('refresh-laporan'));
           window.dispatchEvent(new Event('refresh-upload-history'));
+        } catch { }
+
+        // Tandai omset operasional: resi sama = "Masuk Saldo" (keuangan tetap terpisah)
+        try {
+          saldoMatched = markMasukSaldoByResi(setAllRows, fresh.filter((o: any) => o.noResi).map((o: any) => ({ noResi: o.noResi, tanggal: o.tanggal || '' })));
         } catch { }
 
         if (!ordersSaved) {
@@ -1168,7 +1192,7 @@ function InputKeuangan() {
         const unmatchedMsg = unmatchedSku > 0
           ? `\n⚠️ ${unmatchedSku} SKU tidak ditemukan di Master: ${unmatchedList.slice(0,5).join(', ')}${unmatchedList.length>5?'...':''}`
           : '';
-        alert(`✅ Upload ${marketplaceLabel} selesai.\n📥 ${dbInserted} baru • ${dbUpdated} diperbarui${skippedCount > 0 ? ` • ${skippedCount} dilewati` : ''}.\n\n📊 Ringkasan (file ini):\n💰 Kotor: Rp ${totalKotor.toLocaleString('id-ID')}\n🛒 Fee: Rp ${totalFee.toLocaleString('id-ID')}\n📦 HPP: Rp ${totalHppFresh.toLocaleString('id-ID')}\n📈 Profit: Rp ${totalNet.toLocaleString('id-ID')}\n\n🔍 Kolom Terdeteksi:\n${colsFound.join('\n')}${hppMsg}${unmatchedMsg}`);
+        alert(`✅ Upload ${marketplaceLabel} selesai.\n📥 ${dbInserted} baru • ${dbUpdated} diperbarui${skippedCount > 0 ? ` • ${skippedCount} dilewati` : ''}.\n\n📊 Ringkasan (file ini):\n💰 Kotor: Rp ${totalKotor.toLocaleString('id-ID')}\n🛒 Fee: Rp ${totalFee.toLocaleString('id-ID')}\n📦 HPP: Rp ${totalHppFresh.toLocaleString('id-ID')}\n📈 Profit: Rp ${totalNet.toLocaleString('id-ID')}\n\n🔍 Kolom Terdeteksi:\n${colsFound.join('\n')}${hppMsg}${unmatchedMsg}${saldoMatched>0?`\n\n💰 ${saldoMatched} pesanan operasional ditandai "Masuk Saldo".`:''}`);
         setTimeout(() => setSuccess(false), 5000);
       } catch { setErr('Gagal membaca file. Pastikan format Excel benar.'); }
       setUploading(false);

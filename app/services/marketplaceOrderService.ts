@@ -5,6 +5,7 @@ export interface MarketplaceOrderItem { sku: string; nama: string; qty: number; 
 export interface MarketplaceOrder {
   id: string;
   noPesanan: string;
+  noResi?: string;
   tanggal: string;
   marketplace: string;
   tokoNama: string;
@@ -35,6 +36,7 @@ function mapRow(r: any): MarketplaceOrder {
   return {
     id: r.id,
     noPesanan: r.no_pesanan || '',
+    noResi: r.no_resi || '',
     tanggal: r.tanggal || '',
     marketplace: r.marketplace || '',
     tokoNama: r.toko_nama || '',
@@ -60,7 +62,7 @@ function mapRow(r: any): MarketplaceOrder {
 
 export async function listMarketplaceOrders(tokoId?: string): Promise<MarketplaceOrder[]> {
   const { rows } = await query(
-    `SELECT id, no_pesanan, tanggal, marketplace, toko_nama, pendapatan_kotor, pendapatan_bersih,
+    `SELECT id, no_pesanan, no_resi, tanggal, marketplace, toko_nama, pendapatan_kotor, pendapatan_bersih,
             total_biaya, fee_admin, fee_layanan, ongkir_aktual, subsidi_ongkir, biaya_pemrosesan,
             premi_proteksi, biaya_ams, biaya_transaksi, komisi, items, total_hpp, laba_kotor,
             catatan, status_pesanan
@@ -81,12 +83,13 @@ export async function upsertMarketplaceOrders(orders: MarketplaceOrder[], tokoId
          toko_id, no_pesanan, marketplace, tanggal, toko_nama, pendapatan_kotor, pendapatan_bersih,
          total_biaya, fee_admin, fee_layanan, ongkir_aktual, subsidi_ongkir, biaya_pemrosesan,
          premi_proteksi, biaya_ams, biaya_transaksi, komisi, items, total_hpp, laba_kotor,
-         catatan, status_pesanan
+         catatan, status_pesanan, no_resi
        ) VALUES (
-         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18::jsonb,$19,$20,$21,$22
+         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18::jsonb,$19,$20,$21,$22,$23
        )
        ON CONFLICT (toko_id, marketplace, no_pesanan) DO UPDATE SET
          tanggal = EXCLUDED.tanggal,
+         no_resi = EXCLUDED.no_resi,
          toko_nama = EXCLUDED.toko_nama,
          pendapatan_kotor = EXCLUDED.pendapatan_kotor,
          pendapatan_bersih = EXCLUDED.pendapatan_bersih,
@@ -112,7 +115,7 @@ export async function upsertMarketplaceOrders(orders: MarketplaceOrder[], tokoId
         o.feeAdmin || 0, o.feeLayanan || 0, o.ongkirAktual || 0, o.subsidiOngkir || 0,
         o.biayaPemrosesan || 0, o.premiProteksi || 0, o.biayaAMS || 0, o.biayaTransaksi || 0,
         o.komisi || 0, JSON.stringify(o.items || []), o.totalHPP || 0, o.labaKotor || 0,
-        o.catatan || '', o.statusPesanan || '',
+        o.catatan || '', o.statusPesanan || '', o.noResi || '',
       ]
     );
     if (rows[0]?.is_inserted) inserted++; else updated++;

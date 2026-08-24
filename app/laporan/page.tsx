@@ -116,7 +116,8 @@ export default function LaporanPage() {
     }
     const list = Array.from(byMp.entries()).map(([mp, d]) => ({ marketplace: mp, total: d.total, items: d.count }));
     const grandTotal = list.reduce((s, l) => s + l.total, 0);
-    return { list, grandTotal, orderCount: selesai.length };
+    const masukSaldo = selesai.filter(r => r.statusKeuangan === 'Masuk Saldo').length;
+    return { list, grandTotal, orderCount: selesai.length, masukSaldo };
   }, [allRows]);
 
   // Laba Rugi: Penjualan Kasir + Marketplace (upload + manual) - HPP - Biaya
@@ -531,7 +532,7 @@ function LaporanStok({ periode }: { periode: Periode }) {
 }
 
 /* ── Omset Tab: Gross Revenue dari Marketplace (Operasional Gudang) ── */
-function OmsetTab({ data }: { data: { list: { marketplace: string; total: number; items: number }[]; grandTotal: number; orderCount: number } }) {
+function OmsetTab({ data }: { data: { list: { marketplace: string; total: number; items: number }[]; grandTotal: number; orderCount: number; masukSaldo: number } }) {
   // Warna per marketplace
   const mpColors: Record<string, string> = {
     Shopee: 'border-l-orange-500 bg-orange-50',
@@ -547,9 +548,10 @@ function OmsetTab({ data }: { data: { list: { marketplace: string; total: number
       <p className="mt-1 text-sm text-slate-500">Pendapatan kotor dari pesanan marketplace yang sudah selesai / terkirim (belum dikurangi fee, HPP, dll)</p>
 
       {/* Grand Total */}
-      <div className="mt-5 grid gap-3 sm:grid-cols-2">
+      <div className="mt-5 grid gap-3 sm:grid-cols-3">
         <CardReport label="Total Omset Kotor" value={data.grandTotal} color="brand" highlight />
         <CardReport label="Total Order Selesai" value={data.orderCount} color="slate" isCurrency={false} />
+        <CardReport label="Sudah Masuk Saldo" value={data.masukSaldo} color="emerald" isCurrency={false} />
       </div>
 
       {/* Per Marketplace */}
@@ -573,7 +575,7 @@ function OmsetTab({ data }: { data: { list: { marketplace: string; total: number
 
       {/* Note */}
       <div className="mt-5 rounded-xl bg-amber-50 border border-amber-200 p-3 text-xs text-amber-700">
-        ⚠️ <strong>Catatan:</strong> Ini adalah <strong>Gross Omset</strong> (pendapatan kotor marketplace). Belum termasuk potongan fee marketplace, HPP, biaya packing, dll. Untuk laporan laba rugi bersih, gunakan tab <strong>📈 Laba Rugi</strong> yang saat ini hanya menghitung dari Penjualan Kasir.
+        ⚠️ <strong>Catatan:</strong> Ini adalah <strong>Gross Omset</strong> (pendapatan kotor marketplace) — <strong>tidak dihitung ke Laba Rugi</strong> (keuangan & operasional sengaja dipisah biar tidak dobel hitung). Kartu <strong>💰 Sudah Masuk Saldo</strong> hanya penanda: resi pesanan ini sudah muncul di laporan Input Keuangan (uang masuk saldo marketplace) — statusnya diupdate otomatis, angkanya tetap dari keuangan.
       </div>
     </div>
   );

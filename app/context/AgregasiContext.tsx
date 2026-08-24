@@ -22,6 +22,8 @@ export interface AgregasiRow {
   jenisPaket?: 'Reguler' | 'Besar';          // ditentukan saat QC
   handoverId?: string;                        // ID serah terima dari Runner Scanner
   handoverAt?: string;                        // timestamp serah terima
+  statusKeuangan?: 'Masuk Saldo';             // ditandai otomatis saat resi yang sama terupload di Input Keuangan
+  tanggalSaldo?: string;                      // tanggal masuk saldo (dari laporan keuangan)
 }
 
 interface AgregasiContextType {

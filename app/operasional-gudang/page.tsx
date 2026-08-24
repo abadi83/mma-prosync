@@ -7,6 +7,7 @@ import { useSkus } from '@/app/context/SkuContext';
 import { computeBelanjaOrders, skuInventoryStatus } from '@/app/lib/belanja';
 import { useSuppliers } from '@/app/hooks/useSuppliers';
 import { recordOpLog } from '@/app/lib/recordOpLog';
+import { syncSaldoKeOperasional } from '@/app/lib/saldoMarketplace';
 
 type Tab = 'agregasi' | 'picking' | 'qc' | 'packing' | 'runner' | 'logistik' | 'belanja';
 
@@ -63,7 +64,7 @@ export default function OperasionalGudangPage() {
 /* AGREGASI DASHBOARD                                                */
 /* ═══════════════════════════════════════════════════════════════════ */
 function AgregasiDashboard() {
-  const { allRows, addRows, updateStatusPicking, clearRows } = useAgregasi();
+  const { allRows, addRows, updateStatusPicking, clearRows, setAllRows } = useAgregasi();
   const { skus } = useSkus();
   const [uploading, setUploading] = useState(false);
   const [err, setErr] = useState('');
@@ -126,6 +127,8 @@ function AgregasiDashboard() {
         const grp=new Map<string,(typeof items)[number]>();
         for(const it of items)grp.set(`${it.noPesanan}||${it.noResi}`,it);
         recordOpLog(Array.from(grp.values()).map(it=>({noPesanan:it.noPesanan,noResi:it.noResi,marketplace:it.marketplace,kurir:it.kurir,jenis:'proses' as const,aksi:'Upload Order',statusProses:'Perlu Dikirim'})));
+        // Cocokkan dengan keuangan yang sudah pernah diupload (resi sama → status "Masuk Saldo")
+        void syncSaldoKeOperasional(setAllRows);
         alert(`✅ ${items.length} baris berhasil diimpor.`);
       }catch{setErr('Gagal membaca file.');}
       setUploading(false);
@@ -250,8 +253,10 @@ function AgregasiDashboard() {
             <thead><tr className="bg-brand-50 text-xs uppercase text-brand-500">{['MP / Toko','No. Pesanan','Resi','Item','Total','Kurir','SLA','Status','Gudang'].map(c=><th key={c} className="px-2 py-3 font-semibold whitespace-nowrap">{c}</th>)}</tr></thead>
             <tbody className="divide-y divide-slate-50 bg-white">
               {f.map(g=>{const k=`${g.noPesanan}||${g.noResi}`;const isExp=expanded.has(k);const urgent=(()=>{const d=new Date(g.sla);return!isNaN(d.getTime())&&(d.getTime()-Date.now())<24*60*60*1000&&(g.statusPesanan==='Perlu Dikirim'||g.statusPesanan==='shipped');})();
-                const sp=allRows.find(r=>r.noPesanan===g.noPesanan&&r.noResi===g.noResi)?.statusProses;
+                const rr=allRows.find(r=>r.noPesanan===g.noPesanan&&r.noResi===g.noResi);
+                const sp=rr?.statusProses;
                 const statusGdg=sp==='Dipicking'?<span className="rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">📋 Picking</span>:sp==='DiQC'?<span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">🔍 QC</span>:sp==='Dipacking'?<span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">📦 Packing</span>:sp==='Dikirim'?<span className="rounded-full bg-purple-100 px-1.5 py-0.5 text-[10px] font-semibold text-purple-700">🚚 Dikirim</span>:<span className="text-[10px] text-slate-300">-</span>;
+                const saldoBadge=rr?.statusKeuangan==='Masuk Saldo'?<span className="ml-1 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700" title={`Masuk saldo ${rr.tanggalSaldo||''}`}>💰 Saldo</span>:null;
                 return(<React.Fragment key={k}>
                   <tr className={`cursor-pointer transition ${urgent?'bg-red-50/40':'hover:bg-brand-50/30'}`} onClick={()=>toggle(k)}>
                     <td className="px-2 py-2.5"><div className="flex flex-col"><span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold w-fit ${g.marketplace==='Shopee'?'bg-orange-100 text-orange-700':g.marketplace==='TikTok Shop'?'bg-slate-200 text-slate-700':g.marketplace==='Lazada'?'bg-blue-100 text-blue-700':'bg-slate-100 text-slate-600'}`}>{g.marketplace}</span>{g.namaToko&&<span className="text-[9px] text-slate-400 mt-0.5 truncate max-w-[80px]" title={g.namaToko}>{g.namaToko}</span>}</div></td>
@@ -262,7 +267,7 @@ function AgregasiDashboard() {
                     <td className="px-2 py-2.5 text-slate-500 max-w-[100px] truncate text-[10px]">{g.kurir.split('-')[0]?.trim()||g.kurir.split(':')[0]?.trim()||g.kurir}</td>
                     <td className={`px-2 py-2.5 text-[10px] whitespace-nowrap font-semibold ${urgent?'text-red-600':'text-slate-500'}`}>{g.sla||'-'}</td>
                     <td className="px-2 py-2.5"><span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold whitespace-nowrap ${g.statusPesanan==='Perlu Dikirim'||g.statusPesanan==='shipped'?'bg-amber-100 text-amber-700':g.statusPesanan.includes('Diterima')||g.statusPesanan==='Selesai'||g.statusPesanan==='delivered'?'bg-emerald-100 text-emerald-700':g.statusPesanan.includes('Dikirim')?'bg-blue-100 text-blue-700':g.statusPesanan.includes('Dibatalkan')||g.statusPesanan==='cancelled'?'bg-red-100 text-red-700':'bg-slate-100 text-slate-600'}`}>{g.statusPesanan}</span></td>
-                    <td className="px-2 py-2.5">{statusGdg}</td>
+                    <td className="px-2 py-2.5">{statusGdg}{saldoBadge}</td>
                   </tr>
                   {isExp&&g.items.map((item,i)=>{const st=skuInventoryStatus(item.sku, invMap);return(<tr key={`${k}-${i}`} className="bg-slate-50/50 border-b border-slate-100"><td colSpan={2}></td><td colSpan={2} className="px-2 py-1.5 text-[11px]"><span className="text-slate-400 mr-1">└</span><span className="font-mono text-[10px] text-brand-600 mr-1">{item.sku||'-'}</span><span className="max-w-[180px] truncate inline-block" title={item.namaProduk}>{item.namaProduk}</span>{st&&<span className={`ml-1.5 rounded-full px-1.5 py-0.5 text-[9px] font-bold whitespace-nowrap ${st==='not-found'?'bg-red-100 text-red-700':'bg-orange-100 text-orange-700'}`}>{st==='not-found'?'❌ Tidak ada di Inventory':'⚠️ Stok 0'} 🛒</span>}</td><td className="px-2 py-1.5 text-[11px] whitespace-nowrap">Rp {item.harga.toLocaleString('id-ID')} × {item.qty}</td><td colSpan={5}></td></tr>);})}
                 </React.Fragment>);})}
