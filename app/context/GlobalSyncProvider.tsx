@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef } from 'react';
+import { downscaleDataUrl } from '@/app/lib/imageUtils';
 
 /**
  * GlobalSyncProvider — sync dua arah untuk SEMUA data yang masih di localStorage.
@@ -152,6 +153,33 @@ function notifyListeners(key: string) {
   } catch {}
 }
 
+// ── Migrasi satu kali: kompres foto bukti bayar lama yang tersimpan ukuran penuh ──
+// (sebelum fitur kompres ada, bukti disimpan 3-8MB per foto → localStorage & sync berat)
+const IMG_MIGRATE_FLAG = 'mma_img_migrate_v1';
+async function compressOldBuktiOnce() {
+  if (typeof window === 'undefined') return;
+  try {
+    if (localStorage.getItem(IMG_MIGRATE_FLAG)) return;
+    const raw = localStorage.getItem('mma_bukti_bayar');
+    if (raw) {
+      const list = JSON.parse(raw);
+      if (Array.isArray(list)) {
+        let changed = false;
+        const out: any[] = [];
+        for (const b of list) {
+          if (b && typeof b.imageBase64 === 'string' && b.imageBase64.length > 300000) {
+            const small = await downscaleDataUrl(b.imageBase64, 1600, 1600, 0.75);
+            if (small) { out.push({ ...b, imageBase64: small }); changed = true; continue; }
+          }
+          out.push(b);
+        }
+        if (changed) { try { localStorage.setItem('mma_bukti_bayar', JSON.stringify(out)); } catch {} }
+      }
+    }
+    localStorage.setItem(IMG_MIGRATE_FLAG, '1');
+  } catch {}
+}
+
 export function GlobalSyncProvider({ children }: { children: React.ReactNode }) {
   const initialized = useRef(false);
   const localSnapshots = useRef<Record<string, string>>({});
@@ -254,6 +282,7 @@ export function GlobalSyncProvider({ children }: { children: React.ReactNode }) 
     if (initialized.current) return;
     initialized.current = true;
     (async () => {
+      await compressOldBuktiOnce();
       for (const key of SYNC_KEYS) await syncKey(key);
       notifyListeners('init');
     })();

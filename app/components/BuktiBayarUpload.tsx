@@ -2,6 +2,7 @@
 
 import React, { useState, useRef, useCallback } from 'react';
 import type { OcrResult } from '@/app/types';
+import { compressImageFile } from '@/app/lib/imageUtils';
 
 /* ================================================================ */
 /* Props                                                             */
@@ -96,13 +97,8 @@ export default function BuktiBayarUpload({ onOcrResult, onImageReady, existingIm
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
 
-  const toBase64 = (file: File): Promise<string> =>
-    new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = () => reject(new Error('Gagal membaca file.'));
-      reader.readAsDataURL(file);
-    });
+  // Kompres dulu sebelum OCR/simpan — foto HP ukuran penuh (3-8MB) bikin browser & sync berat
+  const toBase64 = (file: File): Promise<string> => compressImageFile(file, 1600, 1600, 0.75);
 
   const runOcr = useCallback(async (base64Url: string) => {
     setLoading(true);
