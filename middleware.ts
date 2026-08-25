@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { canAccessPath } from '@/app/lib/accessControl';
 
 // Route publik — tidak perlu login (prefix match)
 const PUBLIC_PREFIXES = ['/login', '/daftar', '/lupa-password', '/reset-password'];
@@ -36,6 +37,15 @@ export function middleware(request: NextRequest) {
     const loginUrl = new URL('/login', request.url);
     loginUrl.searchParams.set('redirect', pathname);
     return NextResponse.redirect(loginUrl);
+  }
+
+  // ── Cek role (ketat): user hanya bisa buka modul sesuai rolenya ──
+  const rolesCookie = request.cookies.get('user_roles')?.value || request.cookies.get('user_role')?.value || '';
+  const roles = rolesCookie.split(',').map(r => r.trim()).filter(Boolean);
+  if (!canAccessPath(roles, pathname)) {
+    const home = new URL('/', request.url);
+    home.searchParams.set('denied', pathname);
+    return NextResponse.redirect(home);
   }
 
   return NextResponse.next();

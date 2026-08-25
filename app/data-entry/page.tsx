@@ -3,6 +3,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { useAgregasi, type AgregasiRow } from '@/app/context/AgregasiContext';
+import { useUser } from '@/app/hooks/useUser';
 import { fetchMarketplaceOrders } from '@/app/lib/marketplaceOrdersClient';
 import { markMasukSaldoByResi, syncSaldoKeOperasional } from '@/app/lib/saldoMarketplace';
 
@@ -124,6 +125,9 @@ function appendRiwayat(item: Omit<RiwayatItem, 'id' | 'waktu'>) {
 
 export default function DataEntryPage() {
   const [tab, setTab] = useState<Tab>('shopee');
+  const { roles } = useUser();
+  const bolehKeuangan = roles.includes('admin') || roles.includes('finance');
+  const visibleTabs = TABS.filter(t => t.key !== 'keuangan' || bolehKeuangan);
 
   return (
     <main className="mx-auto flex min-h-screen max-w-6xl flex-col gap-5 px-4 py-6 sm:px-6 lg:px-8">
@@ -134,7 +138,7 @@ export default function DataEntryPage() {
       </header>
 
       <nav className="flex gap-1 overflow-x-auto rounded-2xl bg-white p-1 shadow-sm" role="tablist">
-        {TABS.map(t => (
+        {visibleTabs.map(t => (
           <button key={t.key} role="tab" aria-selected={tab===t.key} onClick={()=>setTab(t.key)}
             className={`flex shrink-0 items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold transition sm:px-5 sm:text-sm ${tab===t.key?'bg-brand-500 text-white shadow':'text-slate-600 hover:bg-brand-50 hover:text-brand-700'}`}>
             <span className="text-base sm:text-lg">{t.icon}</span>
@@ -146,7 +150,14 @@ export default function DataEntryPage() {
       <section className="card-blue">
         {tab==='shopee' && <PesananShopee />}
         {tab==='operasional' && <InputOperasional />}
-        {tab==='keuangan' && <InputKeuangan />}
+        {tab==='keuangan' && bolehKeuangan && <InputKeuangan />}
+        {tab==='keuangan' && !bolehKeuangan && (
+          <div className="py-12 text-center text-slate-400">
+            <p className="text-4xl mb-2">⛔</p>
+            <p className="font-semibold">Akses ditolak.</p>
+            <p className="text-sm mt-1">Tab Input Keuangan hanya untuk role Finance.</p>
+          </div>
+        )}
         {tab==='riwayat' && <RiwayatEntry />}
       </section>
     </main>

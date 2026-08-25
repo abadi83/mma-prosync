@@ -1,16 +1,29 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { SalesSummary } from '@/app/components/SalesSummary';
 import { ShortcutModule } from '@/app/components/ShortcutModule';
 import { StockSummary } from '@/app/components/StockSummary';
 import AgregasiDashboard from '@/app/components/AgregasiDashboard';
 import { useDashboardRefresh } from '@/app/hooks/useDashboardRefresh';
 import { useUser } from '@/app/hooks/useUser';
+import { canAccessPath } from '@/app/lib/accessControl';
 
 export default function HomePage() {
   const { data, lastUpdated, refresh } = useDashboardRefresh(8000);
-  const { nama } = useUser();
+  const { nama, roles } = useUser();
+
+  // Peringatan kalau ditolak akses oleh middleware
+  useEffect(() => {
+    try {
+      const p = new URLSearchParams(window.location.search);
+      const d = p.get('denied');
+      if (d) alert(`⛔ Akses ditolak: role kamu tidak punya izin membuka modul ${d}.`);
+    } catch {}
+  }, []);
+
+  // Filter pintasan modul sesuai role (role ketat)
+  const visibleShortcuts = data.shortcuts.filter(s => canAccessPath(roles, s.href));
 
   return (
     <main className="mx-auto flex min-h-screen max-w-6xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
@@ -48,7 +61,7 @@ export default function HomePage() {
       {/* ── Agregasi Pesanan dari Data Entry & Operasional Gudang ── */}
       <AgregasiDashboard />
 
-      <ShortcutModule data={data.shortcuts} />
+      <ShortcutModule data={visibleShortcuts} />
     </main>
   );
 }
