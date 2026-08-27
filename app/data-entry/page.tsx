@@ -4,7 +4,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { useAgregasi, type AgregasiRow } from '@/app/context/AgregasiContext';
 import { useUser } from '@/app/hooks/useUser';
-import { fetchMarketplaceOrders } from '@/app/lib/marketplaceOrdersClient';
+import { fetchMarketplaceOrders, fetchMpSummary } from '@/app/lib/marketplaceOrdersClient';
 import { recordActivity } from '@/app/lib/recordActivity';
 import { markMasukSaldoByResi, syncSaldoKeOperasional } from '@/app/lib/saldoMarketplace';
 
@@ -1460,9 +1460,16 @@ function RiwayatEntry() {
 /* ── Upload History: tampilkan detail order marketplace + HPP match ── */
 function UploadHistory() {
   const [orders, setOrders] = useState<MpOrder[]>([]);
+  const [summary, setSummary] = useState<any[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [showAllSku, setShowAllSku] = useState(false);
   const [filterStatus, setFilterStatus] = useState('semua');
+  // Filter ringkasan: marketplace, toko, periode
+  const [fMp, setFMp] = useState('semua');
+  const [fToko, setFToko] = useState('semua');
+  const [fPeriode, setFPeriode] = useState<'semua' | 'bulan' | 'tahun' | 'custom'>('semua');
+  const [fDari, setFDari] = useState('');
+  const [fSampai, setFSampai] = useState('');
 
   useEffect(() => {
     let active = true;
@@ -1471,14 +1478,22 @@ function UploadHistory() {
       const list = await fetchMarketplaceOrders(300);
       if (active) setOrders(list);
     };
+    const loadSummary = async () => {
+      // Ringkasan memakai SEMUA data (bukan 300) biar totalnya akurat
+      const list = await fetchMpSummary();
+      if (active) setSummary(list);
+    };
     loadOrders();
+    loadSummary();
     window.addEventListener('storage', loadOrders);
     // Juga listen custom refresh event
     window.addEventListener('refresh-upload-history', loadOrders);
+    window.addEventListener('refresh-upload-history', loadSummary);
     return () => {
       active = false;
       window.removeEventListener('storage', loadOrders);
       window.removeEventListener('refresh-upload-history', loadOrders);
+      window.removeEventListener('refresh-upload-history', loadSummary);
     };
   }, []);
 
@@ -1488,23 +1503,47 @@ function UploadHistory() {
 
   if (orders.length === 0) return null;
 
-  const totalNet = orders.reduce((s, o) => s + o.pendapatanBersih, 0);     // sekarang = Laba/Rugi
-  const totalHpp = orders.reduce((s, o) => s + o.totalHPP, 0);
-  const totalKotor = orders.reduce((s, o) => s + o.pendapatanKotor, 0);    // GROSS
-  const totalFee = orders.reduce((s, o) => s + (o.totalBiaya || 0), 0);   // udah total semua fee
-  const totalBiayaProses = orders.reduce((s, o) => s + (o.biayaPemrosesan || 0), 0);
+  // ── Filter ringkasan (data penuh) per marketplace/toko/periode ──
+  const now = new Date();
+  const bulanIni = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const tahunIni = String(now.getFullYear());
+  const mpOptions = Array.from(new Set(summary.map(s => s.marketplace).filter(Boolean))).sort();
+  const tokoOptions = Array.from(new Set(summary.map(s => s.tokoNama).filter(Boolean))).sort();
+
+  const cocokPeriode = (tanggal: string) => {
+    if (!tanggal) return fPeriode === 'semua';
+    if (fPeriode === 'bulan') return tanggal.startsWith(bulanIni);
+    if (fPeriode === 'tahun') return tanggal.startsWith(tahunIni);
+    if (fPeriode === 'custom') return (!fDari || tanggal >= fDari) && (!fSampai || tanggal <= fSampai);
+    return true;
+  };
+
+  const filteredSummary = summary.filter(s =>
+    (fMp === 'semua' || s.marketplace === fMp) &&
+    (fToko === 'semua' || s.tokoNama === fToko) &&
+    cocokPeriode(s.tanggal || '')
+  );
+
+  const totalKotor = filteredSummary.reduce((s, o) => s + (o.pendapatanKotor || 0), 0);
+  const totalFee = filteredSummary.reduce((s, o) => s + (o.totalBiaya || 0), 0);
+  const totalHpp = filteredSummary.reduce((s, o) => s + (o.totalHPP || 0), 0);
+  const totalBiayaProses = filteredSummary.reduce((s, o) => s + (o.biayaPemrosesan || 0), 0);
+  const totalNet = filteredSummary.reduce((s, o) => s + (o.pendapatanBersih || 0), 0);
+  const totalOrderCount = filteredSummary.reduce((s, o) => s + (o.count || 0), 0);
 
   // Status list for filter
   const statusList = Array.from(new Set(orders.map(o => o.statusPesanan || '').filter(Boolean))).sort();
 
-  // Filter by status
-  const filteredOrders = filterStatus === 'semua'
-    ? orders
-    : filterStatus === 'nonretur'
-      ? orders.filter(o => !o.statusPesanan?.toLowerCase().includes('retur') && !o.statusPesanan?.toLowerCase().includes('dibatalkan'))
-      : filterStatus === 'retur'
-        ? orders.filter(o => o.statusPesanan?.toLowerCase().includes('retur') || o.statusPesanan?.toLowerCase().includes('dibatalkan'))
-        : orders.filter(o => o.statusPesanan === filterStatus);
+  // Filter by status + marketplace/toko/periode
+  const filteredOrders = orders.filter(o => {
+    if (fMp !== 'semua' && o.marketplace !== fMp) return false;
+    if (fToko !== 'semua' && o.tokoNama !== fToko) return false;
+    if (!cocokPeriode(o.tanggal || '')) return false;
+    if (filterStatus === 'nonretur') return !o.statusPesanan?.toLowerCase().includes('retur') && !o.statusPesanan?.toLowerCase().includes('dibatalkan');
+    if (filterStatus === 'retur') return o.statusPesanan?.toLowerCase().includes('retur') || o.statusPesanan?.toLowerCase().includes('dibatalkan');
+    if (filterStatus !== 'semua') return o.statusPesanan === filterStatus;
+    return true;
+  });
 
   // Kumpulkan semua SKU unik dengan HPP
   const skuSummary = new Map<string, { nama: string; totalQty: number; totalHpp: number; hppUnit: number; muncul: number }>();
@@ -1533,7 +1572,49 @@ function UploadHistory() {
     <div className="mt-5 space-y-4">
       {/* Ringkasan Total */}
       <div className="rounded-2xl border border-brand-100 bg-white p-4 shadow-sm">
-        <p className="text-sm font-bold text-slate-700 mb-3">📊 Ringkasan Upload Marketplace</p>
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+          <p className="text-sm font-bold text-slate-700">📊 Ringkasan Upload Marketplace</p>
+          <span className="text-[10px] text-slate-400">{totalOrderCount} order terhitung (data penuh)</span>
+        </div>
+
+        {/* Filter: marketplace, toko, periode */}
+        <div className="flex flex-wrap items-end gap-2 mb-3 text-xs">
+          <div>
+            <label className="block text-[10px] text-slate-400 mb-0.5">Marketplace</label>
+            <select value={fMp} onChange={e => setFMp(e.target.value)} className="rounded-lg border bg-white px-2 py-1.5 text-[11px] font-semibold">
+              <option value="semua">🛒 Semua MP</option>
+              {mpOptions.map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-[10px] text-slate-400 mb-0.5">Toko</label>
+            <select value={fToko} onChange={e => setFToko(e.target.value)} className="rounded-lg border bg-white px-2 py-1.5 text-[11px] font-semibold">
+              <option value="semua">🏪 Semua Toko</option>
+              {tokoOptions.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-[10px] text-slate-400 mb-0.5">Periode</label>
+            <select value={fPeriode} onChange={e => setFPeriode(e.target.value as typeof fPeriode)} className="rounded-lg border bg-white px-2 py-1.5 text-[11px] font-semibold">
+              <option value="semua">📅 Semua Tanggal</option>
+              <option value="bulan">📆 Bulan Ini</option>
+              <option value="tahun">🗓️ Tahun Ini</option>
+              <option value="custom">🔍 Custom</option>
+            </select>
+          </div>
+          {fPeriode === 'custom' && (
+            <>
+              <div>
+                <label className="block text-[10px] text-slate-400 mb-0.5">Dari</label>
+                <input type="date" value={fDari} onChange={e => setFDari(e.target.value)} className="rounded-lg border bg-white px-2 py-1.5 text-[11px]" />
+              </div>
+              <div>
+                <label className="block text-[10px] text-slate-400 mb-0.5">Sampai</label>
+                <input type="date" value={fSampai} onChange={e => setFSampai(e.target.value)} className="rounded-lg border bg-white px-2 py-1.5 text-[11px]" />
+              </div>
+            </>
+          )}
+        </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-xs">
           <div className="rounded-xl bg-slate-50 p-3 text-center">
             <p className="text-slate-400">💰 Pendapatan Kotor</p>
