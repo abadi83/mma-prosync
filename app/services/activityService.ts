@@ -12,10 +12,17 @@ const DEFAULT_TOKO = process.env.DEFAULT_TOKO_ID || 'a0a0a0a0-0000-0000-0000-000
 const MODUL_LABEL: Record<string, string> = {
   sku: 'SKU', supplier: 'Supplier', pelanggan: 'Pelanggan', 'marketplace-toko': 'Toko Marketplace',
   fleet: 'Fleet', transaksi: 'Transaksi', pembelian: 'Pembelian', stok: 'Stok',
+  operasional: 'Operasional Gudang', 'data-entry': 'Data Entry', keuangan: 'Keuangan', akuntansi: 'Akuntansi',
 };
 const AKSI_LABEL: Record<string, string> = {
   tambah: 'menambah', ubah: 'mengubah', hapus: 'menghapus', upload: 'mengupload',
   po: 'membuat PO', 'barang-masuk': 'mencatat barang masuk', 'barang-keluar': 'mencatat barang keluar',
+  picking: 'memproses picking', qc: 'menyelesaikan QC', packing: 'menyelesaikan packing',
+  handover: 'membuat hand over', pickup: 'mengonfirmasi pickup', 'pickup-gagal': 'menandai pickup gagal',
+  retur: 'mencatat retur', klaim: 'mencatat klaim', opname: 'melakukan stok opname', jurnal: 'mencatat jurnal',
+  'bayar-po': 'membayar PO', 'bayar-biaya': 'membayar biaya', refund: 'menyelesaikan refund',
+  pencairan: 'mencatat pencairan', 'kas-kecil': 'mengatur kas kecil',
+  'upload-pesanan': 'mengupload pesanan', 'upload-operasional': 'mengupload data operasional', 'upload-keuangan': 'mengupload data keuangan',
 };
 
 function mapTipeNotif(modul: string): 'stok' | 'penjualan' | 'sistem' | 'aktivitas' {
@@ -62,20 +69,25 @@ export async function recordActivities(
       ]
     );
 
-    // Otomatis jadi notifikasi (tipe mengikuti modul)
-    try {
-      await query(
-        `INSERT INTO notifikasi (user_id, tipe, pesan) VALUES ($1, $2, $3)`,
-        [tId, mapTipeNotif(e.modul), buildPesanNotif(e, ctx.username, ctx.namaUser)]
-      );
-      // Jaga maksimal 200 notifikasi per toko (hapus yang lama)
-      await query(
-        `DELETE FROM notifikasi WHERE user_id = $1 AND id NOT IN (
-           SELECT id FROM notifikasi WHERE user_id = $1 ORDER BY created_at DESC LIMIT 200
-         )`,
-        [tId]
-      );
-    } catch { /* notifikasi opsional — jangan gagalkan pencatatan aktivitas */ }
+    // Otomatis jadi notifikasi (tipe mengikuti modul).
+    // Modul operasional/akuntansi & opname di-skip biar notifikasi tidak kebanjiran
+    // (retur/klaim sudah punya notifikasi sendiri dari operasional-log).
+    const skipNotif = e.modul === 'operasional' || e.modul === 'akuntansi' || (e.modul === 'stok' && e.aksi === 'opname');
+    if (!skipNotif) {
+      try {
+        await query(
+          `INSERT INTO notifikasi (user_id, tipe, pesan) VALUES ($1, $2, $3)`,
+          [tId, mapTipeNotif(e.modul), buildPesanNotif(e, ctx.username, ctx.namaUser)]
+        );
+        // Jaga maksimal 200 notifikasi per toko (hapus yang lama)
+        await query(
+          `DELETE FROM notifikasi WHERE user_id = $1 AND id NOT IN (
+             SELECT id FROM notifikasi WHERE user_id = $1 ORDER BY created_at DESC LIMIT 200
+           )`,
+          [tId]
+        );
+      } catch { /* notifikasi opsional — jangan gagalkan pencatatan aktivitas */ }
+    }
     count++;
   }
   return count;

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
+import { recordActivity } from '@/app/lib/recordActivity';
 
 /* ================================================================ */
 /* Types                                                             */
@@ -174,6 +175,7 @@ export function AkuntansiProvider({ children }: { children: React.ReactNode }) {
       createdAt: new Date().toISOString(),
     };
     setJurnal(prev => [newEntry, ...prev]);
+    recordActivity([{ modul: 'akuntansi', aksi: 'jurnal', refLabel: entry.referensi || '', detail: { nominal: entry.nominal, akunDebitId: entry.akunDebitId, akunKreditId: entry.akunKreditId, keterangan: entry.keterangan } }]);
     return newEntry;
   }, []);
 

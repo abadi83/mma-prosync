@@ -5,6 +5,7 @@ import { Html5Qrcode } from 'html5-qrcode';
 import { BarangMasukForm, type BarangMasukEntry } from '@/app/stok-barang/components/BarangMasukForm';
 import { BarangKeluarForm, type BarangKeluarEntry } from '@/app/stok-barang/components/BarangKeluarForm';
 import { useSkus, type SkuItem } from '@/app/context/SkuContext';
+import { recordActivity } from '@/app/lib/recordActivity';
 
 type Tab = 'opname' | 'masuk' | 'keluar' | 'cek-stok' | 'riwayat' | 'po-check';
 
@@ -231,6 +232,7 @@ function StokOpname() {
 
     // Update stok di Master Data (SkuContext) sesuai hasil opname fisik
     setSkus(prev => prev.map(s => s.sku === id ? { ...s, stok: item.qtyFisik! } : s));
+    recordActivity([{ modul: 'stok', aksi: 'opname', refLabel: `${item.id} ${item.nama}`, detail: { sistem: item.stok, fisik: item.qtyFisik, selisih: (item.qtyFisik ?? item.stok) - item.stok } }]);
   };
 
   /* ── Temukan SKU & buka panel koreksi ── */

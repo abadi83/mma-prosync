@@ -6,6 +6,7 @@ import BuktiBayarUpload from '@/app/components/BuktiBayarUpload';
 import type { BuktiBayar, OcrResult } from '@/app/types';
 import { fetchMarketplaceOrders } from '@/app/lib/marketplaceOrdersClient';
 import { loadPencairan, savePencairan, totalPencairan, PENCAIRAN_STORAGE, type PencairanEntry } from '@/app/lib/pencairan';
+import { recordActivity } from '@/app/lib/recordActivity';
 
 /* ================================================================ */
 /* Types (shared key dengan Purchasing)                              */
@@ -246,6 +247,7 @@ function SaldoKas() {
     const updated = [entry, ...kasKecilList];
     setKasKecilList(updated);
     localStorage.setItem(KAS_KECIL_STORAGE, JSON.stringify(updated));
+    recordActivity([{ modul: 'keuangan', aksi: 'kas-kecil', refLabel: entry.keterangan, detail: { jumlah: jml, jenis: entry.jenis } }]);
     setShowTambah(false);
     setFormKK({ jumlah: '', jenis: 'masuk', keterangan: '' });
   };
@@ -379,6 +381,7 @@ function PencairanTab() {
     savePencairan(next);
     setForm(p => ({ ...p, jumlah: '', keterangan: '' }));
     try { window.dispatchEvent(new Event('refresh-laporan')); } catch {}
+    recordActivity([{ modul: 'keuangan', aksi: 'pencairan', refLabel: selected.tokoNama, detail: { jumlah: jml, marketplace: selected.marketplace, tanggal: form.tanggal } }]);
     alert(`✅ Pencairan Rp ${jml.toLocaleString('id-ID')} dari ${selected.tokoNama} tercatat → masuk Kas Besar.`);
   };
 
@@ -623,6 +626,7 @@ function PembayaranTab() {
     setPayments(prev => [record, ...prev]);
     setBayarOpex(false);
     setBayarBiaya(false);
+    recordActivity([{ modul: 'keuangan', aksi: 'bayar-biaya', refLabel: jenis, detail: { jumlah: jml, metode: formOpexBiaya.metode } }]);
     setFormOpexBiaya({ jumlah: '', metode: 'transfer', nomorRef: '', catatan: '', tanggalBayar: today, dibayarOleh: '' });
   };
 
@@ -696,6 +700,7 @@ function PembayaranTab() {
     }
 
     addJurnal({ tanggal:formBayar.tanggalBayar||today, akunDebitId:'2-1000', akunKreditId:'1-1000', nominal:jml, keterangan, referensi:bayarPoGroup.noPO });
+    recordActivity([{ modul: 'keuangan', aksi: 'bayar-po', refLabel: bayarPoGroup.noPO, detail: { jumlah: jml, metode: formBayar.metode, supplier: bayarPoGroup.supplierNama } }]);
 
     setBayarPoGroup(null);
     setBuktiImage('');
@@ -1395,6 +1400,7 @@ function RefundTab() {
     setRefundList(updated);
     localStorage.setItem(REFUND_STORAGE, JSON.stringify(updated));
     try { window.dispatchEvent(new Event('refund-updated')); } catch {}
+    if (item) recordActivity([{ modul: 'keuangan', aksi: 'refund', refLabel: item.noPO, detail: { nilai, tujuan: keKasKecil ? 'Kas Kecil' : 'Kas Besar', sku: item.sku } }]);
 
     if (item && nilai > 0) {
       try {

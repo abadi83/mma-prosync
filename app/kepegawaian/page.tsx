@@ -1708,6 +1708,24 @@ function AktivitasSkuTab() {
     po: 'bg-violet-100 text-violet-700',
     'barang-masuk': 'bg-emerald-100 text-emerald-700',
     'barang-keluar': 'bg-red-100 text-red-700',
+    picking: 'bg-blue-100 text-blue-700',
+    qc: 'bg-amber-100 text-amber-700',
+    packing: 'bg-emerald-100 text-emerald-700',
+    handover: 'bg-indigo-100 text-indigo-700',
+    pickup: 'bg-cyan-100 text-cyan-700',
+    'pickup-gagal': 'bg-red-100 text-red-700',
+    retur: 'bg-orange-100 text-orange-700',
+    klaim: 'bg-red-100 text-red-700',
+    opname: 'bg-slate-100 text-slate-700',
+    jurnal: 'bg-indigo-100 text-indigo-700',
+    'bayar-po': 'bg-emerald-100 text-emerald-700',
+    'bayar-biaya': 'bg-teal-100 text-teal-700',
+    refund: 'bg-amber-100 text-amber-700',
+    pencairan: 'bg-sky-100 text-sky-700',
+    'kas-kecil': 'bg-yellow-100 text-yellow-700',
+    'upload-pesanan': 'bg-purple-100 text-purple-700',
+    'upload-operasional': 'bg-purple-100 text-purple-700',
+    'upload-keuangan': 'bg-purple-100 text-purple-700',
   };
 
   const modulBadge: Record<string, string> = {
@@ -1719,10 +1737,14 @@ function AktivitasSkuTab() {
     transaksi: 'bg-emerald-100 text-emerald-700',
     pembelian: 'bg-violet-100 text-violet-700',
     stok: 'bg-blue-100 text-blue-700',
+    operasional: 'bg-teal-100 text-teal-700',
+    keuangan: 'bg-emerald-100 text-emerald-700',
+    akuntansi: 'bg-indigo-100 text-indigo-700',
   };
   const MODUL_LABEL: Record<string, string> = {
     sku: '📦 SKU', supplier: '🏭 Supplier', pelanggan: '👥 Pelanggan', 'marketplace-toko': '🏬 Toko MP',
     fleet: '🚛 Fleet', transaksi: '💰 Transaksi', pembelian: '🛒 Pembelian', stok: '📦 Stok',
+    operasional: '📦 Operasional', keuangan: '💰 Keuangan', akuntansi: '🧾 Akuntansi',
   };
 
   const fmtDetail = (r: SkuActivity): string => {

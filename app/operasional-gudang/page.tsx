@@ -7,6 +7,7 @@ import { useSkus } from '@/app/context/SkuContext';
 import { computeBelanjaOrders, skuInventoryStatus } from '@/app/lib/belanja';
 import { useSuppliers } from '@/app/hooks/useSuppliers';
 import { recordOpLog } from '@/app/lib/recordOpLog';
+import { recordActivity } from '@/app/lib/recordActivity';
 import { syncSaldoKeOperasional } from '@/app/lib/saldoMarketplace';
 
 type Tab = 'agregasi' | 'picking' | 'qc' | 'packing' | 'runner' | 'logistik' | 'belanja';
@@ -129,6 +130,7 @@ function AgregasiDashboard() {
         recordOpLog(Array.from(grp.values()).map(it=>({noPesanan:it.noPesanan,noResi:it.noResi,marketplace:it.marketplace,kurir:it.kurir,jenis:'proses' as const,aksi:'Upload Order',statusProses:'Perlu Dikirim'})));
         // Cocokkan dengan keuangan yang sudah pernah diupload (resi sama → status "Masuk Saldo")
         void syncSaldoKeOperasional(setAllRows);
+        recordActivity([{ modul: 'operasional', aksi: 'upload', refLabel: `${items.length} baris pesanan` }]);
         alert(`✅ ${items.length} baris berhasil diimpor.`);
       }catch{setErr('Gagal membaca file.');}
       setUploading(false);
@@ -163,6 +165,7 @@ function AgregasiDashboard() {
         const result=updateStatusPicking(matches);
         setErr('');
         recordOpLog(matches.filter(m=>m.noPesanan||m.noResi).map(m=>({noPesanan:m.noPesanan,noResi:m.noResi,jenis:'proses' as const,aksi:'Picking',statusProses:'Dipicking'})));
+        recordActivity([{ modul: 'operasional', aksi: 'picking', refLabel: `${result.updated} pesanan`, detail: { updated: result.updated, notFound: result.notFound } }]);
         // Cek SKU pesanan yang terpengaruh vs Inventory
         const opSet = new Set(matches.map(m => m.noPesanan.trim()).filter(Boolean));
         const orSet = new Set(matches.map(m => m.noResi.trim()).filter(Boolean));
@@ -367,6 +370,7 @@ function QCList() {
       return r;
     }));
     recordOpLog([{ noPesanan, noResi, jenis: 'proses', aksi: 'QC Lulus', statusProses: 'Dipacking', keterangan: `Jenis paket: ${jenis}` }]);
+    recordActivity([{ modul: 'operasional', aksi: 'qc', refLabel: noPesanan, detail: { noResi, jenisPaket: jenis } }]);
   };
 
   if (qcItems.length === 0) {
@@ -483,6 +487,7 @@ function PackingList() {
       return r;
     }));
     recordOpLog([{ noPesanan, noResi, jenis: 'proses', aksi: 'Packing Selesai', statusProses: 'DiScanRunner', keterangan: 'Diserahkan ke Runner' }]);
+    recordActivity([{ modul: 'operasional', aksi: 'packing', refLabel: noPesanan }]);
   };
 
   if (packingItems.length === 0) {
@@ -640,6 +645,7 @@ function RunnerScan() {
     setReturForm({ jenis: 'Retur', noPesanan: '', noResi: '', marketplace: '', keterangan: '' });
     setReturMatch(null);
     await loadOpLog();
+    recordActivity([{ modul: 'operasional', aksi: jenisDb === 'klaim' ? 'klaim' : 'retur', refLabel: returForm.noResi || returForm.noPesanan || '-', detail: { jenis: returForm.jenis, keterangan: returForm.keterangan } }]);
     alert(`✅ ${returForm.jenis} tercatat permanen + notifikasi terkirim ke halaman Notifikasi.`);
   };
 
@@ -843,6 +849,7 @@ function RunnerScan() {
         jenis: 'proses' as const, aksi: 'Hand Over Kurir', statusProses: 'Dikirim',
         keterangan: `${hoId} • ${items.length} paket`,
       })));
+      recordActivity([{ modul: 'operasional', aksi: 'handover', refLabel: `${kurir} • ${items.length} paket`, detail: { hoId } }]);
       results.push({ kurir, mode: 'dropoff', hoId, count: items.length, items });
     }
 
@@ -1453,6 +1460,7 @@ function RunnerScan() {
                 return r;
               }));
               recordOpLog([{ noPesanan: g.noPesanan, noResi: g.noResi, marketplace: g.marketplace, kurir, jenis: 'proses', aksi: 'Pickup Dikirim', statusProses: 'Dikirim', keterangan: hoId }]);
+              recordActivity([{ modul: 'operasional', aksi: 'pickup', refLabel: g.noPesanan, detail: { kurir, hoId } }]);
             };
 
             const failOne = (key: string) => {
@@ -1465,6 +1473,7 @@ function RunnerScan() {
                 return r;
               }));
               if (g) recordOpLog([{ noPesanan: g.noPesanan, noResi: g.noResi, marketplace: g.marketplace, kurir, jenis: 'proses', aksi: 'Pickup Gagal', statusProses: 'PendingPickup' }]);
+              if (g) recordActivity([{ modul: 'operasional', aksi: 'pickup-gagal', refLabel: g.noPesanan, detail: { kurir } }]);
             };
 
             const confirmAll = () => {
@@ -1480,6 +1489,7 @@ function RunnerScan() {
                 return r;
               }));
               recordOpLog(activeKeys.map(k => { const g = grouped.get(k); return g ? { noPesanan: g.noPesanan, noResi: g.noResi, marketplace: g.marketplace, kurir, jenis: 'proses' as const, aksi: 'Pickup Dikirim', statusProses: 'Dikirim', keterangan: hoId } : null; }).filter((e): e is NonNullable<typeof e> => !!e));
+              recordActivity([{ modul: 'operasional', aksi: 'pickup', refLabel: `${activeKeys.length} paket • ${kurir}`, detail: { hoId } }]);
             };
 
             const failAll = () => {
@@ -1493,6 +1503,7 @@ function RunnerScan() {
                 return r;
               }));
               recordOpLog(activeKeys.map(k => { const g = grouped.get(k); return g ? { noPesanan: g.noPesanan, noResi: g.noResi, marketplace: g.marketplace, kurir, jenis: 'proses' as const, aksi: 'Pickup Gagal', statusProses: 'PendingPickup' } : null; }).filter((e): e is NonNullable<typeof e> => !!e));
+              recordActivity([{ modul: 'operasional', aksi: 'pickup-gagal', refLabel: `${activeKeys.length} paket • ${kurir}` }]);
             };
 
             return (

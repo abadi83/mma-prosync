@@ -5,6 +5,7 @@ import * as XLSX from 'xlsx';
 import { useAgregasi, type AgregasiRow } from '@/app/context/AgregasiContext';
 import { useUser } from '@/app/hooks/useUser';
 import { fetchMarketplaceOrders } from '@/app/lib/marketplaceOrdersClient';
+import { recordActivity } from '@/app/lib/recordActivity';
 import { markMasukSaldoByResi, syncSaldoKeOperasional } from '@/app/lib/saldoMarketplace';
 
 type Tab = 'shopee' | 'operasional' | 'keuangan' | 'riwayat';
@@ -120,6 +121,13 @@ function appendRiwayat(item: Omit<RiwayatItem, 'id' | 'waktu'>) {
     const next = [entry, ...existing].slice(0, 100);
     void saveSynced(RIWAYAT_STORAGE, next);
     window.dispatchEvent(new Event('refresh-riwayat-entry'));
+  } catch {}
+  // Rekam ke Aktivitas User (KPI) juga
+  try {
+    const isKeuangan = item.kategori === 'Keuangan' || item.kategori === 'Upload Keuangan';
+    const modul = isKeuangan ? 'keuangan' : 'operasional';
+    const aksi = isKeuangan ? 'upload-keuangan' : item.kategori === 'Pesanan' ? 'upload-pesanan' : 'upload-operasional';
+    recordActivity([{ modul, aksi, refLabel: `${item.marketplace || ''} • ${item.jumlah}`, detail: { jumlah: item.jumlah, keterangan: item.keterangan } }]);
   } catch {}
 }
 
