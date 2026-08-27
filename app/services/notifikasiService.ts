@@ -9,8 +9,8 @@ export async function getNotifikasi(userId?: string) {
     `SELECT id, tipe, pesan, dibaca, to_char(created_at, 'YYYY-MM-DD HH24:MI') AS tanggal
      FROM notifikasi
      WHERE user_id = $1
-     ORDER BY created_at DESC
-     LIMIT 50`,
+     ORDER BY dibaca ASC, created_at DESC
+     LIMIT 200`,
     [userId || DEFAULT_USER]
   );
   return rows;
