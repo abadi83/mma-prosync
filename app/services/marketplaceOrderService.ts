@@ -123,6 +123,45 @@ export async function upsertMarketplaceOrders(orders: MarketplaceOrder[], tokoId
   return { inserted, updated };
 }
 
+/** Ringkasan agregat per (marketplace, toko, tanggal) — kecil, buat dashboard/laporan (hindari 8MB full). */
+export async function getMpSummary(tokoId?: string) {
+  const { rows } = await query(
+    `SELECT marketplace, toko_nama, tanggal,
+            COALESCE(SUM(pendapatan_kotor),0)::bigint AS pendapatan_kotor,
+            COALESCE(SUM(pendapatan_bersih),0)::bigint AS pendapatan_bersih,
+            COALESCE(SUM(total_biaya),0)::bigint AS total_biaya,
+            COALESCE(SUM(total_hpp),0)::bigint AS total_hpp,
+            COALESCE(SUM(biaya_pemrosesan),0)::bigint AS biaya_pemrosesan,
+            COUNT(*)::int AS jumlah_order
+     FROM marketplace_order
+     WHERE toko_id = $1
+     GROUP BY marketplace, toko_nama, tanggal
+     ORDER BY tanggal DESC, marketplace`,
+    [tokoId || DEFAULT_TOKO]
+  );
+  return rows.map(r => ({
+    marketplace: r.marketplace || '',
+    tokoNama: r.toko_nama || '',
+    tanggal: r.tanggal || '',
+    pendapatanKotor: Number(r.pendapatan_kotor),
+    pendapatanBersih: Number(r.pendapatan_bersih),
+    totalBiaya: Number(r.total_biaya),
+    totalHPP: Number(r.total_hpp),
+    biayaPemrosesan: Number(r.biaya_pemrosesan),
+    count: Number(r.jumlah_order),
+  }));
+}
+
+/** Daftar ringan (no_resi + tanggal) untuk pencocokan resi ke Operasional. */
+export async function listMpResi(tokoId?: string) {
+  const { rows } = await query(
+    `SELECT no_resi, tanggal FROM marketplace_order
+     WHERE toko_id = $1 AND no_resi IS NOT NULL AND no_resi <> ''`,
+    [tokoId || DEFAULT_TOKO]
+  );
+  return rows.map(r => ({ noResi: r.no_resi || '', tanggal: r.tanggal || '' }));
+}
+
 export async function deleteAllMarketplaceOrders(tokoId?: string): Promise<number> {
   const { rowCount } = await query('DELETE FROM marketplace_order WHERE toko_id = $1', [tokoId || DEFAULT_TOKO]);
   return rowCount || 0;

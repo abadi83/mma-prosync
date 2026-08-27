@@ -43,3 +43,23 @@ export async function fetchMarketplaceOrders(): Promise<any[]> {
   } catch {}
   return [];
 }
+
+/** Ringkasan agregat per (marketplace, toko, tanggal) — jauh lebih kecil dari daftar penuh. */
+export async function fetchMpSummary(): Promise<any[]> {
+  try {
+    const res = await fetch(`/api/marketplace-orders?view=summary&t=${Date.now()}`, { cache: 'no-store' });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data) ? data : [];
+  } catch { return []; }
+}
+
+/** Daftar ringan no_resi + tanggal — untuk pencocokan saldo ke operasional. */
+export async function fetchMpResi(): Promise<{ noResi: string; tanggal: string }[]> {
+  try {
+    const res = await fetch(`/api/marketplace-orders?view=resi&t=${Date.now()}`, { cache: 'no-store' });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data) ? data : [];
+  } catch { return []; }
+}

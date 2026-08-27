@@ -1,13 +1,23 @@
 import { NextResponse } from 'next/server';
-import { listMarketplaceOrders, upsertMarketplaceOrders, deleteAllMarketplaceOrders, MarketplaceOrder } from '@/app/services/marketplaceOrderService';
+import { listMarketplaceOrders, getMpSummary, listMpResi, upsertMarketplaceOrders, deleteAllMarketplaceOrders, MarketplaceOrder } from '@/app/services/marketplaceOrderService';
 
 export const dynamic = 'force-dynamic';
 const json = (data: any, status = 200) => NextResponse.json(data, { status });
 
-/** GET /api/marketplace-orders — daftar semua order marketplace (max 5000 terbaru) */
-export async function GET() {
-  try { return json(await listMarketplaceOrders()); }
-  catch { return json({ error: 'Gagal memuat order marketplace' }, 500); }
+/** GET /api/marketplace-orders
+ *  view=summary → agregat per (marketplace, toko, tanggal) — kecil & cepat
+ *  view=resi     → daftar no_resi + tanggal — untuk pencocokan operasional
+ *  default       → daftar lengkap (legacy, berat — hanya untuk tampilan detail) */
+export async function GET(request: Request) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const view = searchParams.get('view') || 'list';
+    if (view === 'summary') return json(await getMpSummary());
+    if (view === 'resi') return json(await listMpResi());
+    return json(await listMarketplaceOrders());
+  }
+  catch { return json({ error: 'Gagal memuat order marketplace' }, 500);
+}
 }
 
 /** POST /api/marketplace-orders — upsert (dedup otomatis per marketplace+no pesanan) */

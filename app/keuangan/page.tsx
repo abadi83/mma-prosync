@@ -4,7 +4,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useAkuntansi } from '@/app/context/AkuntansiContext';
 import BuktiBayarUpload from '@/app/components/BuktiBayarUpload';
 import type { BuktiBayar, OcrResult } from '@/app/types';
-import { fetchMarketplaceOrders } from '@/app/lib/marketplaceOrdersClient';
+import { fetchMpSummary } from '@/app/lib/marketplaceOrdersClient';
 import { loadPencairan, savePencairan, totalPencairan, PENCAIRAN_STORAGE, type PencairanEntry } from '@/app/lib/pencairan';
 import { recordActivity } from '@/app/lib/recordActivity';
 
@@ -176,7 +176,7 @@ function SaldoKas() {
       if (kk) setKasKecilList(JSON.parse(kk));
     } catch {}
     setPencairan(loadPencairan());
-    fetchMarketplaceOrders().then(setMpOrders).catch(() => {});
+    fetchMpSummary().then(setMpOrders).catch(() => {});
     const onUpdate = () => {
       setPencairan(loadPencairan());
       try {
@@ -331,7 +331,7 @@ function PencairanTab() {
   const reload = () => { setPencairan(loadPencairan()); };
   useEffect(() => {
     reload();
-    fetchMarketplaceOrders().then(setMpOrders).catch(() => {});
+    fetchMpSummary().then(setMpOrders).catch(() => {});
     window.addEventListener('pencairan-updated', reload);
     window.addEventListener('storage', reload);
     return () => {

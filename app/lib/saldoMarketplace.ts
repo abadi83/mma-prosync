@@ -2,6 +2,7 @@
 
 import type { Dispatch, SetStateAction } from 'react';
 import type { AgregasiRow } from '@/app/context/AgregasiContext';
+import { fetchMpResi } from '@/app/lib/marketplaceOrdersClient';
 
 /** Tandai baris operasional yang resi-nya sama dengan upload Input Keuangan
  *  → statusKeuangan "Masuk Saldo" + tanggalSaldo (tanggal laporan keuangan).
@@ -36,13 +37,10 @@ export async function syncSaldoKeOperasional(
   setAllRows: Dispatch<SetStateAction<AgregasiRow[]>>
 ): Promise<number> {
   try {
-    const res = await fetch('/api/marketplace-orders?t=' + Date.now(), { cache: 'no-store' });
-    const list = await res.json();
+    // Ambil daftar ringan resi+tanggal (bukan 8MB full list)
+    const list = await fetchMpResi();
     if (!Array.isArray(list)) return 0;
-    return markMasukSaldoByResi(
-      setAllRows,
-      list.map((o: any) => ({ noResi: o.noResi || '', tanggal: o.tanggal || '' }))
-    );
+    return markMasukSaldoByResi(setAllRows, list);
   } catch {
     return 0;
   }

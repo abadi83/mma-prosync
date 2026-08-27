@@ -6,7 +6,7 @@ import { LabaRugiReport } from '@/app/laporan/components/LabaRugiReport';
 import { LaporanStokReport } from '@/app/laporan/components/LaporanStokReport';
 import { useAgregasi } from '@/app/context/AgregasiContext';
 import { ExportButton } from '@/app/components/ExportButton';
-import { fetchMarketplaceOrders } from '@/app/lib/marketplaceOrdersClient';
+import { fetchMpSummary } from '@/app/lib/marketplaceOrdersClient';
 
 type JenisLaporan = 'laba-rugi' | 'arus-kas' | 'stok' | 'omset';
 type Periode = 'minggu' | 'bulan' | 'tahun' | 'custom';
@@ -74,12 +74,12 @@ export default function LaporanPage() {
 
   const realData = useMemo(() => (mounted ? getRealData() : { penjualan: [], payments: [], biaya: [], opex: [], modal: [], keuanganManual: [], mpIncome: [] }), [mounted, refreshKey]);
 
-  // ── Order marketplace dari PostgreSQL (API) — fallback ke localStorage ──
+  // ── Order marketplace dari PostgreSQL (API ringkasan) — fallback ke localStorage ──
   const [mpOrdersApi, setMpOrdersApi] = useState<any[]>([]);
   useEffect(() => {
     let active = true;
     const load = async () => {
-      const list = await fetchMarketplaceOrders();
+      const list = await fetchMpSummary();
       if (active) setMpOrdersApi(list);
     };
     load();
