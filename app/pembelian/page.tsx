@@ -1396,6 +1396,7 @@ function OpexTab() {
         supplierNama: supplierNama.trim() || '-',
         tanggal: tanggal || new Date().toISOString().slice(0, 10),
       } : p));
+      recordActivity([{ modul: 'pembelian', aksi: 'opex', refLabel: `${namaItem.trim()} (${kategori})`, detail: { total: +qty * +hargaSatuan, tanggal, edit: true } }]);
       cancelEdit();
       return;
     }
@@ -1413,6 +1414,7 @@ function OpexTab() {
     };
 
     setPurchases(prev => [purchase, ...prev]);
+    recordActivity([{ modul: 'pembelian', aksi: 'opex', refLabel: `${purchase.namaItem} (${purchase.kategori})`, detail: { total: purchase.total, tanggal: purchase.tanggal } }]);
     setNamaItem(''); setQty(''); setHargaSatuan(''); setSupplierNama('');
     setTanggal(new Date().toISOString().slice(0, 10));
     setKategori(OPEX_KATEGORI[0]); setSatuan('pcs');
@@ -1603,6 +1605,7 @@ function BiayaOpTab() {
         jumlah: +jumlah,
         tanggal: tanggal || new Date().toISOString().slice(0, 10),
       } : b));
+      recordActivity([{ modul: 'pembelian', aksi: 'biaya', refLabel: `${deskripsi.trim()} (${kategori})`, detail: { jumlah: +jumlah, tanggal, edit: true } }]);
       cancelEdit();
       return;
     }
@@ -1616,6 +1619,7 @@ function BiayaOpTab() {
     };
 
     setBiayaList(prev => [biaya, ...prev]);
+    recordActivity([{ modul: 'pembelian', aksi: 'biaya', refLabel: `${biaya.deskripsi} (${biaya.kategori})`, detail: { jumlah: biaya.jumlah, tanggal: biaya.tanggal } }]);
     setDeskripsi(''); setJumlah('');
     setTanggal(new Date().toISOString().slice(0, 10));
     setKategori(BIAYA_KATEGORI[0]);

@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { useSkus } from '@/app/context/SkuContext';
+import { recordActivity } from '@/app/lib/recordActivity';
 
 const KOREKSI_STORAGE = 'mma_koreksi_po';
 
@@ -49,6 +50,7 @@ export default function KoreksiPOTab() {
     setKoreksiList(updated);
     localStorage.setItem(KOREKSI_STORAGE, JSON.stringify(updated));
     try { window.dispatchEvent(new Event('koreksi-updated')); } catch {}
+    if (item) recordActivity([{ modul: 'pembelian', aksi: 'koreksi-po', refLabel: `${item.noPO} — ${item.namaSku}`, detail: { qty: item.qty, jenis: item.jenisKoreksi, status } }]);
 
     // Kurangi stok Inventory otomatis (sekali saja per koreksi)
     if (harusKurangi && item) {

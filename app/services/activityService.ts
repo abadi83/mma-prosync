@@ -23,6 +23,7 @@ const AKSI_LABEL: Record<string, string> = {
   'bayar-po': 'membayar PO', 'bayar-biaya': 'membayar biaya', refund: 'menyelesaikan refund',
   pencairan: 'mencatat pencairan', 'kas-kecil': 'mengatur kas kecil',
   'upload-pesanan': 'mengupload pesanan', 'upload-operasional': 'mengupload data operasional', 'upload-keuangan': 'mengupload data keuangan',
+  opex: 'mencatat OPEX', biaya: 'mencatat biaya operasional', 'koreksi-po': 'memproses koreksi PO',
 };
 
 function mapTipeNotif(modul: string): 'stok' | 'penjualan' | 'sistem' | 'aktivitas' {
