@@ -132,6 +132,13 @@ const OPEX_SATUAN = ['pcs', 'roll', 'pack', 'kg', 'liter', 'set', 'box'];
 /* ── Kategori Biaya Operasional ── */
 const BIAYA_KATEGORI = ['Listrik & Air', 'Internet & Pulsa', 'Transport & BBM', 'Sewa Tempat', 'Gaji & Upah', 'Marketing & Iklan', 'Maintenance', 'Lainnya'];
 
+/* Format label bulan untuk filter (YYYY-MM → "Agustus 2026") */
+const NAMA_BULAN = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+const fmtBulan = (ym: string) => {
+  const [y, m] = ym.split('-');
+  return `${NAMA_BULAN[(+m) - 1] || m} ${y}`;
+};
+
 /* ================================================================ */
 /* Main Page                                                         */
 /* ================================================================ */
@@ -1349,6 +1356,10 @@ function OpexTab() {
   const [editId, setEditId] = useState<string | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
+  /* ── Filter: bulan & kategori ── */
+  const [filterKategori, setFilterKategori] = useState('semua');
+  const [filterBulan, setFilterBulan] = useState('semua');
+
   const total = useMemo(() => (+qty || 0) * (+hargaSatuan || 0), [qty, hargaSatuan]);
 
   /* Buka form untuk edit */
@@ -1425,12 +1436,24 @@ function OpexTab() {
     return purchases.filter(p => p.tanggal.startsWith(bulan)).reduce((s, p) => s + p.total, 0);
   }, [purchases]);
 
-  /* Group by kategori untuk summary */
+  /* ── Filter: kategori + bulan ── */
+  const bulanOptions = useMemo(() => {
+    const set = new Set(purchases.map(p => (p.tanggal || '').slice(0, 7)).filter(Boolean));
+    return Array.from(set).sort().reverse();
+  }, [purchases]);
+
+  const filtered = useMemo(() => purchases.filter(p => {
+    if (filterKategori !== 'semua' && p.kategori !== filterKategori) return false;
+    if (filterBulan !== 'semua' && !(p.tanggal || '').startsWith(filterBulan)) return false;
+    return true;
+  }), [purchases, filterKategori, filterBulan]);
+
+  /* Group by kategori untuk summary (ikut filter) */
   const byKategori = useMemo(() => {
     const map: Record<string, number> = {};
-    purchases.forEach(p => { map[p.kategori] = (map[p.kategori] || 0) + p.total; });
+    filtered.forEach(p => { map[p.kategori] = (map[p.kategori] || 0) + p.total; });
     return Object.entries(map).sort((a, b) => b[1] - a[1]);
-  }, [purchases]);
+  }, [filtered]);
 
   return (
     <div>
@@ -1490,6 +1513,23 @@ function OpexTab() {
         </div>
       </div>
 
+      {/* ── Filter: bulan & kategori ── */}
+      <div className="mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
+        <span className="text-xs font-semibold text-slate-500">🔍 Filter:</span>
+        <select value={filterBulan} onChange={e => setFilterBulan(e.target.value)} className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-xs font-semibold text-slate-700 focus:border-emerald-500 focus:outline-none">
+          <option value="semua">Semua Bulan</option>
+          {bulanOptions.map(b => <option key={b} value={b}>{fmtBulan(b)}</option>)}
+        </select>
+        <select value={filterKategori} onChange={e => setFilterKategori(e.target.value)} className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-xs font-semibold text-slate-700 focus:border-emerald-500 focus:outline-none">
+          <option value="semua">Semua Kategori</option>
+          {OPEX_KATEGORI.map(k => <option key={k} value={k}>{k}</option>)}
+        </select>
+        <span className="text-[11px] text-slate-400">{filtered.length} dari {purchases.length} item</span>
+        {(filterKategori !== 'semua' || filterBulan !== 'semua') && (
+          <button onClick={() => { setFilterKategori('semua'); setFilterBulan('semua'); }} className="rounded-lg bg-slate-100 px-2 py-1.5 text-xs font-semibold text-slate-500 hover:bg-slate-200">✕ Reset</button>
+        )}
+      </div>
+
       {/* Ringkasan per Kategori */}
       {byKategori.length > 0 && (
         <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
@@ -1517,9 +1557,9 @@ function OpexTab() {
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-50 bg-white">
-            {purchases.length === 0 ? (
-              <tr><td colSpan={7} className="px-3 py-8 text-center text-sm text-slate-400">Belum ada data pembelian OPEX.</td></tr>
-            ) : purchases.map(p => (
+            {filtered.length === 0 ? (
+              <tr><td colSpan={7} className="px-3 py-8 text-center text-sm text-slate-400">{purchases.length === 0 ? 'Belum ada data pembelian OPEX.' : 'Tidak ada data yang cocok dengan filter.'}</td></tr>
+            ) : filtered.map(p => (
               <tr key={p.id} className={`hover:bg-slate-50 transition ${editId === p.id ? 'bg-amber-50/50' : ''}`}>
                 <td className="px-3 py-2.5 text-xs text-slate-500">{p.tanggal}</td>
                 <td className="px-3 py-2.5 max-w-[200px] truncate font-medium text-slate-800" title={p.namaItem}>{p.namaItem}</td>
@@ -1569,6 +1609,10 @@ function BiayaOpTab() {
   const [ferr, setFerr] = useState('');
   const [editId, setEditId] = useState<string | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+
+  /* ── Filter: bulan & kategori ── */
+  const [filterKategori, setFilterKategori] = useState('semua');
+  const [filterBulan, setFilterBulan] = useState('semua');
 
   const openEdit = (b: BiayaOp) => {
     setDeskripsi(b.deskripsi);
@@ -1636,13 +1680,24 @@ function BiayaOpTab() {
     return biayaList.filter(b => b.tanggal === today).reduce((s, b) => s + b.jumlah, 0);
   }, [biayaList]);
 
-  /* Per kategori bulan ini */
-  const byKategori = useMemo(() => {
-    const now = new Date(); const bulan = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
-    const map: Record<string, number> = {};
-    biayaList.filter(b => b.tanggal.startsWith(bulan)).forEach(b => { map[b.kategori] = (map[b.kategori] || 0) + b.jumlah; });
-    return Object.entries(map).sort((a, b) => b[1] - a[1]);
+  /* ── Filter: kategori + bulan ── */
+  const bulanOptions = useMemo(() => {
+    const set = new Set(biayaList.map(b => (b.tanggal || '').slice(0, 7)).filter(Boolean));
+    return Array.from(set).sort().reverse();
   }, [biayaList]);
+
+  const filtered = useMemo(() => biayaList.filter(b => {
+    if (filterKategori !== 'semua' && b.kategori !== filterKategori) return false;
+    if (filterBulan !== 'semua' && !(b.tanggal || '').startsWith(filterBulan)) return false;
+    return true;
+  }), [biayaList, filterKategori, filterBulan]);
+
+  /* Per kategori (ikut filter) */
+  const byKategori = useMemo(() => {
+    const map: Record<string, number> = {};
+    filtered.forEach(b => { map[b.kategori] = (map[b.kategori] || 0) + b.jumlah; });
+    return Object.entries(map).sort((a, b) => b[1] - a[1]);
+  }, [filtered]);
 
   /* 7 hari terakhir */
   const last7Days = useMemo(() => {
@@ -1692,6 +1747,23 @@ function BiayaOpTab() {
           </button>
           {editId && <button onClick={cancelEdit} className="rounded-xl bg-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-300 transition">✕ Batal Edit</button>}
         </div>
+      </div>
+
+      {/* ── Filter: bulan & kategori ── */}
+      <div className="mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
+        <span className="text-xs font-semibold text-slate-500">🔍 Filter:</span>
+        <select value={filterBulan} onChange={e => setFilterBulan(e.target.value)} className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-xs font-semibold text-slate-700 focus:border-emerald-500 focus:outline-none">
+          <option value="semua">Semua Bulan</option>
+          {bulanOptions.map(b => <option key={b} value={b}>{fmtBulan(b)}</option>)}
+        </select>
+        <select value={filterKategori} onChange={e => setFilterKategori(e.target.value)} className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-xs font-semibold text-slate-700 focus:border-emerald-500 focus:outline-none">
+          <option value="semua">Semua Kategori</option>
+          {BIAYA_KATEGORI.map(k => <option key={k} value={k}>{k}</option>)}
+        </select>
+        <span className="text-[11px] text-slate-400">{filtered.length} dari {biayaList.length} catatan</span>
+        {(filterKategori !== 'semua' || filterBulan !== 'semua') && (
+          <button onClick={() => { setFilterKategori('semua'); setFilterBulan('semua'); }} className="rounded-lg bg-slate-100 px-2 py-1.5 text-xs font-semibold text-slate-500 hover:bg-slate-200">✕ Reset</button>
+        )}
       </div>
 
       {/* Ringkasan */}
@@ -1757,9 +1829,9 @@ function BiayaOpTab() {
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-50 bg-white">
-            {biayaList.length === 0 ? (
-              <tr><td colSpan={5} className="px-3 py-8 text-center text-sm text-slate-400">Belum ada catatan biaya operasional.</td></tr>
-            ) : biayaList.map(b => (
+            {filtered.length === 0 ? (
+              <tr><td colSpan={5} className="px-3 py-8 text-center text-sm text-slate-400">{biayaList.length === 0 ? 'Belum ada catatan biaya operasional.' : 'Tidak ada data yang cocok dengan filter.'}</td></tr>
+            ) : filtered.map(b => (
               <tr key={b.id} className={`hover:bg-slate-50 transition ${editId === b.id ? 'bg-amber-50/50' : ''}`}>
                 <td className="px-3 py-2.5 text-xs text-slate-500">{b.tanggal}</td>
                 <td className="px-3 py-2.5 max-w-[220px] truncate font-medium text-slate-800" title={b.deskripsi}>{b.deskripsi}</td>
