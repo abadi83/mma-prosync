@@ -128,43 +128,39 @@ export default function LaporanPage() {
     return { list, grandTotal, orderCount: selesai.length, masukSaldo };
   }, [allRows]);
 
-  // Laba Rugi: Penjualan Kasir + Marketplace (upload + manual) - HPP - Biaya
+  // Laba Rugi (untuk ekspor) — SAMA rumus dengan tampilan: Kasir + MP Kotor − HPP − Fee − Biaya − OPEX
   const labaRugiData = useMemo(() => {
-    const pendapatan = penjualanFiltered.reduce((s: number, t: any) => s + (t.total || 0), 0);
-    // Marketplace: upload Excel detail
-    let marketplaceNet = 0;
-    let marketplaceHpp = 0;
-    let marketplaceKotor = 0;
+    const kasirTotal = penjualanFiltered.reduce((s: number, t: any) => s + (t.total || 0), 0);
+    let mpKotor = 0, mpHpp = 0, mpFee = 0;
     try {
       const mpFiltered = filterByPeriode(mpOrdersApi, 'tanggal', periode, customStart, customEnd);
-      marketplaceNet = mpFiltered.reduce((s: number, o: any) => s + (o.pendapatanBersih || 0), 0);
-      marketplaceHpp = mpFiltered.reduce((s: number, o: any) => s + (o.totalHPP || 0), 0);
-      marketplaceKotor = mpFiltered.reduce((s: number, o: any) => s + (o.pendapatanKotor || 0), 0);
-    } catch { }
-    // Manual entries
-    let manualKotor = 0, manualNet = 0, manualFee = 0;
-    try {
+      mpKotor = mpFiltered.reduce((s: number, o: any) => s + (o.pendapatanKotor || 0), 0);
+      mpHpp = mpFiltered.reduce((s: number, o: any) => s + (o.totalHPP || 0), 0);
+      mpFee = mpFiltered.reduce((s: number, o: any) => s + (o.totalBiaya || 0), 0);
+      // Manual + ringkasan income ikut dihitung (sama seperti tampilan)
       const manual = filterByPeriode(realData.keuanganManual, 'tanggal', periode, customStart, customEnd);
-      manualKotor = manual.reduce((s: number, e: any) => s + (e.pendapatanKotor || 0), 0);
-      manualNet = manual.reduce((s: number, e: any) => s + (e.pendapatanBersih || 0), 0);
-      manualFee = manual.reduce((s: number, e: any) => s + (e.feeMarketplace || 0), 0);
-    } catch { }
-    // MP Income ringkasan
-    let incKotor = 0, incNet = 0;
-    try {
+      mpKotor += manual.reduce((s: number, e: any) => s + (e.pendapatanKotor || 0), 0);
+      mpFee += manual.reduce((s: number, e: any) => s + (e.feeMarketplace || 0), 0);
       const inc = filterByPeriode(realData.mpIncome, 'tanggal', periode, customStart, customEnd);
-      incKotor = inc.reduce((s: number, e: any) => s + (e.pendapatanKotor || 0), 0);
-      incNet = inc.reduce((s: number, e: any) => s + (e.pendapatanBersih || 0), 0);
+      mpKotor += inc.reduce((s: number, e: any) => s + (e.pendapatanKotor || 0), 0);
+      mpFee += inc.reduce((s: number, e: any) => s + (e.feeMarketplace || 0), 0);
     } catch { }
-    const totalPendapatan = pendapatan + marketplaceKotor + manualKotor + incKotor;
+    // HPP Kasir dari Master SKU (harga modal × qty) — sama dengan tampilan
+    let hppKasir = 0;
+    try {
+      const skuData = JSON.parse(localStorage.getItem('mma_sku_data') || '[]');
+      const hargaMap = new Map<string, number>();
+      for (const s of skuData) { if (s.sku && s.hargaBaru > 0) hargaMap.set(s.sku, s.hargaBaru); }
+      for (const t of penjualanFiltered) { hppKasir += (hargaMap.get(t.sku) || 0) * (t.qty || 1); }
+    } catch { }
     const biayaOps = biayaFiltered.reduce((s: number, b: any) => s + (b.jumlah || 0), 0);
     const opexTotal = opexFiltered.reduce((s: number, o: any) => s + (o.total || 0), 0);
-    const pembayaranPO = paymentsFiltered.reduce((s: number, p: any) => s + (p.jumlahDibayar || 0), 0);
-    const totalHPP = pembayaranPO + marketplaceHpp;
-    const labaKotor = totalPendapatan - totalHPP - manualFee;
+    const totalPendapatan = kasirTotal + mpKotor;
+    const totalHPP = hppKasir + mpHpp;
+    const labaKotor = totalPendapatan - totalHPP - mpFee;
     const labaBersih = labaKotor - biayaOps - opexTotal;
-    return { pendapatan: totalPendapatan, hargaPokok: totalHPP, biayaOperasional: biayaOps, biayaLain: opexTotal + manualFee, labaKotor, labaBersih };
-  }, [penjualanFiltered, biayaFiltered, opexFiltered, paymentsFiltered, periode, realData, mpOrdersApi, customStart, customEnd]);
+    return { pendapatan: totalPendapatan, hargaPokok: totalHPP, biayaOperasional: biayaOps, biayaLain: opexTotal + mpFee, labaKotor, labaBersih };
+  }, [penjualanFiltered, biayaFiltered, opexFiltered, periode, realData, mpOrdersApi, customStart, customEnd]);
 
   // Arus Kas real
   const arusKasData = useMemo(() => {
@@ -329,64 +325,49 @@ function LabaRugi({ periode, customStart, customEnd, orders }: { periode: Period
       const mpIncome: any[] = JSON.parse(localStorage.getItem('mma_marketplace_income') || '[]');
       const mpIncomeFiltered = f(mpIncome, 'tanggal');
 
-      // Group by toko
-      const byToko = new Map<string, { laba: number; hpp: number; fee: number; kotor: number; biayaProses: number; count: number; marketplace: string }>();
-      for (const o of mpFiltered) {
-        const key = o.tokoNama || 'Unknown';
-        tokoSet.add(key);
-        const exist = byToko.get(key) || { laba: 0, hpp: 0, fee: 0, kotor: 0, biayaProses: 0, count: 0, marketplace: o.marketplace || '' };
-        exist.kotor += o.pendapatanKotor || 0;
-        exist.fee += o.totalBiaya || 0;            // ← udah total semua kolom fee
-        exist.biayaProses += o.biayaPemrosesan || 0;
-        exist.hpp += o.totalHPP || 0;
-        exist.laba += o.pendapatanBersih || 0;   // ← udah laba/rugi final (Kotor - Fee - BiayaProses - HPP)
+      // Group per marketplace + toko (Shopee-TokoA ≠ Lazada-TokoA)
+      interface TokoAgg { label: string; marketplace: string; tokoNama: string; laba: number; hpp: number; fee: number; kotor: number; biayaProses: number; count: number; }
+      const byToko = new Map<string, TokoAgg>();
+      const upsert = (mp: string, toko: string, delta: { laba?: number; hpp?: number; fee?: number; kotor?: number; biayaProses?: number }) => {
+        const key = `${mp}||${toko}`;
+        const label = `${mp} — ${toko}`;
+        const exist = byToko.get(key) || { label, marketplace: mp, tokoNama: toko, laba: 0, hpp: 0, fee: 0, kotor: 0, biayaProses: 0, count: 0 };
+        exist.kotor += delta.kotor || 0;
+        exist.fee += delta.fee || 0;
+        exist.biayaProses += delta.biayaProses || 0;
+        exist.hpp += delta.hpp || 0;
+        exist.laba += delta.laba || 0;
         exist.count++;
-        exist.marketplace = o.marketplace || exist.marketplace;
         byToko.set(key, exist);
+        tokoSet.add(label);
+      };
+      for (const o of mpFiltered) {
+        upsert(o.marketplace || 'Marketplace', o.tokoNama || 'Unknown', { kotor: o.pendapatanKotor || 0, fee: o.totalBiaya || 0, biayaProses: o.biayaPemrosesan || 0, hpp: o.totalHPP || 0, laba: o.pendapatanBersih || 0 });
       }
 
       // ── Tambahin input keuangan MANUAL ke byToko ──
       for (const e of manualFiltered) {
-        const namaToko = e.marketplaceNama?.split('—')[1]?.trim() || e.marketplaceNama || 'Manual';
         const mp = e.marketplaceNama?.split('—')[0]?.trim() || 'Lainnya';
-        tokoSet.add(namaToko);
-        const exist = byToko.get(namaToko) || { laba: 0, hpp: 0, fee: 0, kotor: 0, biayaProses: 0, count: 0, marketplace: mp };
-        const kotor = e.pendapatanKotor || 0;
-        const feeManual = e.feeMarketplace || 0;
-        const bersih = e.pendapatanBersih || 0;
-        exist.kotor += kotor;
-        exist.fee += feeManual;
-        exist.hpp += 0; // manual entry gak ada HPP detail
-        exist.laba += bersih;
-        exist.count++;
-        exist.marketplace = mp || exist.marketplace;
-        byToko.set(namaToko, exist);
+        const namaToko = e.marketplaceNama?.split('—')[1]?.trim() || e.marketplaceNama || 'Manual';
+        upsert(mp, namaToko, { kotor: e.pendapatanKotor || 0, fee: e.feeMarketplace || 0, laba: e.pendapatanBersih || 0 });
       }
 
       // ── Tambahin marketplace_income (ringkasan) ke byToko ──
       for (const inc of mpIncomeFiltered) {
-        const namaToko = inc.marketplaceNama?.split('—')[1]?.trim() || inc.marketplaceNama || 'Ringkasan';
         const mp = inc.marketplaceNama?.split('—')[0]?.trim() || 'Lainnya';
-        // Skip kalau duplikat dengan data detail (cek by order ID pattern)
-        const existKey = namaToko;
-        if (!byToko.has(existKey)) {
-          tokoSet.add(namaToko);
-          byToko.set(existKey, {
-            laba: inc.pendapatanBersih || 0,
-            hpp: inc.totalHPP || 0,
-            fee: inc.feeMarketplace || 0,
-            kotor: inc.pendapatanKotor || 0,
-            biayaProses: inc.biayaProses || 0,
-            count: 1,
-            marketplace: mp,
-          });
+        const namaToko = inc.marketplaceNama?.split('—')[1]?.trim() || inc.marketplaceNama || 'Ringkasan';
+        const key = `${mp}||${namaToko}`;
+        // Skip kalau duplikat dengan data detail
+        if (!byToko.has(key)) {
+          upsert(mp, namaToko, { kotor: inc.pendapatanKotor || 0, fee: inc.feeMarketplace || 0, laba: inc.pendapatanBersih || 0, hpp: inc.totalHPP || 0, biayaProses: inc.biayaProses || 0 });
         }
       }
 
-      // Filter by toko
+      // Filter by toko (label "Marketplace — Toko")
+      const allToko = Array.from(byToko.values());
       const filteredByToko = filterToko === 'semua'
-        ? Array.from(byToko.values())
-        : [byToko.get(filterToko)].filter(Boolean) as any[];
+        ? allToko
+        : allToko.filter(t => t.label === filterToko);
 
       marketplaceKotor = filteredByToko.reduce((s, t) => s + t.kotor, 0);
       marketplaceFee = filteredByToko.reduce((s, t) => s + t.fee, 0);
@@ -394,16 +375,16 @@ function LabaRugi({ periode, customStart, customEnd, orders }: { periode: Period
       marketplaceHpp = filteredByToko.reduce((s, t) => s + t.hpp, 0);
       marketplaceLaba = filteredByToko.reduce((s, t) => s + t.laba, 0);
 
-      for (const [nama, d] of byToko) {
+      for (const t of allToko) {
         breakdownPerToko.push({
-          tokoNama: nama,
-          marketplace: d.marketplace,
-          pendapatanKotor: d.kotor,
-          fee: d.fee,
-          pendapatanBersih: d.laba,          // ← laba/rugi final
-          hpp: d.hpp,
-          labaKotor: d.laba,                 // ← sama, udah net
-          orderCount: d.count,
+          tokoNama: t.tokoNama,
+          marketplace: t.marketplace,
+          pendapatanKotor: t.kotor,
+          fee: t.fee,
+          pendapatanBersih: t.laba,          // ← laba/rugi final
+          hpp: t.hpp,
+          labaKotor: t.laba,                 // ← sama, udah net
+          orderCount: t.count,
         });
       }
     } catch { }
