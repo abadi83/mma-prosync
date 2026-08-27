@@ -41,7 +41,8 @@ export async function POST(request: NextRequest) {
 
     const count = await recordActivities(mapped, { username, namaUser });
     return json({ success: true, count, username, namaUser });
-  } catch {
-    return json({ error: 'Gagal mencatat aktivitas' }, 500);
+  } catch (e: any) {
+    console.error('[ACTIVITY POST ERROR]', e?.message || e);
+    return json({ error: 'Gagal mencatat aktivitas', detail: String(e?.message || e).slice(0, 500) }, 500);
   }
 }
