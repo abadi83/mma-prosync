@@ -5,29 +5,31 @@
  * Sekali jalan: kalau DB masih kosong, BACKFILL data lama dari localStorage
  * (migrasi dari sistem lama) supaya data tidak "hilang".
  */
-export async function fetchMarketplaceOrders(): Promise<any[]> {
+export async function fetchMarketplaceOrders(limit = 0): Promise<any[]> {
   try {
-    const res = await fetch(`/api/marketplace-orders?t=${Date.now()}`);
+    const q = limit > 0 ? `?t=${Date.now()}&limit=${limit}` : `?t=${Date.now()}`;
+    const res = await fetch(`/api/marketplace-orders${q}`);
     if (res.ok) {
       const data = await res.json();
       if (Array.isArray(data)) {
-        // Backfill: kalau cache lokal menyimpan LEBIH BANYAK order dari DB
-        // (data lama sebelum migrasi), impor dulu ke DB lalu baca ulang.
-        try {
-          const local = JSON.parse(localStorage.getItem('mma_marketplace_orders') || '[]');
-          if (Array.isArray(local) && local.length > data.length) {
-            await fetch('/api/marketplace-orders', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ orders: local }),
-            });
-            const res2 = await fetch(`/api/marketplace-orders?t=${Date.now()}`);
-            if (res2.ok) {
-              const d2 = await res2.json();
-              if (Array.isArray(d2) && d2.length >= local.length) return d2;
+        // Backfill hanya kalau tidak dibatasi limit (cek kelengkapan data lama)
+        if (limit <= 0) {
+          try {
+            const local = JSON.parse(localStorage.getItem('mma_marketplace_orders') || '[]');
+            if (Array.isArray(local) && local.length > data.length) {
+              await fetch('/api/marketplace-orders', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ orders: local }),
+              });
+              const res2 = await fetch(`/api/marketplace-orders?t=${Date.now()}`);
+              if (res2.ok) {
+                const d2 = await res2.json();
+                if (Array.isArray(d2) && d2.length >= local.length) return d2;
+              }
             }
-          }
-        } catch {}
+          } catch {}
+        }
         return data;
       }
     }

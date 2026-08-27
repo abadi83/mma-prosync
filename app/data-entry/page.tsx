@@ -1467,8 +1467,8 @@ function UploadHistory() {
   useEffect(() => {
     let active = true;
     const loadOrders = async () => {
-      // PostgreSQL dulu (backfill otomatis data lama kalau DB kosong), fallback cache lokal
-      const list = await fetchMarketplaceOrders();
+      // Cukup 300 order terbaru — daftar penuh (7rb+) terlalu berat untuk tampilan riwayat
+      const list = await fetchMarketplaceOrders(300);
       if (active) setOrders(list);
     };
     loadOrders();

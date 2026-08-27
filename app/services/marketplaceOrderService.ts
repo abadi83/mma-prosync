@@ -60,7 +60,8 @@ function mapRow(r: any): MarketplaceOrder {
   };
 }
 
-export async function listMarketplaceOrders(tokoId?: string): Promise<MarketplaceOrder[]> {
+export async function listMarketplaceOrders(tokoId?: string, limit = 0): Promise<MarketplaceOrder[]> {
+  const lim = limit > 0 ? limit : 5000;
   const { rows } = await query(
     `SELECT id, no_pesanan, no_resi, tanggal, marketplace, toko_nama, pendapatan_kotor, pendapatan_bersih,
             total_biaya, fee_admin, fee_layanan, ongkir_aktual, subsidi_ongkir, biaya_pemrosesan,
@@ -68,8 +69,9 @@ export async function listMarketplaceOrders(tokoId?: string): Promise<Marketplac
             catatan, status_pesanan
      FROM marketplace_order
      WHERE toko_id = $1
-     ORDER BY created_at DESC, id DESC`,
-    [tokoId || DEFAULT_TOKO]
+     ORDER BY created_at DESC, id DESC
+     LIMIT $2`,
+    [tokoId || DEFAULT_TOKO, lim]
   );
   return rows.map(mapRow);
 }
