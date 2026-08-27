@@ -25,10 +25,13 @@ export function useUser(): UserInfo {
     const cookiePegawaiId = getCookie('user_pegawai_id');
 
     if (cookieName && cookieRole) {
+      const list = cookieRoles ? cookieRoles.split(',').filter(Boolean) : [cookieRole];
+      // Jaga-jaga: kalau role utama admin, pastikan 'admin' ada di daftar (cookie lama kadang ketinggalan)
+      if (cookieRole === 'admin' && !list.includes('admin')) list.unshift('admin');
       setUser({
         nama: cookieName,
         role: cookieRole,
-        roles: cookieRoles ? cookieRoles.split(',').filter(Boolean) : [cookieRole],
+        roles: list,
         pegawaiId: cookiePegawaiId || '',
       });
       return;

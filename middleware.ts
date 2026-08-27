@@ -40,9 +40,15 @@ export function middleware(request: NextRequest) {
   }
 
   // ── Cek role (ketat): user hanya bisa buka modul sesuai rolenya ──
-  const rolesCookie = request.cookies.get('user_roles')?.value || request.cookies.get('user_role')?.value || '';
-  const roles = rolesCookie.split(',').map(r => r.trim()).filter(Boolean);
-  if (!canAccessPath(roles, pathname)) {
+  // Gabungkan user_roles (multi) + user_role (utama); admin SELALU lolos.
+  const rolesCookie = request.cookies.get('user_roles')?.value || '';
+  const mainRole = request.cookies.get('user_role')?.value || '';
+  const roleSet = new Set<string>(rolesCookie.split(',').map(r => r.trim()).filter(Boolean));
+  if (mainRole) roleSet.add(mainRole);
+  if (mainRole === 'admin' || roleSet.has('admin')) {
+    return NextResponse.next(); // admin bebas akses semua
+  }
+  if (!canAccessPath(Array.from(roleSet), pathname)) {
     const home = new URL('/', request.url);
     home.searchParams.set('denied', pathname);
     return NextResponse.redirect(home);
