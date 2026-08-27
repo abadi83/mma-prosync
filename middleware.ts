@@ -48,6 +48,12 @@ export function middleware(request: NextRequest) {
   if (mainRole === 'admin' || roleSet.has('admin')) {
     return NextResponse.next(); // admin bebas akses semua
   }
+  // Role kosong sama sekali (cookie habis/stale) → paksa login ulang, bukan redirect loop
+  if (roleSet.size === 0) {
+    const loginUrl = new URL('/login', request.url);
+    loginUrl.searchParams.set('redirect', pathname);
+    return NextResponse.redirect(loginUrl);
+  }
   if (!canAccessPath(Array.from(roleSet), pathname)) {
     const home = new URL('/', request.url);
     home.searchParams.set('denied', pathname);

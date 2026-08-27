@@ -22,7 +22,11 @@ export const PAGE_ROLE_MAP: PageRoleRule[] = [
 ];
 
 export function canAccessPath(roles: string[], pathname: string): boolean {
-  if (!roles || roles.length === 0) return false;
+  if (!roles || roles.length === 0) {
+    // Tanpa role sama sekali: halaman bebas (dashboard, notifikasi, profil) tetap boleh,
+    // modul terproteksi ditolak — mencegah redirect loop di beranda.
+    return !PAGE_ROLE_MAP.some(r => pathname === r.prefix || pathname.startsWith(r.prefix + '/'));
+  }
   if (roles.includes('admin')) return true;
   const rule = PAGE_ROLE_MAP.find(r => pathname === r.prefix || pathname.startsWith(r.prefix + '/'));
   if (!rule) return true; // tidak ada aturan = bebas (dashboard, notifikasi, profil, dll)
