@@ -35,11 +35,19 @@ function filterByPeriode(list: any[], dateField: string, periode: Periode, custo
     });
   }
   const now = new Date();
-  let start = new Date();
-  if (periode === 'minggu') start.setDate(now.getDate() - 7);
-  else if (periode === 'bulan') start.setMonth(now.getMonth() - 1);
-  else start.setFullYear(now.getFullYear() - 1);
-  const startStr = start.toISOString().slice(0, 10);
+  let start: Date;
+  if (periode === 'minggu') {
+    // Minggu Ini: 7 hari terakhir
+    start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6);
+  } else if (periode === 'bulan') {
+    // Bulan Ini: dari tanggal 1 bulan berjalan (JULI TIDAK ikut)
+    start = new Date(now.getFullYear(), now.getMonth(), 1);
+  } else {
+    // Tahun Ini: dari 1 Januari tahun berjalan
+    start = new Date(now.getFullYear(), 0, 1);
+  }
+  // Format tanggal lokal (hindari selisih UTC yang bisa menggeser 1 hari)
+  const startStr = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}-${String(start.getDate()).padStart(2, '0')}`;
   return list.filter((item: any) => (item[dateField] || item.tanggal || '') >= startStr);
 }
 
