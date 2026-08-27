@@ -23,7 +23,17 @@ const MARKETPLACE_TOKO = [
   { id: 'mp-2', nama: 'Lazada — MITRA MULIA ABADI', marketplace: 'Lazada', persenFee: 8 },
   { id: 'mp-3', nama: 'Tokopedia — Berkah Abadi Official', marketplace: 'Tokopedia', persenFee: 6 },
   { id: 'mp-4', nama: 'TikTok Shop — MITRA MULIA ABADI', marketplace: 'TikTok Shop', persenFee: 5 },
+  { id: 'mp-5', nama: 'Shopee — GMT/Aeer.com', marketplace: 'Shopee', persenFee: 10 },
+  { id: 'mp-6', nama: 'Lazada — GMT', marketplace: 'Lazada', persenFee: 8 },
+  { id: 'mp-7', nama: 'Shopee — Digo Tools Mart', marketplace: 'Shopee', persenFee: 10 },
+  { id: 'mp-8', nama: 'Shopee — Sink and Shower', marketplace: 'Shopee', persenFee: 10 },
+  { id: 'mp-9', nama: 'TikTok Shop — Sink and Shower', marketplace: 'TikTok Shop', persenFee: 5 },
+  { id: 'mp-10', nama: 'TikTok Shop — Jaya Indah Perkakas', marketplace: 'TikTok Shop', persenFee: 5 },
 ];
+
+/* Marketplace unik (untuk dropdown) — id = entry pertama per marketplace */
+const UNIQUE_MARKETPLACES = Array.from(new Map(MARKETPLACE_TOKO.map(m => [m.marketplace, m.id] as const)).entries())
+  .map(([marketplace, id]) => ({ marketplace, id }));
 
 /* ── Types ── */
 interface OpsEntry { id: string; tanggal: string; jamBuka: string; jamTutup: string; jumlahKaryawan: number; catatan: string; }
@@ -621,18 +631,41 @@ function InputKeuangan() {
   const [uploadToko, setUploadToko] = useState('');
   const [tokoList, setTokoList] = useState<{id:string;nama:string;marketplace:string}[]>([]);
 
-  // Load toko dari Master Data
+  // Load toko dari Master Data — sumber utama: /api/marketplace-toko (DB)
   useEffect(() => {
     const DEFAULT_TOKO = [
-      { id:'t-1',nama:'Toko Berkah Abadi',marketplace:'Shopee' },
-      { id:'t-2',nama:'Berkah Abadi Official',marketplace:'Tokopedia' },
-      { id:'t-3',nama:'Toko Berkah Abadi',marketplace:'Lazada' },
+      { id:'t-mma-sp', nama:'MITRA MULIA ABADI', marketplace:'Shopee' },
+      { id:'t-mma-lz', nama:'MITRA MULIA ABADI', marketplace:'Lazada' },
+      { id:'t-mma-tt', nama:'MITRA MULIA ABADI', marketplace:'TikTok Shop' },
+      { id:'t-gmt-lz', nama:'GMT', marketplace:'Lazada' },
+      { id:'t-gmt-sp', nama:'GMT/Aeer.com', marketplace:'Shopee' },
+      { id:'t-digo-sp', nama:'Digo Tools Mart', marketplace:'Shopee' },
+      { id:'t-ss-sp', nama:'Sink and Shower', marketplace:'Shopee' },
+      { id:'t-ss-tt', nama:'Sink and Shower', marketplace:'TikTok Shop' },
+      { id:'t-jip-tt', nama:'Jaya Indah Perkakas', marketplace:'TikTok Shop' },
     ];
-    try {
-      const stored = localStorage.getItem('mma_toko_master');
-      if (stored) setTokoList(JSON.parse(stored));
-      else setTokoList(DEFAULT_TOKO);
-    } catch { setTokoList(DEFAULT_TOKO); }
+    let aktif = true;
+    (async () => {
+      // 1) Master DB (yang dikelola di Data Master → Toko)
+      try {
+        const res = await fetch('/api/marketplace-toko');
+        if (res.ok) {
+          const items = await res.json();
+          if (aktif && Array.isArray(items) && items.length > 0) { setTokoList(items); return; }
+        }
+      } catch {}
+      // 2) Fallback: master lama di localStorage
+      try {
+        const stored = localStorage.getItem('mma_toko_master');
+        if (stored) {
+          const j = JSON.parse(stored);
+          if (Array.isArray(j) && j.length > 0) { setTokoList(j); return; }
+        }
+      } catch {}
+      // 3) Fallback terakhir: daftar default
+      if (aktif) setTokoList(DEFAULT_TOKO);
+    })();
+    return () => { aktif = false; };
   }, []);
 
   // Persist manual entries ke localStorage + server (biar Laba Rugi bisa baca)
@@ -1282,7 +1315,7 @@ function InputKeuangan() {
             <label className="text-[10px] font-semibold text-slate-500">Marketplace</label>
             <select value={uploadMp} onChange={e => { setUploadMp(e.target.value); setUploadToko(''); }}
               className="rounded-lg border bg-white px-2 py-1.5 text-xs text-slate-700">
-              {MARKETPLACE_TOKO.map(m => <option key={m.id} value={m.id}>{m.marketplace}</option>)}
+              {UNIQUE_MARKETPLACES.map(x => <option key={x.id} value={x.id}>{x.marketplace}</option>)}
             </select>
           </div>
           <div>
@@ -1306,10 +1339,10 @@ function InputKeuangan() {
 
       {/* Pilih Marketplace */}
       <div className="mt-4 flex flex-wrap gap-2">
-        {MARKETPLACE_TOKO.map(m => (
-          <button key={m.id} onClick={() => setSelectedMp(m.id)}
-            className={`rounded-xl px-3 py-2 text-xs font-semibold transition border-2 ${selectedMp===m.id?'border-brand-500 bg-brand-50 text-brand-700':'border-slate-200 bg-white text-slate-500 hover:border-brand-300'}`}>
-            {m.marketplace} <span className="text-slate-400">(fee {m.persenFee}%)</span>
+        {UNIQUE_MARKETPLACES.map(x => (
+          <button key={x.id} onClick={() => setSelectedMp(x.id)}
+            className={`rounded-xl px-3 py-2 text-xs font-semibold transition border-2 ${selectedMp===x.id?'border-brand-500 bg-brand-50 text-brand-700':'border-slate-200 bg-white text-slate-500 hover:border-brand-300'}`}>
+            {x.marketplace}
           </button>
         ))}
       </div>
