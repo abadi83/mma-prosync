@@ -7,6 +7,7 @@ import type { BuktiBayar, OcrResult } from '@/app/types';
 import { fetchMpSummary } from '@/app/lib/marketplaceOrdersClient';
 import { loadPencairan, savePencairan, totalPencairan, PENCAIRAN_STORAGE, type PencairanEntry } from '@/app/lib/pencairan';
 import { recordActivity } from '@/app/lib/recordActivity';
+import HapusDataTab from './HapusDataTab';
 
 /* ================================================================ */
 /* Types (shared key dengan Purchasing)                              */
@@ -90,7 +91,7 @@ const METODE_OPTIONS = [
 /* ================================================================ */
 /* Tab type                                                          */
 /* ================================================================ */
-type Tab = 'pembayaran' | 'aruskas' | 'pencairan' | 'riwayat' | 'arsip' | 'refund';
+type Tab = 'pembayaran' | 'aruskas' | 'pencairan' | 'riwayat' | 'arsip' | 'refund' | 'hapus';
 
 const TABS: { key: Tab; label: string; icon: string }[] = [
   { key: 'pembayaran', label: 'Pembayaran PO', icon: '💳' },
@@ -99,6 +100,7 @@ const TABS: { key: Tab; label: string; icon: string }[] = [
   { key: 'riwayat', label: 'Riwayat Bayar', icon: '📋' },
   { key: 'arsip', label: 'Arsip Bukti', icon: '🗄️' },
   { key: 'refund', label: 'Refund / Koreksi', icon: '↩️' },
+  { key: 'hapus', label: 'Hapus Data', icon: '🗑️' },
 ];
 
 /* ================================================================ */
@@ -137,6 +139,7 @@ export default function KeuanganPage() {
         {tab === 'riwayat' && <RiwayatTab />}
         {tab === 'arsip' && <ArsipBuktiTab />}
         {tab === 'refund' && <RefundTab />}
+        {tab === 'hapus' && <HapusDataTab />}
       </section>
     </main>
   );
