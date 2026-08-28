@@ -7,6 +7,7 @@ import { LaporanStokReport } from '@/app/laporan/components/LaporanStokReport';
 import { useAgregasi } from '@/app/context/AgregasiContext';
 import { ExportButton } from '@/app/components/ExportButton';
 import { fetchMpSummary } from '@/app/lib/marketplaceOrdersClient';
+import { readTombstones, applyTombstones } from '@/app/lib/tombstones';
 
 type JenisLaporan = 'laba-rugi' | 'arus-kas' | 'stok' | 'omset';
 type Periode = 'minggu' | 'bulan' | 'tahun' | 'custom';
@@ -17,7 +18,7 @@ function getRealData() {
   try {
     return {
       penjualan: JSON.parse(localStorage.getItem('mma_penjualan_transaksi') || '[]'),
-      payments: JSON.parse(localStorage.getItem('mma_payment_history') || '[]'),
+      payments: applyTombstones('mma_payment_history', JSON.parse(localStorage.getItem('mma_payment_history') || '[]'), readTombstones()),
       biaya: JSON.parse(localStorage.getItem('mma_biaya_operasional') || '[]'),
       opex: JSON.parse(localStorage.getItem('mma_opex_purchases') || '[]'),
       modal: JSON.parse(localStorage.getItem('mma_modal') || '[]'),

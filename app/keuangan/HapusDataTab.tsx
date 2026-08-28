@@ -3,6 +3,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useAkuntansi } from '@/app/context/AkuntansiContext';
 import { recordActivity } from '@/app/lib/recordActivity';
+import { addTombstones, readTombstones, type Tombstone } from '@/app/lib/tombstones';
 
 /* ═══════════════════════════════════════════════════════════════════ */
 /* HAPUS DATA (per tanggal & supplier) — Pembelian SKU + Pembayaran PO */
@@ -49,6 +50,19 @@ export default function HapusDataTab() {
   const [bukti, setBukti] = useLocalStorage<BuktiBayar[]>(BUKTI_STORAGE, []);
   const { jurnal, deleteJurnal } = useAkuntansi();
 
+  // Tombstone (penanda hapus permanen) — live
+  const [tombs, setTombs] = useState<Tombstone[]>([]);
+  useEffect(() => {
+    const load = () => setTombs(readTombstones());
+    load();
+    window.addEventListener('tombstones-updated', load);
+    window.addEventListener('storage', load);
+    return () => {
+      window.removeEventListener('tombstones-updated', load);
+      window.removeEventListener('storage', load);
+    };
+  }, []);
+
   // Live reload kalau Pembelian update PO
   useEffect(() => {
     const reload = () => {
@@ -73,15 +87,17 @@ export default function HapusDataTab() {
 
   /* ── Group PO (Pembelian SKU) ── */
   const poGroups = useMemo(() => {
+    const poIds = new Set(tombs.filter(t => t.kind === 'po').map(t => t.id));
     const map = new Map<string, { noPO: string; supplierId: string; supplierNama: string; tanggal: string; total: number; dibayar: number; sisa: number; jumlahSku: number }>();
     for (const p of hppData) {
+      if (poIds.has(p.noPO)) continue;
       const g = map.get(p.noPO) || { noPO: p.noPO, supplierId: p.supplierId, supplierNama: p.supplierNama, tanggal: p.tanggal || '', total: 0, dibayar: 0, sisa: 0, jumlahSku: 0 };
       g.total += p.total; g.dibayar += p.dibayar; g.sisa += p.sisaTagihan; g.jumlahSku += 1;
       if (p.tanggal && (!g.tanggal || p.tanggal < g.tanggal)) g.tanggal = p.tanggal;
       map.set(p.noPO, g);
     }
     return Array.from(map.values()).sort((a, b) => b.noPO.localeCompare(a.noPO));
-  }, [hppData]);
+  }, [hppData, tombs]);
 
   const poFiltered = useMemo(() => poGroups.filter(g => {
     if (filterSupplier && g.supplierId !== filterSupplier) return false;
@@ -91,13 +107,18 @@ export default function HapusDataTab() {
     return true;
   }), [poGroups, filterSupplier, dari, sampai, search]);
 
-  const payFiltered = useMemo(() => payments.filter(p => {
-    if (filterSupplier && p.supplierNama !== filterSupplier) return false;
-    if (dari && p.tanggalBayar < dari) return false;
-    if (sampai && p.tanggalBayar > sampai) return false;
-    if (search && !p.noPO.toLowerCase().includes(search.toLowerCase()) && !(p.nomorRef || '').toLowerCase().includes(search.toLowerCase()) && !p.supplierNama.toLowerCase().includes(search.toLowerCase())) return false;
-    return true;
-  }), [payments, filterSupplier, dari, sampai, search]);
+  const payFiltered = useMemo(() => {
+    const payIds = new Set(tombs.filter(t => t.kind === 'payment').map(t => t.id));
+    const poIds = new Set(tombs.filter(t => t.kind === 'po').map(t => t.id));
+    return payments.filter(p => {
+      if (payIds.has(p.id) || poIds.has(p.noPO)) return false;
+      if (filterSupplier && p.supplierNama !== filterSupplier) return false;
+      if (dari && p.tanggalBayar < dari) return false;
+      if (sampai && p.tanggalBayar > sampai) return false;
+      if (search && !p.noPO.toLowerCase().includes(search.toLowerCase()) && !(p.nomorRef || '').toLowerCase().includes(search.toLowerCase()) && !p.supplierNama.toLowerCase().includes(search.toLowerCase())) return false;
+      return true;
+    });
+  }, [payments, tombs, filterSupplier, dari, sampai, search]);
 
   const suppliers = useMemo(() => {
     if (mode === 'po') {
@@ -129,9 +150,18 @@ export default function HapusDataTab() {
     setBusy(true);
     const sel = Array.from(selected);
     const noPOs = new Set(sel);
-    setHppData(prev => prev.filter(p => !noPOs.has(p.noPO)));
-    setPayments(prev => prev.filter(p => !noPOs.has(p.noPO)));
-    setBukti(prev => prev.filter(b => !noPOs.has(b.noPO)));
+    const newHpp = hppData.filter(p => !noPOs.has(p.noPO));
+    const newPay = payments.filter(p => !noPOs.has(p.noPO));
+    const newBukti = bukti.filter(b => !noPOs.has(b.noPO));
+    setHppData(newHpp);
+    setPayments(newPay);
+    setBukti(newBukti);
+    // Tombstone: penanda hapus permanen (sync lintas perangkat) — sebelum push biar langsung kedetect
+    addTombstones(sel.map(noPO => ({ id: noPO, kind: 'po' })));
+    // Push langsung ke server biar perangkat lain cepat ikut bersih
+    try { void fetch('/api/data', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: HPP_STORAGE, data: newHpp }) }); } catch {}
+    try { void fetch('/api/data', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: PAYMENT_STORAGE, data: newPay }) }); } catch {}
+    try { void fetch('/api/data', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: BUKTI_STORAGE, data: newBukti }) }); } catch {}
     // Riwayat harga modal dengan noPO yang sama
     try {
       const hist = JSON.parse(localStorage.getItem(HARGA_HISTORY) || '[]');
@@ -147,7 +177,10 @@ export default function HapusDataTab() {
       window.dispatchEvent(new Event('shared-data-updated'));
     } catch {}
     setSelected(new Set()); setConfirmOpen(false); setBusy(false);
-    alert(`✅ ${sel.length} PO dihapus.\nPayment, bukti bayar, riwayat harga modal & jurnal yang terkait ikut terhapus.\n\n⚠️ Stok SKU tidak diubah otomatis.`);
+    alert(`✅ ${sel.length} PO dihapus.
+Payment, bukti bayar, riwayat harga modal & jurnal yang terkait ikut terhapus.
+
+⚠️ Stok SKU tidak diubah otomatis.`);
   };
 
   /* ── Hapus Pembayaran PO + data terkait ── */
@@ -161,8 +194,15 @@ export default function HapusDataTab() {
         byPo.set(p.noPO, (byPo.get(p.noPO) || 0) + p.jumlahDibayar);
       }
     }
-    setPayments(prev => prev.filter(p => !selected.has(p.id)));
-    setBukti(prev => prev.filter(b => !selected.has(b.paymentId)));
+    const newPay = payments.filter(p => !selected.has(p.id));
+    const newBukti = bukti.filter(b => !selected.has(b.paymentId));
+    setPayments(newPay);
+    setBukti(newBukti);
+    // Tombstone: penanda hapus permanen (sync lintas perangkat) — sebelum push biar langsung kedetect
+    addTombstones(toDelete.map(p => ({ id: p.id, kind: 'payment' })));
+    // Push langsung ke server biar perangkat lain cepat ikut bersih
+    try { void fetch('/api/data', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: PAYMENT_STORAGE, data: newPay }) }); } catch {}
+    try { void fetch('/api/data', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: BUKTI_STORAGE, data: newBukti }) }); } catch {}
     // Restore status PO: kurangi dibayar, kembalikan sisa tagihan
     if (byPo.size > 0) {
       setHppData(prev => {

@@ -7,6 +7,7 @@ import type { BuktiBayar, OcrResult } from '@/app/types';
 import { fetchMpSummary } from '@/app/lib/marketplaceOrdersClient';
 import { loadPencairan, savePencairan, totalPencairan, PENCAIRAN_STORAGE, type PencairanEntry } from '@/app/lib/pencairan';
 import { recordActivity } from '@/app/lib/recordActivity';
+import { readTombstones, applyTombstones, type Tombstone } from '@/app/lib/tombstones';
 import HapusDataTab from './HapusDataTab';
 
 /* ================================================================ */
@@ -209,7 +210,7 @@ function SaldoKas() {
   const totalPengeluaran = useMemo(() => {
     try {
       let keluar = 0;
-      const payments = JSON.parse(localStorage.getItem('mma_payment_history') || '[]');
+      const payments = applyTombstones('mma_payment_history', JSON.parse(localStorage.getItem('mma_payment_history') || '[]'), readTombstones());
       keluar += payments.reduce((s: number, p: any) => s + (p.jumlahDibayar || 0), 0);
       const biaya = JSON.parse(localStorage.getItem('mma_biaya_operasional') || '[]');
       keluar += biaya.reduce((s: number, b: any) => s + (b.jumlah || 0), 0);
@@ -541,11 +542,32 @@ function PembayaranTab() {
   const [search, setSearch] = useState('');
   const [notaLightbox, setNotaLightbox] = useState<{ noPO: string; fotoBase64: string } | null>(null);
 
+  // Tombstone hapus data — live
+  const [tombs, setTombs] = useState<Tombstone[]>([]);
+  useEffect(() => {
+    const load = () => setTombs(readTombstones());
+    load();
+    window.addEventListener('tombstones-updated', load);
+    window.addEventListener('storage', load);
+    return () => {
+      window.removeEventListener('tombstones-updated', load);
+      window.removeEventListener('storage', load);
+    };
+  }, []);
+
+  const paymentsAktif = useMemo(() => {
+    const payIds = new Set(tombs.filter(t => t.kind === 'payment').map(t => t.id));
+    const poIds = new Set(tombs.filter(t => t.kind === 'po').map(t => t.id));
+    return payments.filter(p => !payIds.has(p.id) && !poIds.has(p.noPO));
+  }, [payments, tombs]);
+
   // Group by noPO
   interface PoGroup { noPO: string; supplierId: string; supplierNama: string; items: HppPurchase[]; total: number; dibayar: number; sisa: number; lunas: boolean; jatuhTempo: string; metodeBayar: MetodeBayar; petugasLogistik: string; dibayarKePetugas: boolean; dikoreksi: boolean; koreksiPada: string; hasFoto: boolean; fotoBase64?: string; }
   const poGroups = useMemo(() => {
+    const poIds = new Set(tombs.filter(t => t.kind === 'po').map(t => t.id));
     const map = new Map<string, PoGroup>();
     for (const p of hppData) {
+      if (poIds.has(p.noPO)) continue;
       const g = map.get(p.noPO) || { noPO: p.noPO, supplierId: p.supplierId, supplierNama: p.supplierNama, items: [], total: 0, dibayar: 0, sisa: 0, lunas: true, jatuhTempo: p.jatuhTempo || '', metodeBayar: p.metodeBayar, petugasLogistik: p.petugasLogistik || '', dibayarKePetugas: !!p.dibayarKePetugas, dikoreksi: false, koreksiPada: '', hasFoto: false, fotoBase64: undefined };
       g.items.push(p);
       g.total += p.total;
@@ -560,7 +582,7 @@ function PembayaranTab() {
       map.set(p.noPO, g);
     }
     return Array.from(map.values()).sort((a,b) => b.noPO.localeCompare(a.noPO));
-  }, [hppData]);
+  }, [hppData, tombs]);
 
   const today = new Date().toISOString().slice(0,10);
   const filtered = poGroups.filter(g => {
@@ -594,8 +616,8 @@ function PembayaranTab() {
   const [biayaList] = useLocalStorage<BiayaOp[]>(BIAYA_STORAGE, []);
 
   // Total OPEX & Biaya yang sudah dibayar (dari payment history)
-  const totalOpexDibayar = payments.filter(p => p.noPO.startsWith('OPEX-')).reduce((s, p) => s + p.jumlahDibayar, 0);
-  const totalBiayaDibayar = payments.filter(p => p.noPO.startsWith('BIAYA-')).reduce((s, p) => s + p.jumlahDibayar, 0);
+  const totalOpexDibayar = paymentsAktif.filter(p => p.noPO.startsWith('OPEX-')).reduce((s, p) => s + p.jumlahDibayar, 0);
+  const totalBiayaDibayar = paymentsAktif.filter(p => p.noPO.startsWith('BIAYA-')).reduce((s, p) => s + p.jumlahDibayar, 0);
   const totalOpexSemua = opexList.reduce((s, o) => s + o.total, 0);
   const totalBiayaSemua = biayaList.reduce((s, b) => s + b.jumlah, 0);
   const sisaOpex = totalOpexSemua - totalOpexDibayar;
@@ -723,7 +745,7 @@ function PembayaranTab() {
         <div className="rounded-xl bg-indigo-50 p-3 text-center"><p className="text-2xl font-bold text-indigo-700">{totalPO}</p><p className="text-xs text-indigo-500">Total Tagihan</p></div>
         <div className="rounded-xl bg-red-50 p-3 text-center"><p className="text-2xl font-bold text-red-600">{fmtRp(totalTagihan)}</p><p className="text-xs text-red-500">Total Outstanding</p></div>
         <div className="rounded-xl bg-amber-50 p-3 text-center"><p className="text-2xl font-bold text-amber-600">{filtered.filter(p => !p.lunas && p.jatuhTempo && p.jatuhTempo <= today).length}</p><p className="text-xs text-amber-500">Jatuh Tempo</p></div>
-        <div className="rounded-xl bg-emerald-50 p-3 text-center"><p className="text-2xl font-bold text-emerald-600">{payments.length}</p><p className="text-xs text-emerald-500">Total Pembayaran</p></div>
+        <div className="rounded-xl bg-emerald-50 p-3 text-center"><p className="text-2xl font-bold text-emerald-600">{paymentsAktif.length}</p><p className="text-xs text-emerald-500">Total Pembayaran</p></div>
       </div>
 
       {/* Filter */}

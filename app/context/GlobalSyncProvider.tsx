@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef } from 'react';
 import { downscaleDataUrl } from '@/app/lib/imageUtils';
+import { TOMBSTONE_KEY, readTombstones, applyTombstones } from '@/app/lib/tombstones';
 
 /**
  * GlobalSyncProvider — sync dua arah untuk SEMUA data yang masih di localStorage.
@@ -26,6 +27,7 @@ const SYNC_KEYS = [
   'mma_biaya_operasional',
   'mma_opex_purchases',
   'mma_hpp_purchases',
+  TOMBSTONE_KEY,
   'mma_modal',
   'mma_kas_kecil',
   'mma_pencairan',
@@ -188,10 +190,25 @@ export function GlobalSyncProvider({ children }: { children: React.ReactNode }) 
 
   const syncKey = async (key: string) => {
     try {
-      const local = readLocal(key);
+      let local = readLocal(key);
       const remote = await pullFromServer(key);
-      const server = remote ? remote.data : null;
+      let server = remote ? remote.data : null;
       const deletedAt = remote ? remote.deletedAt : null;
+
+      // ── Partial-delete tombstone: item yang dihapus permanen tidak boleh
+      //    hidup lagi dari copy server / perangkat lain ──
+      if (key !== TOMBSTONE_KEY) {
+        const tombs = readTombstones();
+        if (tombs.length > 0) {
+          const localF = applyTombstones(key, local, tombs);
+          const serverF = applyTombstones(key, server, tombs);
+          if (JSON.stringify(localF) !== JSON.stringify(local)) {
+            local = localF;
+            if (local !== null) { writeLocal(key, local); notifyListeners(key); }
+          }
+          if (JSON.stringify(serverF) !== JSON.stringify(server)) server = serverF;
+        }
+      }
 
       // ── Hapus global: tombstone dari user lain ──
       if (deletedAt !== null) {
