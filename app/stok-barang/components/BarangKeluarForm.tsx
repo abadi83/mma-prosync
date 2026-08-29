@@ -2,6 +2,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { useSkus } from '@/app/context/SkuContext';
+import { SkuPicker } from './SkuPicker';
 
 export interface BarangKeluarEntry {
   id: string;
@@ -82,16 +83,7 @@ export function BarangKeluarForm({ onAdd }: Props) {
       <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <label className="flex flex-col gap-1">
           <span className="text-xs font-semibold text-slate-600">Produk</span>
-          <select
-            value={sku}
-            onChange={(e) => setSku(e.target.value)}
-            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:border-red-400 focus:outline-none focus:ring-1 focus:ring-red-400"
-          >
-            <option value="">-- Pilih --</option>
-            {katalog.map((s) => (
-              <option key={s.sku} value={s.sku}>{s.nama} ({s.sku})</option>
-            ))}
-          </select>
+          <SkuPicker skus={katalog} value={sku} onChange={setSku} />
         </label>
 
         <label className="flex flex-col gap-1">

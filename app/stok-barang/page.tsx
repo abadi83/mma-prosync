@@ -723,6 +723,7 @@ function CekStok() {
   const { skus } = useSkus();
   const [search, setSearch] = useState('');
   const [sortBy, setSortBy] = useState<'nama' | 'stok'>('nama');
+  const [limit, setLimit] = useState(100); // paginasi — jangan render ribuan baris sekaligus
 
   /* Petakan SkuItem dari context ke format cek stok */
   const cekStokFromSkus = useMemo(() => skus.map((s: SkuItem) => ({
@@ -776,7 +777,7 @@ function CekStok() {
         <input
           type="text"
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(e) => { setSearch(e.target.value); setLimit(100); }}
           placeholder="🔍 Cari nama produk, SKU, atau kategori..."
           className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 sm:max-w-xs"
         />
@@ -813,7 +814,7 @@ function CekStok() {
                 </td>
               </tr>
             ) : (
-              filtered.map((item) => {
+              filtered.slice(0, limit).map((item) => {
                 const maxStok = 50; // batas visual
                 const barWidth = Math.min((item.stok / maxStok) * 100, 100);
                 return (
@@ -849,6 +850,18 @@ function CekStok() {
           </tbody>
         </table>
       </div>
+
+      {/* Paginasi — tampilkan bertahap agar UI tetap ringan */}
+      {filtered.length > limit && (
+        <div className="mt-3 text-center">
+          <button
+            onClick={() => setLimit(l => l + 100)}
+            className="rounded-xl bg-brand-50 px-4 py-2 text-xs font-semibold text-brand-700 hover:bg-brand-100"
+          >
+            ⬇ Tampilkan 100 lagi • sisa {filtered.length - limit} dari {filtered.length} produk
+          </button>
+        </div>
+      )}
     </div>
   );
 }

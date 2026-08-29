@@ -39,7 +39,8 @@ describe('BarangMasukForm', () => {
     const onAdd = vi.fn();
     render(<BarangMasukForm onAdd={onAdd} />);
 
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'BS-001' } });
+    fireEvent.change(screen.getByPlaceholderText('🔍 Cari nama produk atau SKU...'), { target: { value: 'BS-001' } });
+    fireEvent.click(screen.getByText('BS-001'));
     fireEvent.click(screen.getByRole('button', { name: /tambah barang masuk/i }));
     expect(screen.getByRole('alert')).toHaveTextContent('Jumlah');
   });
@@ -48,7 +49,8 @@ describe('BarangMasukForm', () => {
     const onAdd = vi.fn();
     render(<BarangMasukForm onAdd={onAdd} />);
 
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'KN-001' } });
+    fireEvent.change(screen.getByPlaceholderText('🔍 Cari nama produk atau SKU...'), { target: { value: 'KN-001' } });
+    fireEvent.click(screen.getByText('KN-001'));
     fireEvent.change(screen.getByPlaceholderText('0'), { target: { value: '25' } });
     fireEvent.change(screen.getByPlaceholderText('Nama supplier'), { target: { value: 'PT Kabel Dunia' } });
 

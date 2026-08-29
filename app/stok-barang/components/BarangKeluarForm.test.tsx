@@ -39,8 +39,8 @@ describe('BarangKeluarForm', () => {
     const onAdd = vi.fn();
     render(<BarangKeluarForm onAdd={onAdd} />);
 
-    const selects = screen.getAllByRole('combobox');
-    fireEvent.change(selects[0], { target: { value: 'BS-001' } });
+    fireEvent.change(screen.getByPlaceholderText('🔍 Cari nama produk atau SKU...'), { target: { value: 'BS-001' } });
+    fireEvent.click(screen.getByText('BS-001'));
     fireEvent.change(screen.getByPlaceholderText('0'), { target: { value: '5' } });
 
     fireEvent.click(screen.getByRole('button', { name: /catat barang keluar/i }));
