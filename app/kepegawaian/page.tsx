@@ -198,12 +198,14 @@ export default function KepegawaianPage() {
   const isAdmin = hasRole(user, 'admin', 'hr');
   const [tab, setTab] = useState<Tab>(isAdmin ? 'daftar' : 'absensi');
   const [pegawai, setPegawai] = useState<Pegawai[]>(() => {
-    // Load dari localStorage, fallback ke MOCK
-    if (typeof window === 'undefined') return MOCK_PEGAWAI;
+    // localStorage hanya cache. Kalau kosong → biarkan []; daftar asli diambil
+    // dari DB (/api/pegawai). JANGAN fallback ke MOCK — dulu mock demo malah
+    // ikut ter-push ke DB dan muncul lagi sebagai "pegawai lama".
+    if (typeof window === 'undefined') return [];
     try {
       const saved = localStorage.getItem('mma_pegawai_data');
-      return saved ? JSON.parse(saved) : MOCK_PEGAWAI;
-    } catch { return MOCK_PEGAWAI; }
+      return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
   });
 
   // Simpan ke localStorage setiap kali pegawai berubah
@@ -236,8 +238,17 @@ export default function KepegawaianPage() {
         }));
         const dbNiks = new Set(dbMapped.map(p => p.nik));
 
-        // Entry lokal pg-* yang NIK-nya tidak ada di DB → push ke DB (migrasi data lama)
-        const legacyToPush = pegawai.filter(p => p.id.startsWith('pg-') && !dbNiks.has(p.nik));
+        // ⚠️ Data DEMO/MOCK TIDAK boleh ikut di-migrasi ke DB. Dulu ini yang bikin
+        // pegawai lama (Andi, Siti, Budi, dll dari MOCK) masuk lagi ke Daftar Pegawai
+        // setiap kali localStorage kosong atau dibuka dari browser/perangkat lain.
+        const mockNiks = new Set(MOCK_PEGAWAI.map(p => p.nik));
+
+        // Entry lokal pg-* yang NIK-nya belum ada di DB → push ke DB.
+        // Ini hanya untuk migrasi data lama SUNGGAHAN (pegawai yang ditambah
+        // sebelum fitur DB ada), bukan data demo.
+        const legacyToPush = pegawai.filter(p =>
+          p.id.startsWith('pg-') && !dbNiks.has(p.nik) && !mockNiks.has(p.nik)
+        );
         for (const p of legacyToPush) {
           fetch('/api/pegawai', {
             method: 'POST',
@@ -247,10 +258,15 @@ export default function KepegawaianPage() {
               departemen: p.departemen, tanggalMasuk: p.tanggalMasuk, status: p.status,
               noHp: p.noHp, email: p.email, roles: p.roles,
             }),
-          }).catch(() => {});
+          })
+            .then(r => {
+              // Sudah masuk DB → buang versi lokal pg-* biar tidak dobel di UI
+              if (r.ok) setPegawai(prev => prev.filter(x => !(x.id.startsWith('pg-') && x.nik === p.nik)));
+            })
+            .catch(() => {});
         }
 
-        // State lokal = DB + entry pg-* legacy (tanpa duplikat NIK)
+        // State lokal = DB + entry pg-* legacy yang belum berhasil di-push (tanpa duplikat NIK)
         setPegawai([...legacyToPush, ...dbMapped]);
       } catch {}
     })();
