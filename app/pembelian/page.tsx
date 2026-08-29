@@ -201,7 +201,7 @@ export default function PembelianPage() {
 /* ================================================================ */
 function BelanjaPickingTab({ onGoHpp }: { onGoHpp?: () => void }) {
   const { allRows } = useAgregasi();
-  const { skus, updateStok, setSkus } = useSkus();
+  const { skus, setSkus } = useSkus();
   const { addJurnal } = useAkuntansi();
   const [purchases, setPurchases] = useLocalStorage<HppPurchase[]>(HPP_STORAGE, []);
   const [hargaHistory, setHargaHistory] = useLocalStorage<any[]>('mma_harga_modal_history', []);
@@ -307,7 +307,7 @@ function BelanjaPickingTab({ onGoHpp }: { onGoHpp?: () => void }) {
           lunas: false, pickupStatus: 'belum',
         };
         setPurchases(prev => [purchase, ...prev]);
-        updateStok(it.sku, q);
+        // Stok TIDAK naik di sini — naik saat barang berhasil di-checklist di Stok Barang → PO Checklist
 
         // Update harga modal untuk SKU yang sudah ada di inventory
         const inv = skus.find(x => x.sku.toLowerCase() === it.sku.toLowerCase());
@@ -336,7 +336,7 @@ function BelanjaPickingTab({ onGoHpp }: { onGoHpp?: () => void }) {
     // ── Rekam aktivitas (KPI) ──
     recordActivity([{ modul: 'pembelian', aksi: 'po', refLabel: `${poCount} PO • ${lines.length} SKU`, detail: { poCount, skuCount: lines.length, total: estTotal } }]);
 
-    alert(`✅ ${poCount} PO dibuat untuk ${lines.length} SKU dari daftar belanja picking. Cek tab Pembelian HPP SKU / Arsip Invoice.`);
+    alert(`✅ ${poCount} PO dibuat untuk ${lines.length} SKU dari daftar belanja picking.\n📦 Stok akan otomatis naik saat barang berhasil di-checklist di Stok Barang → PO Checklist.`);
   };
 
   if (summaries.length === 0) {
@@ -898,7 +898,7 @@ function useLocalStorage<T>(key: string, fallback: T): [T, React.Dispatch<React.
 /* TAB 1: Pembelian HPP SKU                                         */
 /* ================================================================ */
 function HppSkuTab() {
-  const { skus, updateStok, setSkus } = useSkus();
+  const { skus, setSkus } = useSkus();
   const [purchases, setPurchases] = useLocalStorage<HppPurchase[]>(HPP_STORAGE, []);
   const suppliers = useSuppliers();
   const { addJurnal } = useAkuntansi();  // <-- Auto-jurnal
@@ -1028,7 +1028,7 @@ function HppSkuTab() {
         ...(fotoBase64 ? { fotoBase64, namaFileFoto: fotoNama } : {}),
       };
       setPurchases(prev => [purchase, ...prev]);
-      updateStok(item.sku, item.qty);
+      // Stok TIDAK naik di sini — naik saat barang berhasil di-checklist di Stok Barang → PO Checklist
 
       // Update harga modal
       const selectedSkuData = skus.find(s => s.sku === item.sku);

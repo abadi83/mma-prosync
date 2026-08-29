@@ -41,7 +41,14 @@ export default function KoreksiPOTab() {
     // Koreksi stok inventory otomatis:
     // retur → barang balik ke supplier (stok turun)
     // tidak_datang + selesai → barang tak pernah sampai (stok yang sudah nambah dibalikin)
-    const harusKurangi = !!item && !item.stokDikurangi &&
+    // ⚠️ Hanya kurangi stok kalau item benar-benar sudah masuk stok (pernah dicentang di PO Checklist → synced)
+    const pernahDiCheck = (() => {
+      try {
+        const checklist = JSON.parse(localStorage.getItem('mma_po_inventory_check') || '[]');
+        return checklist.some((c: any) => c.noPO === item?.noPO && c.sku === item?.sku && c.synced);
+      } catch { return false; }
+    })();
+    const harusKurangi = !!item && !item.stokDikurangi && pernahDiCheck &&
       (status === 'retur' || (status === 'selesai' && item.jenisKoreksi === 'tidak_datang'));
 
     const updated = koreksiList.map(k =>
@@ -75,10 +82,15 @@ export default function KoreksiPOTab() {
           localStorage.setItem('mma_koreksi_refund', JSON.stringify(refunds));
           try { window.dispatchEvent(new Event('refund-updated')); } catch {}
         } catch {}
-        alert(`↩️ Retur tercatat: ${item.noPO} — ${item.namaSku} ×${item.qty}\n📦 Stok Inventory otomatis dikurangi ${item.qty}.\n\n💰 Antrean refund otomatis masuk ke Keuangan → tab "Refund / Koreksi".\nDi sana: konfirmasi nilai refund & pilih masuk Kas Besar atau Kas Kecil.`);
+        alert(`↩️ Retur tercatat: ${item.noPO} — ${item.namaSku} ×${item.qty}
+${harusKurangi ? `📦 Stok Inventory otomatis dikurangi ${item.qty}.` : '📦 Stok tidak dikurangi (item belum pernah dicentang masuk stok di PO Checklist).'}
+
+💰 Antrean refund otomatis masuk ke Keuangan → tab "Refund / Koreksi".
+Di sana: konfirmasi nilai refund & pilih masuk Kas Besar atau Kas Kecil.`);
       }
     } else if (status === 'selesai' && item?.jenisKoreksi === 'tidak_datang') {
-      alert(`✅ Koreksi selesai: ${item.noPO} — ${item.namaSku} ×${item.qty}\n📦 Stok Inventory dikurangi ${item.qty} (barang tidak datang).`);
+      alert(`✅ Koreksi selesai: ${item.noPO} — ${item.namaSku} ×${item.qty}
+${harusKurangi ? `📦 Stok Inventory dikurangi ${item.qty} (barang tidak datang).` : '📦 Stok tidak dikurangi (item belum pernah dicentang masuk stok di PO Checklist).'}`);
     }
   };
 

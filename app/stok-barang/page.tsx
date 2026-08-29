@@ -983,6 +983,7 @@ const JENIS_KOREKSI: Record<string, { label: string; icon: string }> = {
 };
 
 function PoChecklist() {
+  const { updateStok } = useSkus();
   const [items, setItems] = useState<PoCheckItem[]>(() => {
     if (typeof window === 'undefined') return [];
     try {
@@ -1021,10 +1022,12 @@ function PoChecklist() {
         }),
       });
       if (res.ok) {
+        // ✅ Stok naik di sini — saat barang berhasil di-checklist (bukan saat PO dibuat)
+        void updateStok(item.sku, item.qty);
         setItems(prev => prev.map(i => (i.noPO === item.noPO && i.sku === item.sku) ? { ...i, synced: true } : i));
       }
     } catch {}
-  }, []);
+  }, [updateStok]);
 
   const toggleCheck = (idx: number) => {
     const item = items[idx];
@@ -1130,7 +1133,7 @@ function PoChecklist() {
     <div>
       <div className="mb-1 h-1 w-16 rounded-full bg-gradient-to-r from-brand-500 to-brand-300" />
       <h2 className="text-lg font-bold text-slate-800 sm:text-xl">✅ PO Checklist</h2>
-      <p className="mt-1 text-sm text-slate-500">Cek barang yang datang dari Logistik per No PO. Centang SKU yang sudah diverifikasi.</p>
+      <p className="mt-1 text-sm text-slate-500">Cek barang yang datang dari Logistik per No PO. Centang SKU yang sudah diverifikasi — stok & Barang Masuk otomatis tercatat.</p>
       <div className="mt-8 text-center py-12 text-slate-400">
         <p className="text-4xl mb-2">📋</p>
         <p className="font-semibold">Belum ada PO yang perlu dicek.</p>
