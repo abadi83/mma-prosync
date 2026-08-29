@@ -7,6 +7,7 @@ export interface SkuItem {
   statusEditGambar: string; statusUploadToko: string; supplier: string; kategori: string;
   satuan: string; hargaModalLama: number; hargaBaru: number; hargaJual: number;
   stok: number; minStok: number; aktif: number; perubahanHargaBeli: string;
+  videoKonten: boolean; gambarToko: string;
 }
 
 const SYNC_INTERVAL = 60000; // 60 detik (sebelumnya 30s — hemat bandwidth 4700 SKU)

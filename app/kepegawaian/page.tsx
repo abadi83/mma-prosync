@@ -1743,6 +1743,8 @@ function AktivitasSkuTab() {
     'upload-operasional': 'bg-purple-100 text-purple-700',
     'upload-keuangan': 'bg-purple-100 text-purple-700',
     opex: 'bg-emerald-100 text-emerald-700',
+    'update-gambar': 'bg-emerald-100 text-emerald-700',
+    'video-konten': 'bg-pink-100 text-pink-700',
     biaya: 'bg-amber-100 text-amber-700',
     'koreksi-po': 'bg-orange-100 text-orange-700',
   };

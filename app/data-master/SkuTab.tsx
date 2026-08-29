@@ -98,7 +98,11 @@ export function SkuTab() {
   const [editId, setEditId] = useState<string | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
-  const [f, setF] = useState({ sku: '', nama: '', grade: '', kodeSupplierVarian: '', statusEditGambar: '', statusUploadToko: '', supplier: '', kategori: '', satuan: 'pcs', hargaModalLama: '', hargaBaru: '', hargaJual: '', minStok: '', aktif: 1 });
+  const [tokoList, setTokoList] = useState<{ id: string; nama: string; marketplace: string }[]>([]);
+  useEffect(() => {
+    fetch('/api/marketplace-toko').then(r => r.ok ? r.json() : []).then(d => setTokoList(Array.isArray(d) ? d : [])).catch(() => {});
+  }, []);
+  const [f, setF] = useState({ sku: '', nama: '', grade: '', kodeSupplierVarian: '', statusEditGambar: '', statusUploadToko: '', supplier: '', kategori: '', satuan: 'pcs', hargaModalLama: '', hargaBaru: '', hargaJual: '', minStok: '', aktif: 1, videoKonten: false, gambarToko: '' });
   const [ferr, setFerr] = useState('');
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -214,10 +218,10 @@ export function SkuTab() {
 
   const goPage = (p: number) => setPage(Math.max(1, Math.min(totalPages, p)));
 
-  const blank = () => ({ sku: '', nama: '', grade: '', kodeSupplierVarian: '', statusEditGambar: '', statusUploadToko: '', supplier: '', kategori: '', satuan: 'pcs', hargaModalLama: '', hargaBaru: '', hargaJual: '', minStok: '', aktif: 1 });
+  const blank = () => ({ sku: '', nama: '', grade: '', kodeSupplierVarian: '', statusEditGambar: '', statusUploadToko: '', supplier: '', kategori: '', satuan: 'pcs', hargaModalLama: '', hargaBaru: '', hargaJual: '', minStok: '', aktif: 1, videoKonten: false, gambarToko: '' });
   const openAdd = () => { setF(blank()); setFerr(''); setShowForm(true); setEditId(null); hargaBaruManual.current = false; setFoto(''); setFotoDirty(false); };
   const openEdit = async (i: SkuItem) => {
-    setF({ sku: i.sku, nama: i.nama, grade: i.grade, kodeSupplierVarian: i.kodeSupplierVarian, statusEditGambar: i.statusEditGambar, statusUploadToko: i.statusUploadToko, supplier: i.supplier, kategori: i.kategori, satuan: i.satuan, hargaModalLama: i.hargaModalLama ? String(i.hargaModalLama) : '', hargaBaru: String(i.hargaBaru), hargaJual: String(i.hargaJual), minStok: String(i.minStok), aktif: i.aktif });
+    setF({ sku: i.sku, nama: i.nama, grade: i.grade, kodeSupplierVarian: i.kodeSupplierVarian, statusEditGambar: i.statusEditGambar, statusUploadToko: i.statusUploadToko, supplier: i.supplier, kategori: i.kategori, satuan: i.satuan, hargaModalLama: i.hargaModalLama ? String(i.hargaModalLama) : '', hargaBaru: String(i.hargaBaru), hargaJual: String(i.hargaJual), minStok: String(i.minStok), aktif: i.aktif, videoKonten: !!i.videoKonten, gambarToko: i.gambarToko || '' });
     setFerr(''); setEditId(i.id); setShowForm(true);
     // Muat foto existing
     setFoto(''); setFotoDirty(false); setGambarLoading(true);
@@ -229,6 +233,24 @@ export function SkuTab() {
       }
     } catch {}
     setGambarLoading(false);
+  };
+
+  /* ── Toggle toko di gambar_toko (pipe-separated) ── */
+  const toggleTokoGambar = (label: string) => {
+    const list = (f.gambarToko || '').split('|').map(s => s.trim()).filter(Boolean);
+    const has = list.includes(label);
+    const next = has ? list.filter(x => x !== label) : [...list, label];
+    setF({ ...f, gambarToko: next.join(' | ') });
+  };
+
+  /* ── Quick action: tandai video konten dibuat/dihapus (terekam di aktivitas) ── */
+  const quickToggleVideo = async (item: SkuItem) => {
+    const newVal = !item.videoKonten;
+    try {
+      await fetch('/api/sku-master', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: item.id, videoKonten: newVal }) });
+    } catch {}
+    setSkus(prev => prev.map(x => x.id === item.id ? { ...x, videoKonten: newVal } : x));
+    recordAktivitas([{ aksi: 'video-konten', sku: item.sku, nama: item.nama, detail: { status: newVal ? 'dibuat' : 'dihapus' } }]);
   };
 
   const save = async () => {
@@ -252,6 +274,7 @@ export function SkuTab() {
       sku: f.sku, nama: f.nama, grade: f.grade, kodeSupplierVarian: f.kodeSupplierVarian, statusEditGambar: f.statusEditGambar, statusUploadToko: f.statusUploadToko,
       supplier: f.supplier, kategori: f.kategori, satuan: f.satuan || 'pcs', hargaModalLama: hargaModalFinal, hargaBaru: hargaBaruFinal, hargaJual: +f.hargaJual || 0,
       stok: oldItem?.stok ?? 0, minStok: +f.minStok || 0, aktif: f.aktif, perubahanHargaBeli: pct,
+      videoKonten: !!f.videoKonten, gambarToko: f.gambarToko || '',
     };
 
     try {
@@ -286,6 +309,20 @@ export function SkuTab() {
         sesudah: { hargaModalLama: hargaModalFinal, hargaBaru: hargaBaruFinal, hargaJual: +f.hargaJual || 0 },
       } : { hargaBaru: hargaBaruFinal, hargaJual: +f.hargaJual || 0 },
     }]);
+
+    // ── Rekam aktivitas konten: update gambar per toko & video konten ──
+    const tokoSebelum = new Set((oldItem?.gambarToko || '').split('|').map(s => s.trim()).filter(Boolean));
+    const tokoSesudah = new Set((f.gambarToko || '').split('|').map(s => s.trim()).filter(Boolean));
+    const tokoBaru = Array.from(tokoSesudah).filter(t => !tokoSebelum.has(t));
+    if (tokoBaru.length > 0) {
+      recordAktivitas(tokoBaru.map(t => {
+        const [marketplace, namaToko] = t.split('—').map(x => x.trim());
+        return { aksi: 'update-gambar', sku: f.sku, nama: f.nama, detail: { marketplace: marketplace || '', toko: namaToko || t } };
+      }));
+    }
+    if (!oldItem?.videoKonten && f.videoKonten) {
+      recordAktivitas([{ aksi: 'video-konten', sku: f.sku, nama: f.nama, detail: { status: 'dibuat' } }]);
+    }
 
     if (typeof window !== 'undefined') {
       const newHargaJual = +f.hargaJual || 0;
@@ -338,6 +375,8 @@ export function SkuTab() {
         minStok: +String(row[13] ?? '').replace(/[^0-9.-]/g, '') || 0,
         aktif: +String(row[14] ?? '1').replace(/[^0-9]/g, '') || 1,
         perubahanHargaBeli: String(row[15] ?? '').trim(),
+        videoKonten: false,
+        gambarToko: '',
       };
     };
 
@@ -517,6 +556,33 @@ export function SkuTab() {
           <label className="flex flex-col gap-1"><span className="text-xs font-semibold text-slate-600">Min Stok</span><input type="number" value={f.minStok} onChange={e => setF({ ...f, minStok: e.target.value })} className="rounded-xl border px-2 py-1.5 text-sm focus:border-brand-500 focus:outline-none" /></label>
           <label className="flex flex-col gap-1"><span className="text-xs font-semibold text-slate-600">Status Edit Gambar</span><input value={f.statusEditGambar} onChange={e => setF({ ...f, statusEditGambar: e.target.value })} className="rounded-xl border px-2 py-1.5 text-sm focus:border-brand-500 focus:outline-none" /></label>
           <label className="flex flex-col gap-1 col-span-2"><span className="text-xs font-semibold text-slate-600">Status Upload Toko</span><input value={f.statusUploadToko} onChange={e => setF({ ...f, statusUploadToko: e.target.value })} placeholder="Shopee — Nama Toko | Lazada — Nama Toko" className="rounded-xl border px-2 py-1.5 text-sm focus:border-brand-500 focus:outline-none" /></label>
+
+          {/* ── Konten: video + update gambar per toko marketplace (terekam di aktivitas) ── */}
+          <div className="col-span-2 rounded-xl border border-slate-200 bg-slate-50/60 p-3 space-y-3">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" checked={!!f.videoKonten} onChange={e => setF({ ...f, videoKonten: e.target.checked })} className="rounded accent-pink-500" />
+              <span className="text-xs font-semibold text-slate-700">🎬 Sudah dibuatkan video konten untuk SKU ini</span>
+            </label>
+            <div>
+              <p className="text-xs font-semibold text-slate-600 mb-2">🖼️ Update Gambar per Toko Marketplace <span className="font-normal text-[10px] text-slate-400">(klik toko yang gambarnya sudah diupdate — pekerjaan terekam)</span></p>
+              {tokoList.length === 0 ? (
+                <p className="text-xs text-slate-400">Belum ada data toko. Tambahkan di Data Master → Toko Marketplace.</p>
+              ) : (
+                <div className="flex flex-wrap gap-1.5">
+                  {tokoList.map(t => {
+                    const label = `${t.marketplace} — ${t.nama}`;
+                    const active = (f.gambarToko || '').split('|').map(s => s.trim()).filter(Boolean).includes(label);
+                    return (
+                      <button key={t.id} type="button" onClick={() => toggleTokoGambar(label)}
+                        className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition ${active ? 'bg-emerald-500 text-white' : 'bg-white text-slate-500 border border-slate-200 hover:border-emerald-300 hover:text-emerald-600'}`}>
+                        {active ? '✅ ' : ''}{label}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
           <label className="flex items-center gap-2"><input type="checkbox" checked={f.aktif === 1} onChange={e => setF({ ...f, aktif: e.target.checked ? 1 : 0 })} className="rounded" /><span className="text-xs font-semibold text-slate-600">Aktif</span></label>
         </div>
         <div className="mt-5 flex justify-end gap-2"><button onClick={() => setShowForm(false)} className="rounded-xl bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-600">Batal</button><button onClick={save} className="rounded-xl bg-brand-500 px-4 py-2 text-sm font-semibold text-white">{editId ? 'Update' : 'Simpan'}</button></div>
@@ -580,7 +646,7 @@ export function SkuTab() {
                 onMouseMove={e => { const src = gambarMap[item.id]; if (src) setHoverImg({ src, nama: item.nama, x: e.clientX, y: e.clientY }); }}
                 onMouseLeave={() => setHoverImg(null)}
               >
-                <td className="px-1.5 py-1.5 font-mono text-[11px] text-brand-700 truncate" title={item.sku}>{item.sku}{gambarMap[item.id] && <span className="ml-0.5" title="Ada foto — arahkan kursor untuk preview">📷</span>}</td>
+                <td className="px-1.5 py-1.5 font-mono text-[11px] text-brand-700 truncate" title={item.sku}>{item.sku}{gambarMap[item.id] && <span className="ml-0.5" title="Ada foto — arahkan kursor untuk preview">📷</span>}{item.videoKonten && <span className="ml-0.5" title="Sudah ada video konten">🎬</span>}</td>
                 <td className="px-1.5 py-1.5 truncate text-[11px] font-medium text-slate-800" title={item.nama}>{item.nama}</td>
                 <td className="px-1.5 py-1.5"><span className={`rounded-full px-1 py-0.5 text-[10px] font-semibold ${item.grade === 'A' ? 'bg-emerald-100 text-emerald-700' : item.grade === 'B' ? 'bg-amber-100 text-amber-700' : item.grade === 'C' ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-600'}`}>{item.grade || '-'}</span></td>
                 <td className="px-1.5 py-1.5 text-[10px] text-slate-600 truncate" title={item.kategori}>{item.kategori || '-'}</td>
@@ -589,7 +655,7 @@ export function SkuTab() {
                 <td className="px-1.5 py-1.5"><span className={`text-[11px] font-semibold ${item.stok < item.minStok ? 'text-red-500' : item.stok === 0 ? 'text-slate-400' : 'text-slate-700'}`}>{item.stok}{item.stok < item.minStok && ' ⚠'}</span></td>
                 <td className="px-1.5 py-1.5"><div className="flex flex-wrap gap-0.5">{(() => { const mps = mpCache.get(item.id) || []; return <>{mps.slice(0, 2).map((mp, j) => <span key={j} className={`rounded-full px-1 py-0.5 text-[10px] font-semibold leading-none ${mp.color}`}>{mp.name}</span>)}{mps.length > 2 && <span className="text-[10px] text-slate-400">+{mps.length - 2}</span>}</>; })()}</div></td>
                 <td className={`px-1.5 py-1.5 text-[10px] font-semibold whitespace-nowrap ${perubahanColor(item.perubahanHargaBeli)}`}>{item.perubahanHargaBeli || '-'}</td>
-                <td className="px-1.5 py-1.5" onClick={e => e.stopPropagation()}><div className="flex gap-0.5"><button onClick={() => openEdit(item)} className="rounded-md bg-brand-100 px-1.5 py-1 text-[11px] font-semibold text-brand-700 hover:bg-brand-200">✏️</button><button onClick={() => setDeleteId(item.id)} className="rounded-md bg-red-100 px-1.5 py-1 text-[11px] font-semibold text-red-600 hover:bg-red-200">🗑️</button></div></td>
+                <td className="px-1.5 py-1.5" onClick={e => e.stopPropagation()}><div className="flex gap-0.5"><button onClick={() => openEdit(item)} className="rounded-md bg-brand-100 px-1.5 py-1 text-[11px] font-semibold text-brand-700 hover:bg-brand-200">✏️</button><button onClick={() => quickToggleVideo(item)} title={item.videoKonten ? 'Batalkan tanda video konten' : 'Tandai video konten sudah dibuat'} className={`rounded-md px-1.5 py-1 text-[11px] font-semibold ${item.videoKonten ? 'bg-pink-100 text-pink-600 hover:bg-pink-200' : 'bg-slate-100 text-slate-500 hover:bg-pink-50 hover:text-pink-500'}`}>🎬</button><button onClick={() => setDeleteId(item.id)} className="rounded-md bg-red-100 px-1.5 py-1 text-[11px] font-semibold text-red-600 hover:bg-red-200">🗑️</button></div></td>
               </tr>))}
           </tbody>
         </table>
