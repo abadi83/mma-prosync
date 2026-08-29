@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getTransaksi, createTransaksi } from '@/app/services/transaksiService';
 import { apiSuccess, apiCreated, apiBadRequest, apiServerError } from '@/app/lib/apiResponse';
-import { validateRequired, validatePositiveNumber, runValidations } from '@/app/lib/validation';
+import { validateRequired, validatePositiveNumber, validateDate, runValidations } from '@/app/lib/validation';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,12 +21,13 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { produk, jumlah, hargaSatuan } = body;
+    const { produk, jumlah, hargaSatuan, tanggal, diskon } = body;
 
     const error = runValidations(
       validateRequired({ produk, jumlah, hargaSatuan }),
       validatePositiveNumber(jumlah, 'jumlah'),
       validatePositiveNumber(hargaSatuan, 'hargaSatuan'),
+      tanggal != null ? validateDate(tanggal, 'tanggal') : null,
     );
 
     if (error) return apiBadRequest(error);
@@ -37,7 +38,8 @@ export async function POST(request: Request) {
       jumlah,
       hargaSatuan,
       pelanggan: body.pelanggan ?? 'Umum',
-      tanggal: body.tanggal ?? new Date().toISOString().slice(0, 10),
+      tanggal: tanggal ?? new Date().toISOString().slice(0, 10),
+      diskon: diskon != null ? Number(diskon) : undefined,
     });
 
     return apiCreated(entry);

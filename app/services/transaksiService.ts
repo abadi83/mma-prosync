@@ -31,10 +31,11 @@ export async function getTransaksi(tokoId?: string): Promise<TransaksiItem[]> {
 
 export async function createTransaksi(
   tokoId: string | undefined,
-  entry: Omit<TransaksiItem, 'id' | 'total'> & { hargaSatuan: number; produkId?: string; pelangganId?: string },
+  entry: Omit<TransaksiItem, 'id' | 'total'> & { hargaSatuan: number; produkId?: string; pelangganId?: string; diskon?: number },
 ): Promise<TransaksiItem> {
   const tid = tokoId || DEFAULT_TOKO;
-  const total = entry.jumlah * entry.hargaSatuan;
+  // Total otomatis: qty × harga − diskon (share per item, minimal 0)
+  const total = Math.max(0, entry.jumlah * entry.hargaSatuan - Math.round(entry.diskon || 0));
 
   // Cari produk by nama
   let produkId = entry.produkId;
@@ -54,10 +55,11 @@ export async function createTransaksi(
     pelangganId = defRows.length > 0 ? defRows[0].id : null;
   }
 
-  // Buat transaksi
+  // Buat transaksi (tanggal mendukung input backdate, default hari ini)
+  const tanggal = entry.tanggal || new Date().toISOString().slice(0, 10);
   const { rows: tRows } = await query(
-    'INSERT INTO transaksi (toko_id, pelanggan_id, total, tanggal) VALUES ($1, $2, $3, NOW()) RETURNING id',
-    [tid, pelangganId, total]
+    'INSERT INTO transaksi (toko_id, pelanggan_id, total, tanggal) VALUES ($1, $2, $3, $4::date) RETURNING id',
+    [tid, pelangganId, total, tanggal]
   );
   const transaksiId = tRows[0].id;
 
@@ -74,6 +76,6 @@ export async function createTransaksi(
     hargaSatuan: entry.hargaSatuan,
     total,
     pelanggan: entry.pelanggan || 'Umum',
-    tanggal: new Date().toISOString().slice(0, 10),
+    tanggal,
   };
 }
