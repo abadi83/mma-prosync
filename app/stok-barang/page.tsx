@@ -955,7 +955,7 @@ function RiwayatMutasi() {
 }
 
 /* ── PO Checklist ── */
-interface PoCheckItem { sku: string; nama: string; qty: number; noPO: string; supplier: string; sampaiAt: string; checked: boolean; petugas?: string; kendaraan?: string; }
+interface PoCheckItem { sku: string; nama: string; qty: number; noPO: string; supplier: string; sampaiAt: string; checked: boolean; petugas?: string; kendaraan?: string; synced?: boolean; }
 
 /* ── Koreksi PO Types ── */
 interface KoreksiPO {
@@ -1000,15 +1000,50 @@ function PoChecklist() {
           checked: !!d.checked,
           petugas: d.petugas || '',
           kendaraan: d.kendaraan || '',
+          synced: !!d.synced,
         }));
       }
       return [];
     } catch { return []; }
   });
 
-  const toggleCheck = (idx: number) => setItems(prev => prev.map((item, i) => i === idx ? { ...item, checked: !item.checked } : item));
-  const checkAll = () => setItems(prev => prev.map(item => ({ ...item, checked: true })));
-  const checkAllInPO = (noPO: string) => setItems(prev => prev.map(item => item.noPO === noPO ? { ...item, checked: true } : item));
+  /* ── Auto-sync ke Barang Masuk: POST /api/barang-masuk → mutasi_stok DB ── */
+  const syncToBarangMasuk = useCallback(async (item: PoCheckItem) => {
+    try {
+      const res = await fetch('/api/barang-masuk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          produk: item.nama,
+          jumlah: item.qty,
+          supplier: item.supplier || '-',
+          tanggal: new Date().toISOString().slice(0, 10),
+        }),
+      });
+      if (res.ok) {
+        setItems(prev => prev.map(i => (i.noPO === item.noPO && i.sku === item.sku) ? { ...i, synced: true } : i));
+      }
+    } catch {}
+  }, []);
+
+  const toggleCheck = (idx: number) => {
+    const item = items[idx];
+    if (!item) return;
+    const willCheck = !item.checked;
+    setItems(prev => prev.map((it, i) => i === idx ? { ...it, checked: willCheck } : it));
+    // Centang = barang fisik diterima → catat OTOMATIS ke Barang Masuk (sekali saja, anti dobel via flag synced)
+    if (willCheck && !item.synced) void syncToBarangMasuk(item);
+  };
+  const checkAll = () => {
+    const targets = items.filter(i => !i.checked);
+    setItems(prev => prev.map(item => ({ ...item, checked: true })));
+    for (const t of targets) if (!t.synced) void syncToBarangMasuk(t);
+  };
+  const checkAllInPO = (noPO: string) => {
+    const targets = items.filter(i => i.noPO === noPO && !i.checked);
+    setItems(prev => prev.map(item => item.noPO === noPO ? { ...item, checked: true } : item));
+    for (const t of targets) if (!t.synced) void syncToBarangMasuk(t);
+  };
   const clearChecked = () => {
     const remaining = items.filter(i => !i.checked);
     setItems(remaining);
@@ -1075,12 +1110,13 @@ function PoChecklist() {
 
   // Group by noPO
   const grouped = useMemo(() => {
-    const map = new Map<string, { items: PoCheckItem[]; supplier: string; petugas: string; kendaraan: string; sampaiAt: string; totalQty: number; checkedQty: number }>();
+    const map = new Map<string, { items: PoCheckItem[]; supplier: string; petugas: string; kendaraan: string; sampaiAt: string; totalQty: number; checkedQty: number; syncedCount: number }>();
     for (const item of items) {
-      const g = map.get(item.noPO) || { items: [], supplier: item.supplier, petugas: item.petugas || '', kendaraan: item.kendaraan || '', sampaiAt: item.sampaiAt, totalQty: 0, checkedQty: 0 };
+      const g = map.get(item.noPO) || { items: [], supplier: item.supplier, petugas: item.petugas || '', kendaraan: item.kendaraan || '', sampaiAt: item.sampaiAt, totalQty: 0, checkedQty: 0, syncedCount: 0 };
       g.items.push(item);
       g.totalQty += item.qty;
       if (item.checked) g.checkedQty += item.qty;
+      if (item.synced) g.syncedCount += 1;
       map.set(item.noPO, g);
     }
     return Array.from(map.entries()).map(([noPO, data]) => ({ noPO, ...data }));
@@ -1138,6 +1174,7 @@ function PoChecklist() {
                   <div className="flex items-center gap-2">
                     <p className="font-mono font-bold text-indigo-700 text-sm">{g.noPO}</p>
                     {isComplete && <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700">✅ LENGKAP</span>}
+                    {g.syncedCount > 0 && <span className="rounded-full bg-brand-100 px-2 py-0.5 text-[10px] font-bold text-brand-700">📥 {g.syncedCount}/{g.items.length} Masuk Stok</span>}
                   </div>
                   <p className="text-xs text-slate-500 mt-0.5">{g.supplier}</p>
                 </div>
@@ -1196,6 +1233,11 @@ function PoChecklist() {
                       <span className={`text-xs font-bold shrink-0 ${item.checked ? 'text-emerald-600' : 'text-slate-600'}`}>
                         ×{item.qty}
                       </span>
+                      {item.synced ? (
+                        <span className="shrink-0 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[9px] font-semibold text-emerald-700" title="Sudah dicatat ke Barang Masuk">📥 Masuk Stok</span>
+                      ) : item.checked ? (
+                        <span className="shrink-0 rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold text-amber-600 animate-pulse" title="Mencatat ke Barang Masuk... jika gagal, uncheck lalu cek ulang">⏳ Mencatat...</span>
+                      ) : null}
                       {/* Koreksi button — anti double */}
                       {(() => {
                         const koreksiKey = `${item.noPO}|${item.sku}`;
