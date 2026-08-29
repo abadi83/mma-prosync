@@ -84,6 +84,35 @@ export function KontenSkuTab() {
   const totalTokoGambar = skus.reduce((sum, s) => sum + extractTokos(s.gambarToko).length, 0);
   const totalVideo = skus.filter(s => s.videoKonten).length;
 
+  // ── Grafik 1: jumlah update gambar per toko marketplace (dari log aktivitas) ──
+  const dataToko = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const a of aktivitas) {
+      if (a.aksi !== 'update-gambar') continue;
+      const toko = `${a.detail?.marketplace || ''} — ${a.detail?.toko || ''}`.replace(/^\s*—\s*/, '').trim() || 'Toko';
+      m.set(toko, (m.get(toko) || 0) + 1);
+    }
+    return Array.from(m.entries()).map(([toko, jumlah]) => ({ toko, jumlah })).sort((a, b) => b.jumlah - a.jumlah).slice(0, 8);
+  }, [aktivitas]);
+  const maxToko = Math.max(...dataToko.map(d => d.jumlah), 1);
+
+  // ── Grafik 2: user paling aktif (update gambar + video) ──
+  const dataUser = useMemo(() => {
+    const m = new Map<string, { gambar: number; video: number }>();
+    for (const a of aktivitas) {
+      if (a.aksi !== 'update-gambar' && a.aksi !== 'video-konten') continue;
+      const user = a.namaUser || a.username || '-';
+      const e = m.get(user) || { gambar: 0, video: 0 };
+      if (a.aksi === 'update-gambar') e.gambar++; else e.video++;
+      m.set(user, e);
+    }
+    return Array.from(m.entries())
+      .map(([user, v]) => ({ user, ...v, total: v.gambar + v.video }))
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 8);
+  }, [aktivitas]);
+  const maxUser = Math.max(...dataUser.map(d => d.total), 1);
+
   const fmtTgl = (tgl: string) => {
     try { return new Date(tgl).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' }); } catch { return '-'; }
   };
@@ -119,6 +148,56 @@ export function KontenSkuTab() {
         <div className="rounded-xl bg-pink-50 p-3 text-center">
           <p className="text-2xl font-bold text-pink-600">{totalVideo}</p>
           <p className="text-xs text-pink-500">SKU Punya Video</p>
+        </div>
+      </div>
+
+      {/* ── Grafik rekap ── */}
+      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+        {/* Toko paling banyak update gambar */}
+        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+          <p className="text-sm font-bold text-slate-700">🏪 Toko Paling Banyak Update Gambar</p>
+          <p className="text-[11px] text-slate-400 mb-3">Jumlah update gambar per toko marketplace (dari log aktivitas)</p>
+          {dataToko.length === 0 ? (
+            <p className="py-6 text-center text-sm text-slate-300">Belum ada update gambar tercatat.</p>
+          ) : (
+            <div className="space-y-2">
+              {dataToko.map(d => (
+                <div key={d.toko}>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-medium text-slate-600 truncate pr-2">{d.toko}</span>
+                    <span className="shrink-0 font-bold text-emerald-600">{d.jumlah}</span>
+                  </div>
+                  <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-slate-100">
+                    <div className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-emerald-500 transition-all" style={{ width: `${(d.jumlah / maxToko) * 100}%` }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* User paling aktif */}
+        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+          <p className="text-sm font-bold text-slate-700">👤 User Paling Aktif</p>
+          <p className="text-[11px] text-slate-400 mb-3">Total pekerjaan konten: <span className="text-emerald-500 font-semibold">gambar</span> + <span className="text-pink-500 font-semibold">video</span></p>
+          {dataUser.length === 0 ? (
+            <p className="py-6 text-center text-sm text-slate-300">Belum ada aktivitas konten tercatat.</p>
+          ) : (
+            <div className="space-y-2">
+              {dataUser.map(d => (
+                <div key={d.user}>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-medium text-slate-600 truncate pr-2">{d.user}</span>
+                    <span className="shrink-0 font-bold text-slate-700">{d.total} <span className="text-[10px] font-normal text-slate-400">({d.gambar} 🖼️ · {d.video} 🎬)</span></span>
+                  </div>
+                  <div className="mt-1 flex h-2 w-full overflow-hidden rounded-full bg-slate-100">
+                    <div className="h-full bg-emerald-400 transition-all" style={{ width: `${(d.gambar / maxUser) * 100}%` }} />
+                    <div className="h-full bg-pink-400 transition-all" style={{ width: `${(d.video / maxUser) * 100}%` }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
