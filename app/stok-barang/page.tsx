@@ -592,6 +592,7 @@ function StokOpname() {
 }
 
 function BarangMasuk() {
+  const { updateStok } = useSkus();
   const [entries, setEntries] = useState<any[]>([]);
 
   const fetchData = useCallback(async () => {
@@ -608,8 +609,14 @@ function BarangMasuk() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(entry),
-    }).then(() => fetchData()).catch(() => {});
-  }, [fetchData]);
+    }).then(res => {
+      if (res.ok) {
+        // Stok SKU (sku_master) ikut naik
+        void updateStok(entry.sku, entry.jumlah);
+        fetchData();
+      }
+    }).catch(() => {});
+  }, [fetchData, updateStok]);
 
   const allEntries = entries;
 
@@ -650,6 +657,7 @@ function BarangMasuk() {
 }
 
 function BarangKeluar() {
+  const { updateStok } = useSkus();
   const [entries, setEntries] = useState<any[]>([]);
 
   const fetchData = useCallback(async () => {
@@ -666,8 +674,14 @@ function BarangKeluar() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(entry),
-    }).then(() => fetchData()).catch(() => {});
-  }, [fetchData]);
+    }).then(res => {
+      if (res.ok) {
+        // Stok SKU (sku_master) ikut turun
+        void updateStok(entry.sku, -entry.jumlah);
+        fetchData();
+      }
+    }).catch(() => {});
+  }, [fetchData, updateStok]);
 
   return (
     <div>

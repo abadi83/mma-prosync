@@ -29,8 +29,16 @@ export async function addBarangKeluar(
 ): Promise<BarangKeluarItem> {
   const tid = tokoId || DEFAULT_TOKO;
 
+  // Cari produk — kalau belum ada di tabel produk, auto-buat (FK aman)
   const { rows: pRows } = await query('SELECT id FROM produk WHERE nama = $1 AND toko_id = $2 LIMIT 1', [entry.produk, tid]);
-  const produkId = pRows.length > 0 ? pRows[0].id : null;
+  let produkId: string | null = pRows.length > 0 ? pRows[0].id : null;
+  if (!produkId) {
+    const { rows: created } = await query(
+      'INSERT INTO produk (toko_id, nama) VALUES ($1, $2) RETURNING id',
+      [tid, entry.produk]
+    );
+    produkId = created.length > 0 ? created[0].id : null;
+  }
 
   const { rows } = await query(
     `INSERT INTO mutasi_stok (produk_id, toko_id, tipe, jumlah, keterangan, tanggal)

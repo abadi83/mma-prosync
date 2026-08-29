@@ -1,9 +1,11 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
+import { useSkus } from '@/app/context/SkuContext';
 
 export interface BarangMasukEntry {
   id: string;
+  sku: string;
   produk: string;
   jumlah: number;
   supplier: string;
@@ -14,18 +16,20 @@ interface Props {
   onAdd: (entry: BarangMasukEntry) => void;
 }
 
-const PRODUK_LIST = ['Minyak Goreng', 'Beras Premium', 'Kopi Arabika', 'Sabun Cuci', 'Gula Pasir', 'Teh Celup'];
-
 export function BarangMasukForm({ onAdd }: Props) {
-  const [produk, setProduk] = useState('');
+  const { skus } = useSkus();
+  const [sku, setSku] = useState('');
   const [jumlah, setJumlah] = useState('');
   const [supplier, setSupplier] = useState('');
   const [tanggal, setTanggal] = useState(new Date().toISOString().slice(0, 10));
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
 
+  // Dropdown produk dari Master SKU asli (bukan data demo)
+  const katalog = useMemo(() => [...skus].sort((a, b) => a.nama.localeCompare(b.nama)), [skus]);
+
   const resetForm = () => {
-    setProduk('');
+    setSku('');
     setJumlah('');
     setSupplier('');
     setTanggal(new Date().toISOString().slice(0, 10));
@@ -38,14 +42,16 @@ export function BarangMasukForm({ onAdd }: Props) {
     setSuccess(false);
 
     const jml = parseInt(jumlah, 10);
-    if (!produk) { setError('Pilih produk terlebih dahulu.'); return; }
+    if (!sku) { setError('Pilih produk terlebih dahulu.'); return; }
     if (!jumlah || jml <= 0) { setError('Jumlah harus lebih dari 0.'); return; }
     if (!supplier.trim()) { setError('Nama supplier wajib diisi.'); return; }
     if (!tanggal) { setError('Tanggal wajib diisi.'); return; }
 
+    const selected = skus.find(s => s.sku === sku);
     onAdd({
       id: `in-${Date.now()}`,
-      produk,
+      sku,
+      produk: selected?.nama || sku,
       jumlah: jml,
       supplier: supplier.trim(),
       tanggal,
@@ -75,13 +81,13 @@ export function BarangMasukForm({ onAdd }: Props) {
         <label className="flex flex-col gap-1">
           <span className="text-xs font-semibold text-slate-600">Produk</span>
           <select
-            value={produk}
-            onChange={(e) => setProduk(e.target.value)}
+            value={sku}
+            onChange={(e) => setSku(e.target.value)}
             className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
           >
             <option value="">-- Pilih --</option>
-            {PRODUK_LIST.map((p) => (
-              <option key={p} value={p}>{p}</option>
+            {katalog.map((s) => (
+              <option key={s.sku} value={s.sku}>{s.nama} ({s.sku})</option>
             ))}
           </select>
         </label>

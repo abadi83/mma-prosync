@@ -2,6 +2,21 @@ import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { BarangKeluarForm } from './BarangKeluarForm';
 
+vi.mock('@/app/context/SkuContext', () => ({
+  useSkus: () => ({
+    skus: [
+      { id: 'm1', sku: 'BS-001', nama: 'Besi AS SENTAL ST-41 5mm' },
+      { id: 'm2', sku: 'KN-001', nama: 'Kabel NYM 2x1.5' },
+    ],
+    setSkus: vi.fn(),
+    getSku: vi.fn(),
+    updateStok: vi.fn(),
+    syncStatus: 'idle',
+    lastSync: null,
+    forceSync: vi.fn(),
+  }),
+}));
+
 describe('BarangKeluarForm', () => {
   it('renders all form fields and submit button', () => {
     const onAdd = vi.fn();
@@ -25,14 +40,15 @@ describe('BarangKeluarForm', () => {
     render(<BarangKeluarForm onAdd={onAdd} />);
 
     const selects = screen.getAllByRole('combobox');
-    fireEvent.change(selects[0], { target: { value: 'Minyak Goreng' } });
+    fireEvent.change(selects[0], { target: { value: 'BS-001' } });
     fireEvent.change(screen.getByPlaceholderText('0'), { target: { value: '5' } });
 
     fireEvent.click(screen.getByRole('button', { name: /catat barang keluar/i }));
 
     expect(onAdd).toHaveBeenCalledTimes(1);
     const entry = onAdd.mock.calls[0][0];
-    expect(entry.produk).toBe('Minyak Goreng');
+    expect(entry.sku).toBe('BS-001');
+    expect(entry.produk).toBe('Besi AS SENTAL ST-41 5mm');
     expect(entry.jumlah).toBe(5);
     expect(entry.keperluan).toBe('Penjualan');
   });
