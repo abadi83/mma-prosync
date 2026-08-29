@@ -293,13 +293,16 @@ function StokOpname() {
 
   /* ══════ Kamera Barcode ══════ */
   const startScan=async()=>{
-    setScanError('');setScanResult(null);setScanning(true);
+    setScanError('');setScanResult(null);
+    // Bersihkan sisa scanner aktif (anti error "camera already started")
+    if(scannerRef.current){try{await scannerRef.current.stop();}catch{}scannerRef.current=null;}
+    setScanning(true);
     try{
       const scanner=new Html5Qrcode('barcode-reader');
       scannerRef.current=scanner;
       await scanner.start(
         {facingMode:'environment'},
-        {fps:10, qrbox:{width:250, height:150}},
+        {fps:10, qrbox:(vw:number,vh:number)=>({width:Math.min(280,Math.round(vw*0.85)),height:Math.min(160,Math.round(vh*0.4))})},
         (decodedText)=>{
           const sku=decodedText.trim();
           setScanResult(sku);
@@ -309,8 +312,15 @@ function StokOpname() {
         ()=>{}
       );
     }catch(err:unknown){
-      const msg=err instanceof Error?err.message:'Gagal mengakses kamera.';
-      setScanError(msg.includes('NotAllowed')||msg.includes('Permission')?'Izin kamera ditolak. Cek Settings > Privacy > Camera.':msg);
+      const raw=err instanceof Error?err.message:String(err||'');
+      let msg=raw;
+      if(raw.includes('NotAllowed')||raw.includes('Permission')||raw.includes('denied')) msg='🚫 Izin kamera ditolak browser. Buka pengaturan browser/situs ini → izinkan Kamera → coba lagi.';
+      else if(raw.includes('NotFound')||raw.toLowerCase().includes('no camera')) msg='📷 Kamera tidak ditemukan di perangkat ini.';
+      else if(raw.includes('NotReadable')||raw.toLowerCase().includes('in use')) msg='📷 Kamera sedang dipakai aplikasi lain. Tutup aplikasi lain lalu coba lagi.';
+      else if(raw.toLowerCase().includes('secure')||raw.toLowerCase().includes('https')) msg='🔒 Kamera butuh HTTPS — buka https://erp-mma.tech (jangan lewat alamat IP/HTTP).';
+      else if(raw.toLowerCase().includes('element')||raw.toLowerCase().includes('cannot find')) msg='Area kamera belum siap — klik "📷 Scan Kamera" sekali lagi.';
+      else if(!raw) msg='Gagal mengakses kamera.';
+      setScanError(msg);
       setScanning(false);
     }
   };
@@ -371,6 +381,11 @@ function StokOpname() {
       {/* Hardware scanner input (tersembunyi) */}
       <input type="text" value={hwBuffer} onChange={()=>{}} className="absolute -left-[9999px]" aria-hidden="true" tabIndex={-1} />
 
+      {/* Info akses kamera di HP */}
+      <p className="mt-2 text-[11px] leading-relaxed text-slate-400">
+        📷 Kamera hanya aktif di <strong>https://erp-mma.tech</strong> (HTTPS). Saat pertama kali scan, browser akan minta izin kamera — pilih <strong>"Izinkan"</strong>. Kalau pernah menolak, buka Pengaturan Browser → Izin → Kamera untuk situs ini.
+      </p>
+
       {/* ── INPUT MANUAL: Search + Quick Input ── */}
       <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400">✍️ Input Manual — cari SKU atau nama produk</p>
@@ -429,12 +444,10 @@ function StokOpname() {
         </div>
       </div>
 
-      {/* Scanner Area (kamera) */}
-      {scanning&&(
-        <div className="mt-3 overflow-hidden rounded-2xl border-2 border-brand-300 bg-black">
-          <div id="barcode-reader" className="w-full [&_video]:!w-full [&_video]:!rounded-none" style={{maxHeight:'320px'}} />
-        </div>
-      )}
+      {/* Scanner Area (kamera) — container selalu ada di DOM agar Html5Qrcode bisa langsung start */}
+      <div className={`mt-3 overflow-hidden rounded-2xl border-2 border-brand-300 bg-black ${scanning?'':'hidden'}`}>
+        <div id="barcode-reader" className="w-full [&_video]:!w-full [&_video]:!rounded-none" style={{maxHeight:'320px'}} />
+      </div>
 
       {/* Panel Koreksi — muncul setelah scan / pilih manual */}
       {koreksi&&(
