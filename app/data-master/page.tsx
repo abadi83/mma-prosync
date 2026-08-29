@@ -2,16 +2,18 @@
 
 import React, { useState } from 'react';
 import { SkuTab } from './SkuTab';
+import { KontenSkuTab } from './KontenSkuTab';
 import { SupplierTab } from './SupplierTab';
 import { TokoTab } from './TokoTab';
 import { PelangganTab } from './PelangganTab';
 import { FleetTab } from './FleetTab';
 import TaskHargaTab from '@/app/components/TaskHargaTab';
 
-type Tab = 'sku' | 'supplier' | 'toko' | 'taskharga' | 'pelanggan' | 'fleet';
+type Tab = 'sku' | 'konten' | 'supplier' | 'toko' | 'taskharga' | 'pelanggan' | 'fleet';
 
 const TABS: { key: Tab; label: string; icon: string }[] = [
   { key: 'sku', label: 'SKU', icon: '📦' },
+  { key: 'konten', label: 'Konten', icon: '📸' },
   { key: 'supplier', label: 'Supplier', icon: '🏭' },
   { key: 'toko', label: 'Toko Marketplace', icon: '🏬' },
   { key: 'taskharga', label: 'Task Harga', icon: '💲' },
@@ -39,6 +41,7 @@ export default function DataMasterPage() {
       </nav>
       <section className="rounded-3xl border border-brand-100 bg-gradient-to-br from-brand-50/70 to-white p-5 shadow-sm sm:p-6">
         {tab === 'sku' && <SkuTab />}
+        {tab === 'konten' && <KontenSkuTab />}
         {tab === 'supplier' && <SupplierTab />}
         {tab === 'toko' && <TokoTab />}
         {tab === 'taskharga' && <TaskHargaTab />}

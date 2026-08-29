@@ -27,4 +27,10 @@ describe('DataMasterPage', () => {
     fireEvent.click(screen.getByRole('tab', { name: /toko marketplace/i }));
     expect(screen.getByText('🏬 Toko Marketplace')).toBeInTheDocument();
   });
+
+  it('shows Konten SKU tab', () => {
+    renderWithProviders(<DataMasterPage />);
+    fireEvent.click(screen.getByRole('tab', { name: /konten/i }));
+    expect(screen.getByText('📸 Konten SKU')).toBeInTheDocument();
+  });
 });
