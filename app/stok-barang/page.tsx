@@ -735,10 +735,12 @@ function CekStok() {
   })), [skus]);
 
   const filtered = cekStokFromSkus
-    .filter((item) =>
-      item.nama.toLowerCase().includes(search.toLowerCase()) ||
-      item.kategori.toLowerCase().includes(search.toLowerCase())
-    )
+    .filter((item) => {
+      const q = search.toLowerCase().trim();
+      return item.nama.toLowerCase().includes(q) ||
+        item.id.toLowerCase().includes(q) ||
+        item.kategori.toLowerCase().includes(q);
+    })
     .sort((a, b) => {
       if (sortBy === 'nama') return a.nama.localeCompare(b.nama);
       return a.stok - b.stok;
@@ -775,7 +777,7 @@ function CekStok() {
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="🔍 Cari produk atau kategori..."
+          placeholder="🔍 Cari nama produk, SKU, atau kategori..."
           className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 sm:max-w-xs"
         />
       </div>
@@ -791,6 +793,7 @@ function CekStok() {
               >
                 Produk {sortBy === 'nama' ? '▲' : ''}
               </th>
+              <th className="pb-2 pr-3 font-semibold">SKU</th>
               <th className="pb-2 pr-3 font-semibold">Kategori</th>
               <th className="pb-2 pr-3 font-semibold">Harga Jual</th>
               <th
@@ -805,7 +808,7 @@ function CekStok() {
           <tbody className="divide-y divide-slate-100">
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={5} className="py-6 text-center text-slate-400">
+                <td colSpan={6} className="py-6 text-center text-slate-400">
                   Tidak ada produk ditemukan.
                 </td>
               </tr>
@@ -816,6 +819,7 @@ function CekStok() {
                 return (
                   <tr key={item.id} className="hover:bg-brand-50/50">
                     <td className="py-2.5 pr-3 font-medium text-slate-800">{item.nama}</td>
+                    <td className="py-2.5 pr-3 font-mono text-xs text-indigo-600">{item.id}</td>
                     <td className="py-2.5 pr-3 text-slate-600">{item.kategori}</td>
                     <td className="py-2.5 pr-3 text-slate-600">Rp {item.hargaJual.toLocaleString('id-ID')}</td>
                     <td className="py-2.5 pr-3">

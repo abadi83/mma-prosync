@@ -34,14 +34,14 @@ describe('StokBarangPage', () => {
     expect(screen.getByText('Total Produk')).toBeInTheDocument();
     expect(screen.getByText('Stok Menipis')).toBeInTheDocument();
     expect(screen.getByText('Stok Aman')).toBeInTheDocument();
-    expect(screen.getByPlaceholderText('🔍 Cari produk atau kategori...')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('🔍 Cari nama produk, SKU, atau kategori...')).toBeInTheDocument();
   });
 
   it('filters products by search in Cek Stok', () => {
     renderWithProviders(<StokBarangPage />);
     fireEvent.click(screen.getByRole('tab', { name: /cek stok/i }));
 
-    const searchInput = screen.getByPlaceholderText('🔍 Cari produk atau kategori...');
+    const searchInput = screen.getByPlaceholderText('🔍 Cari nama produk, SKU, atau kategori...');
     fireEvent.change(searchInput, { target: { value: 'Kran' } });
 
     expect(screen.getByText('Kran Angsa 8005 Tongkat')).toBeInTheDocument();
