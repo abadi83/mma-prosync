@@ -12,7 +12,7 @@ const TABS: { key: Tab; label: string; icon: string }[] = [
   { key: 'ringkasan', label: 'Ringkasan Harian', icon: '📊' },
 ];
 
-interface CartItem { id: string; produk: string; harga: number; qty: number; }
+interface CartItem { id: string; produk: string; harga: number; hargaAsli: number; hargaModal: number; qty: number; }
 interface TransaksiEntry { id: string; produk: string; jumlah: number; hargaSatuan: number; total: number; pelanggan: string; tanggal: string; }
 
 export default function PenjualanPage() {
@@ -112,7 +112,7 @@ function KasirTab({ onCheckout }: { onCheckout: (items: CartItem[], pelanggan: s
 
   // Katalog: SEMUA SKU aktif dengan harga jual (bukan cuma 50 pertama)
   const katalogProduk = useMemo(() => skus.filter(s => s.aktif === 1 && s.hargaJual > 0).map(s => ({
-    id: s.sku, nama: s.nama, harga: s.hargaJual, icon: '📦'
+    id: s.sku, nama: s.nama, harga: s.hargaJual, hargaModal: s.hargaBaru || s.hargaModalLama || 0, icon: '📦'
   })), [skus]);
 
   // Pencarian: cocokkan NAMA atau KODE SKU (case-insensitive)
@@ -156,8 +156,13 @@ function KasirTab({ onCheckout }: { onCheckout: (items: CartItem[], pelanggan: s
     setCart(prev => {
       const exist = prev.find(c => c.id === p.id);
       if (exist) return prev.map(c => c.id === p.id ? { ...c, qty: c.qty + 1 } : c);
-      return [...prev, { id: p.id, produk: p.nama, harga: p.harga, qty: 1 }];
+      return [...prev, { id: p.id, produk: p.nama, harga: p.harga, hargaAsli: p.harga, hargaModal: p.hargaModal, qty: 1 }];
     });
+  };
+  /* ── Intervensi harga jual per item (kasir bebas menentukan) ── */
+  const setHargaItem = (id: string, val: string) => {
+    const h = Math.max(0, Math.round(+val || 0));
+    setCart(prev => prev.map(c => c.id === id ? { ...c, harga: h } : c));
   };
   const updateQty = (id: string, delta: number) => {
     setCart(prev => prev.map(c => {
@@ -173,6 +178,8 @@ function KasirTab({ onCheckout }: { onCheckout: (items: CartItem[], pelanggan: s
   // Diskon otomatis: angka Rp, dibatasi 0 s.d. subtotal
   const diskon = Math.min(Math.max(0, +diskonStr || 0), subtotal);
   const totalBayar = subtotal - diskon;
+  // Estimasi laba kotor: (harga override − harga modal) × qty, dikurangi diskon flat
+  const estLaba = cart.reduce((s, c) => s + (c.harga - c.hargaModal) * c.qty, 0) - diskon;
   const totalItem = cart.reduce((s, c) => s + c.qty, 0);
 
   /* ── Bayar ── */
@@ -201,6 +208,7 @@ function KasirTab({ onCheckout }: { onCheckout: (items: CartItem[], pelanggan: s
           sku: item.id,
           qty: item.qty,
           hargaSatuan: item.harga,
+          hargaAsli: item.hargaAsli,
           total: itemSub - share,
           diskon: share,
           pelanggan: pelanggan.trim() || 'Umum',
@@ -292,9 +300,17 @@ function KasirTab({ onCheckout }: { onCheckout: (items: CartItem[], pelanggan: s
             <p className="text-center text-xs text-slate-500">Metode: {struk.metode === 'cash' ? '💵 Cash' : '🏦 Transfer'}</p>
             <hr className="my-2 border-dashed border-slate-200" />
             {struk.items.map(item => (
-              <div key={item.id} className="flex justify-between">
-                <span>{item.produk} <span className="text-slate-400">x{item.qty}</span></span>
-                <span>Rp {(item.harga * item.qty).toLocaleString('id-ID')}</span>
+              <div key={item.id}>
+                <div className="flex justify-between">
+                  <span>{item.produk} <span className="text-slate-400">x{item.qty}</span></span>
+                  <span>Rp {(item.harga * item.qty).toLocaleString('id-ID')}</span>
+                </div>
+                {item.harga !== item.hargaAsli && (
+                  <div className="flex justify-between text-[10px] text-slate-400">
+                    <span>Harga normal @Rp {item.hargaAsli.toLocaleString('id-ID')}</span>
+                    <span>{item.harga < item.hargaAsli ? 'Diskon' : 'Naik'} Rp {Math.abs(item.hargaAsli - item.harga).toLocaleString('id-ID')}/pcs</span>
+                  </div>
+                )}
               </div>
             ))}
             <hr className="my-2 border-dashed border-slate-200" />
@@ -346,12 +362,35 @@ function KasirTab({ onCheckout }: { onCheckout: (items: CartItem[], pelanggan: s
               <p className="py-10 text-center text-sm text-slate-300">Keranjang kosong.<br/>Klik produk untuk menambah.</p>
             ) : (
               <div className="space-y-2">
-                {cart.map(item => (
+                {cart.map(item => {
+                  const selisih = item.hargaAsli - item.harga;
+                  const labaItem = (item.harga - item.hargaModal) * item.qty;
+                  return (
                   <div key={item.id} className="flex items-center gap-2 rounded-xl bg-slate-50 p-2">
                     {gambarMap[item.id] && <img src={gambarMap[item.id]} alt="" className="h-9 w-9 shrink-0 rounded-lg border border-slate-100 object-contain bg-white" />}
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-slate-800 truncate">{item.produk}</p>
-                      <p className="text-xs text-slate-400">Rp {item.harga.toLocaleString('id-ID')}</p>
+                      <div className="mt-0.5 flex items-center gap-1">
+                        <span className="text-[10px] text-slate-400">Rp</span>
+                        <input
+                          type="number"
+                          min={0}
+                          value={item.harga}
+                          onChange={e => setHargaItem(item.id, e.target.value)}
+                          className="w-24 rounded-lg border border-slate-200 bg-white px-1.5 py-0.5 text-xs font-semibold text-slate-700 focus:border-brand-500 focus:outline-none"
+                          title="Ubah harga jual item ini"
+                        />
+                        {selisih !== 0 && (
+                          <button onClick={() => setHargaItem(item.id, String(item.hargaAsli))} className="text-[9px] text-slate-400 underline hover:text-brand-600" title="Kembalikan ke harga asli">reset</button>
+                        )}
+                      </div>
+                      <p className="text-[10px] leading-tight">
+                        {selisih > 0 && <span className="text-emerald-600 font-semibold">↓ Diskon Rp {selisih.toLocaleString('id-ID')}</span>}
+                        {selisih < 0 && <span className="text-blue-600 font-semibold">↑ Naik Rp {Math.abs(selisih).toLocaleString('id-ID')}</span>}
+                        {selisih !== 0 && ' · '}
+                        {item.hargaModal > 0 && <span className={labaItem >= 0 ? 'text-slate-500' : 'text-red-500'}>{labaItem >= 0 ? 'Laba' : 'Rugi'} Rp {Math.abs(labaItem).toLocaleString('id-ID')}</span>}
+                        {item.hargaModal === 0 && <span className="text-amber-500">⚠ HPP belum diisi</span>}
+                      </p>
                     </div>
                     <div className="flex items-center gap-1">
                       <button onClick={() => updateQty(item.id, -1)} className="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-300">−</button>
@@ -361,7 +400,8 @@ function KasirTab({ onCheckout }: { onCheckout: (items: CartItem[], pelanggan: s
                     <p className="w-20 text-right text-sm font-bold text-brand-700">Rp {(item.harga * item.qty).toLocaleString('id-ID')}</p>
                     <button onClick={() => removeItem(item.id)} className="ml-1 text-xs text-slate-300 hover:text-red-400">✕</button>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -392,6 +432,9 @@ function KasirTab({ onCheckout }: { onCheckout: (items: CartItem[], pelanggan: s
               <div>
                 <p className="text-xs text-slate-400">Subtotal</p>
                 <p className="text-xl font-bold text-brand-700">Rp {subtotal.toLocaleString('id-ID')}</p>
+                <p className={`text-xs font-semibold ${estLaba >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                  {estLaba >= 0 ? '📈 Est. Laba' : '📉 Est. Rugi'} Rp {Math.abs(estLaba).toLocaleString('id-ID')}
+                </p>
                 {diskon > 0 && (
                   <p className="text-xs font-semibold text-red-500">Diskon −Rp {diskon.toLocaleString('id-ID')} • Total <span className="text-base font-bold">Rp {totalBayar.toLocaleString('id-ID')}</span></p>
                 )}
