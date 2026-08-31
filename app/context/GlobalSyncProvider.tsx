@@ -30,6 +30,7 @@ const SYNC_KEYS = [
   TOMBSTONE_KEY,
   'mma_modal',
   'mma_kas_kecil',
+  'mma_kas_besar_masuk',
   'mma_pencairan',
   'mma_koreksi_po',
   'mma_koreksi_refund',

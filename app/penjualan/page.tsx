@@ -226,8 +226,18 @@ function KasirTab({ onCheckout }: { onCheckout: (items: CartItem[], pelanggan: s
           sumber: 'penjualan',
         });
         localStorage.setItem('mma_kas_kecil', JSON.stringify(kk));
+      } else {
+        // Transfer → catat eksplisit ke Kas Besar (riwayat uang masuk)
+        const kb = JSON.parse(localStorage.getItem('mma_kas_besar_masuk') || '[]');
+        kb.unshift({
+          id: `kb-jual-${Date.now()}`,
+          tanggal: tanggalTx,
+          jumlah: nilai,
+          sumber: 'penjualan',
+          keterangan: `Penjualan transfer - ${cart.length} item (${pelanggan || 'Umum'})`,
+        });
+        localStorage.setItem('mma_kas_besar_masuk', JSON.stringify(kb));
       }
-      // Transfer: otomatis masuk Kas Besar (via perhitungan saldo)
     } catch {}
 
     setCart([]);

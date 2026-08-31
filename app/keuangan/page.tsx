@@ -163,6 +163,8 @@ interface KasKecilEntry {
 function SaldoKas() {
   const [saldoAwal, setSaldoAwal] = useState(0);
   const [kasKecilList, setKasKecilList] = useState<KasKecilEntry[]>([]);
+  const [kasBesarMasukList, setKasBesarMasukList] = useState<any[]>([]);
+  const [kasFilter, setKasFilter] = useState<'semua' | 'besar' | 'kecil'>('semua');
   const [pencairan, setPencairan] = useState<PencairanEntry[]>([]);
   const [mpOrders, setMpOrders] = useState<any[]>([]);
   const [mounted, setMounted] = useState(false);
@@ -178,6 +180,8 @@ function SaldoKas() {
       }
       const kk = localStorage.getItem(KAS_KECIL_STORAGE);
       if (kk) setKasKecilList(JSON.parse(kk));
+      const kb = localStorage.getItem('mma_kas_besar_masuk');
+      if (kb) setKasBesarMasukList(JSON.parse(kb));
     } catch {}
     setPencairan(loadPencairan());
     fetchMpSummary().then(setMpOrders).catch(() => {});
@@ -186,6 +190,8 @@ function SaldoKas() {
       try {
         const kk = localStorage.getItem(KAS_KECIL_STORAGE);
         if (kk) setKasKecilList(JSON.parse(kk));
+        const kb = localStorage.getItem('mma_kas_besar_masuk');
+        if (kb) setKasBesarMasukList(JSON.parse(kb));
       } catch {}
     };
     window.addEventListener('pencairan-updated', onUpdate);
@@ -233,9 +239,45 @@ function SaldoKas() {
         .reduce((s: number, r: any) => s + (r.nilaiRefund || 0), 0);
     } catch { return 0; }
   })();
+  const refundBesarList = (() => {
+    try {
+      const rf = JSON.parse(localStorage.getItem('mma_koreksi_refund') || '[]');
+      return rf.filter((r: any) => r.status === 'selesai' && r.tujuanKas === 'besar');
+    } catch { return []; }
+  })();
 
-  const kasBesar = saldoAwal - totalPengeluaran + totalPencairanSum + refundBesar; // pencairan & refund masuk ke Kas Besar
+  // Penjualan transfer → eksplisit masuk Kas Besar
+  const totalKasBesarMasuk = kasBesarMasukList.reduce((s: number, e: any) => s + (e.jumlah || 0), 0);
+
+  const kasBesar = saldoAwal - totalPengeluaran + totalPencairanSum + refundBesar + totalKasBesarMasuk; // pencairan, refund & penjualan transfer masuk ke Kas Besar
   const totalSaldo = kasBesar + kasKecil + saldoMP;
+
+  // ── Riwayat uang masuk (Kas Besar & Kas Kecil) ──
+  const riwayatMasuk = (() => {
+    const rows: any[] = [
+      ...kasBesarMasukList.map((e: any) => ({
+        id: `kb-${e.id || Math.random()}`, tanggal: e.tanggal || '',
+        sumber: e.sumber === 'penjualan' ? '💳 Penjualan Transfer' : '🏦 Manual',
+        ket: e.keterangan || '', jumlah: e.jumlah || 0, kas: 'besar',
+      })),
+      ...kasKecilList.filter((e: any) => e.jenis === 'masuk').map((e: any) => ({
+        id: `kk-${e.id || Math.random()}`, tanggal: e.tanggal || '',
+        sumber: e.sumber === 'penjualan' ? '💵 Penjualan Cash' : '✍️ Manual',
+        ket: e.keterangan || '', jumlah: e.jumlah || 0, kas: 'kecil',
+      })),
+      ...pencairan.map((p: any) => ({
+        id: `pc-${p.id || Math.random()}`, tanggal: p.tanggal || '',
+        sumber: '🏧 Pencairan MP', ket: p.tokoNama || '', jumlah: p.jumlah || 0, kas: 'besar',
+      })),
+      ...refundBesarList.map((r: any) => ({
+        id: `rf-${r.id || Math.random()}`, tanggal: r.tanggal || '',
+        sumber: '↩️ Refund Supplier', ket: r.noPO || '', jumlah: r.nilaiRefund || 0, kas: 'besar',
+      })),
+    ];
+    return rows
+      .filter(r => kasFilter === 'semua' || r.kas === kasFilter)
+      .sort((a, b) => String(b.tanggal).localeCompare(String(a.tanggal)));
+  })();
 
   const tambahKasKecil = () => {
     const jml = +formKK.jumlah || 0;
@@ -266,7 +308,7 @@ function SaldoKas() {
         <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-3 text-center">
           <p className="text-[10px] text-emerald-500 uppercase">Kas Besar</p>
           <p className="text-sm font-bold text-emerald-700">{fmt(kasBesar)}</p>
-          <p className="text-[9px] text-emerald-400">Modal + Pencairan + Refund − Pengeluaran</p>
+          <p className="text-[9px] text-emerald-400">Modal + Pencairan + Refund + Jualan Transfer − Pengeluaran</p>
         </div>
         <div className="rounded-xl bg-amber-50 border border-amber-200 p-3 text-center">
           <p className="text-[10px] text-amber-500 uppercase">Kas Kecil</p>
@@ -290,6 +332,53 @@ function SaldoKas() {
           <p className="text-[10px] text-slate-500 uppercase">Total Saldo</p>
           <p className={`text-sm font-bold ${totalSaldo >= 0 ? 'text-blue-700' : 'text-red-700'}`}>{fmt(totalSaldo)}</p>
           <p className="text-[9px] text-slate-400">Besar + Kecil + Saldo MP</p>
+        </div>
+      </div>
+
+      {/* ── Riwayat Uang Masuk (Kas Besar & Kas Kecil) ── */}
+      <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm font-bold text-slate-700">📥 Riwayat Uang Masuk</p>
+          <div className="flex gap-1">
+            {(['semua', 'besar', 'kecil'] as const).map(k => (
+              <button key={k} onClick={() => setKasFilter(k)}
+                className={`rounded-lg px-2 py-1 text-[10px] font-semibold ${kasFilter === k ? 'bg-indigo-500 text-white' : 'bg-slate-100 text-slate-500 hover:bg-indigo-50'}`}>
+                {k === 'semua' ? 'Semua' : k === 'besar' ? '🏦 Kas Besar' : '🟡 Kas Kecil'}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="mt-2 max-h-72 overflow-y-auto">
+          <table className="w-full text-left text-[11px]">
+            <thead className="sticky top-0 bg-white">
+              <tr className="text-slate-400 uppercase text-[9px]">
+                <th className="py-1.5 pr-2 font-semibold">Tanggal</th>
+                <th className="py-1.5 pr-2 font-semibold">Sumber</th>
+                <th className="py-1.5 pr-2 font-semibold">Keterangan</th>
+                <th className="py-1.5 pr-2 font-semibold">Kas</th>
+                <th className="py-1.5 font-semibold text-right">Jumlah</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-50">
+              {riwayatMasuk.length === 0 ? (
+                <tr><td colSpan={5} className="py-4 text-center text-slate-300">Belum ada uang masuk tercatat.</td></tr>
+              ) : (
+                riwayatMasuk.map(r => (
+                  <tr key={r.id}>
+                    <td className="py-1.5 pr-2 text-slate-500 whitespace-nowrap">{r.tanggal}</td>
+                    <td className="py-1.5 pr-2 text-slate-600">{r.sumber}</td>
+                    <td className="py-1.5 pr-2 text-slate-500 truncate max-w-[200px]" title={r.ket}>{r.ket}</td>
+                    <td className="py-1.5 pr-2">
+                      {r.kas === 'besar'
+                        ? <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[9px] font-semibold text-emerald-700">🏦 Besar</span>
+                        : <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold text-amber-700">🟡 Kecil</span>}
+                    </td>
+                    <td className="py-1.5 text-right font-bold text-emerald-600">{fmt(r.jumlah)}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
 
