@@ -1,11 +1,24 @@
 import { NextResponse } from 'next/server';
-import { getTransaksi, createTransaksi } from '@/app/services/transaksiService';
+import { getTransaksi, createTransaksi, deleteTransaksiByMatch } from '@/app/services/transaksiService';
 import { apiSuccess, apiCreated, apiBadRequest, apiServerError } from '@/app/lib/apiResponse';
 import { validateRequired, validatePositiveNumber, validateDate, runValidations } from '@/app/lib/validation';
 
 export const dynamic = 'force-dynamic';
 
 const DEFAULT_TOKO = 'a0a0a0a0-0000-0000-0000-000000000001';
+
+export async function DELETE(request: Request) {
+  try {
+    const body = await request.json().catch(() => ({}));
+    const { tanggal, produk, total } = body;
+    if (!tanggal || !produk || total == null) return apiBadRequest('tanggal, produk, dan total wajib diisi.');
+    const tokoId = body.toko_id ?? DEFAULT_TOKO;
+    const count = await deleteTransaksiByMatch(tokoId, { tanggal, produk, total: Number(total) });
+    return apiSuccess({ deleted: count });
+  } catch (error) {
+    return apiServerError('DELETE /api/transaksi');
+  }
+}
 
 export async function GET(request: Request) {
   try {

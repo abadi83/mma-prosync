@@ -3,6 +3,7 @@
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { useSkus } from '@/app/context/SkuContext';
 import { recordActivity } from '@/app/lib/recordActivity';
+import { addTombstones } from '@/app/lib/tombstones';
 
 type Tab = 'kasir' | 'daftar' | 'ringkasan';
 
@@ -90,7 +91,7 @@ export default function PenjualanPage() {
 
       <section className="card-blue">
         {tab==='kasir' && <KasirTab onCheckout={handleCheckout} />}
-        {tab==='daftar' && <DaftarTransaksi data={transaksi} />}
+        {tab==='daftar' && <DaftarTransaksi onChanged={fetchTransaksi} />}
         {tab==='ringkasan' && <RingkasanHarian data={transaksi} />}
       </section>
     </main>
@@ -193,6 +194,7 @@ function KasirTab({ onCheckout }: { onCheckout: (items: CartItem[], pelanggan: s
     if (bayar < totalBayar) return;
     const kembali = bayar - totalBayar;
     const now = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+    const checkoutId = `ck-${Date.now()}`; // id checkout — untuk sinkron hapus/edit ke kas & laporan
     setStruk({ items: [...cart], total: totalBayar, diskon, bayar, kembali, pelanggan: pelanggan.trim() || 'Umum', waktu: now, metode: metodeBayar, tanggal: tanggalTx });
     onCheckout(cart, pelanggan, tanggalTx, diskon);
 
@@ -204,6 +206,7 @@ function KasirTab({ onCheckout }: { onCheckout: (items: CartItem[], pelanggan: s
         const share = subtotal > 0 ? Math.round(diskon * (itemSub / subtotal)) : 0;
         return {
           id: `tx-${Date.now()}-${item.id}`,
+          checkoutId,
           produk: item.produk,
           sku: item.id,
           qty: item.qty,
@@ -213,7 +216,7 @@ function KasirTab({ onCheckout }: { onCheckout: (items: CartItem[], pelanggan: s
           diskon: share,
           pelanggan: pelanggan.trim() || 'Umum',
           tanggal: tanggalTx,
-          jam: new Date().toLocaleTimeString('id-ID'),
+          jam: now,
           metode: metodeBayar,
         };
       });
@@ -227,6 +230,7 @@ function KasirTab({ onCheckout }: { onCheckout: (items: CartItem[], pelanggan: s
         const kk = JSON.parse(localStorage.getItem('mma_kas_kecil') || '[]');
         kk.unshift({
           id: `kk-jual-${Date.now()}`,
+          checkoutId,
           tanggal: tanggalTx,
           jumlah: nilai,
           jenis: 'masuk',
@@ -239,6 +243,7 @@ function KasirTab({ onCheckout }: { onCheckout: (items: CartItem[], pelanggan: s
         const kb = JSON.parse(localStorage.getItem('mma_kas_besar_masuk') || '[]');
         kb.unshift({
           id: `kb-jual-${Date.now()}`,
+          checkoutId,
           tanggal: tanggalTx,
           jumlah: nilai,
           sumber: 'penjualan',
@@ -511,15 +516,187 @@ function KasirTab({ onCheckout }: { onCheckout: (items: CartItem[], pelanggan: s
 }
 
 /* ═══════════════════════════════════════════════════════════════════ */
-/* DAFTAR TRANSAKSI                                                   */
+/* DAFTAR TRANSAKSI — sumber data = mma_penjualan_transaksi (JSON      */
+/* tersinkron) + bisa EDIT & HAPUS (otomatis ke laporan & keuangan)    */
 /* ═══════════════════════════════════════════════════════════════════ */
-function DaftarTransaksi({ data }: { data: TransaksiEntry[] }) {
+interface TxRow {
+  id: string;
+  checkoutId?: string;
+  produk: string;
+  sku: string;
+  qty: number;
+  hargaSatuan: number;
+  hargaAsli?: number;
+  total: number;
+  diskon?: number;
+  pelanggan: string;
+  tanggal: string;
+  jam?: string;
+  metode?: string;
+}
+
+function DaftarTransaksi({ onChanged }: { onChanged?: () => void }) {
+  const [rows, setRows] = useState<TxRow[]>([]);
   const [search, setSearch] = useState('');
-  const filtered = data.filter(t =>
-    t.produk.toLowerCase().includes(search.toLowerCase()) ||
-    t.pelanggan.toLowerCase().includes(search.toLowerCase())
-  );
-  const grandTotal = filtered.reduce((s, t) => s + t.total, 0);
+  const [editGroup, setEditGroup] = useState<TxRow[] | null>(null);
+  const [editTanggal, setEditTanggal] = useState('');
+  const [editPelanggan, setEditPelanggan] = useState('');
+  const [editCheckoutId, setEditCheckoutId] = useState<string | undefined>(undefined);
+  const [editMetode, setEditMetode] = useState('');
+  const [editJam, setEditJam] = useState('');
+  const [editKey, setEditKey] = useState('');
+
+  const load = useCallback(() => {
+    try { setRows(JSON.parse(localStorage.getItem('mma_penjualan_transaksi') || '[]')); }
+    catch { setRows([]); }
+  }, []);
+  useEffect(() => {
+    load();
+    window.addEventListener('storage', load);
+    window.addEventListener('refresh-laporan', load);
+    return () => {
+      window.removeEventListener('storage', load);
+      window.removeEventListener('refresh-laporan', load);
+    };
+  }, [load]);
+
+  const groupKey = (r: TxRow) => r.checkoutId || `${r.tanggal}||${r.jam || ''}`;
+
+  const groups = useMemo(() => {
+    const m = new Map<string, { items: TxRow[]; tanggal: string; pelanggan: string; metode: string; checkoutId?: string; total: number }>();
+    for (const r of rows) {
+      const key = groupKey(r);
+      const g = m.get(key) || { items: [], tanggal: r.tanggal, pelanggan: r.pelanggan, metode: r.metode || '', checkoutId: r.checkoutId, total: 0 };
+      g.items.push(r);
+      g.total += r.total || 0;
+      m.set(key, g);
+    }
+    return Array.from(m.entries()).map(([key, g]) => ({ key, ...g }));
+  }, [rows]);
+
+  const filtered = groups
+    .filter(g => g.items.some(i => i.produk.toLowerCase().includes(search.toLowerCase()) || i.sku.toLowerCase().includes(search.toLowerCase())) || g.pelanggan.toLowerCase().includes(search.toLowerCase()))
+    .sort((a, b) => b.tanggal.localeCompare(a.tanggal));
+
+  const grandTotal = filtered.reduce((s, g) => s + g.total, 0);
+
+  /* ── Hapus satu transaksi (checkout) — sinkron ke JSON, kas & DB ── */
+  const hapus = async (g: { key: string; items: TxRow[]; total: number; tanggal: string; checkoutId?: string; metode: string }) => {
+    if (!window.confirm(`Hapus transaksi ${g.tanggal} (${g.items.length} item, Rp ${g.total.toLocaleString('id-ID')})?\n\nLaporan penjualan, kas (keuangan), dan riwayat DB ikut disesuaikan.`)) return;
+
+    // 1. JSON laporan
+    const next = rows.filter(r => groupKey(r) !== g.key);
+    setRows(next);
+    localStorage.setItem('mma_penjualan_transaksi', JSON.stringify(next));
+
+    // 2. Kas (keuangan) — hapus entry terkait + tombstone
+    if (g.checkoutId) {
+      try {
+        if (g.metode === 'cash') {
+          const kk = JSON.parse(localStorage.getItem('mma_kas_kecil') || '[]');
+          const rem = kk.filter((e: any) => e.checkoutId === g.checkoutId);
+          if (rem.length > 0) {
+            localStorage.setItem('mma_kas_kecil', JSON.stringify(kk.filter((e: any) => e.checkoutId !== g.checkoutId)));
+            addTombstones(rem.map((e: any) => ({ id: e.id, kind: 'kaskecil' as const })));
+          }
+        } else {
+          const kb = JSON.parse(localStorage.getItem('mma_kas_besar_masuk') || '[]');
+          const rem = kb.filter((e: any) => e.checkoutId === g.checkoutId);
+          if (rem.length > 0) {
+            localStorage.setItem('mma_kas_besar_masuk', JSON.stringify(kb.filter((e: any) => e.checkoutId !== g.checkoutId)));
+            addTombstones(rem.map((e: any) => ({ id: e.id, kind: 'kasbesar' as const })));
+          }
+        }
+      } catch {}
+    } else {
+      alert('⚠ Transaksi lama tanpa link kas — entry kas tidak otomatis dihapus. Cek Keuangan → Riwayat Uang Masuk.');
+    }
+
+    // 3. DB riwayat (satu baris per item)
+    for (const it of g.items) {
+      try {
+        await fetch('/api/transaksi', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tanggal: it.tanggal, produk: it.produk, total: it.total }),
+        });
+      } catch {}
+    }
+
+    // 4. Refresh semua pemakai data
+    window.dispatchEvent(new Event('refresh-laporan'));
+    window.dispatchEvent(new Event('kas-kecil-updated'));
+    onChanged?.();
+  };
+
+  /* ── Edit transaksi ── */
+  const openEdit = (g: { key: string; items: TxRow[]; tanggal: string; pelanggan: string; metode: string; checkoutId?: string }) => {
+    setEditKey(g.key);
+    setEditCheckoutId(g.checkoutId);
+    setEditTanggal(g.tanggal);
+    setEditPelanggan(g.pelanggan);
+    setEditMetode(g.metode);
+    setEditJam(g.items[0]?.jam || '');
+    setEditGroup(g.items.map(i => ({ ...i })));
+  };
+
+  const simpanEdit = async () => {
+    if (!editGroup) return;
+    const items = editGroup
+      .map(i => ({ ...i, qty: Math.max(0, Math.round(+i.qty || 0)), hargaSatuan: Math.max(0, Math.round(+i.hargaSatuan || 0)) }))
+      .filter(i => i.qty > 0);
+    if (items.length === 0) { alert('Minimal 1 item dengan qty > 0.'); return; }
+    const newTotal = items.reduce((s, i) => s + i.qty * i.hargaSatuan, 0);
+
+    // 1. JSON laporan — update baris checkout ini
+    const updatedRows = rows.map(r => {
+      if (groupKey(r) !== editKey) return r;
+      const it = items.find(x => x.id === r.id);
+      if (!it) return null; // item dihapus dari edit
+      return { ...r, qty: it.qty, hargaSatuan: it.hargaSatuan, total: it.qty * it.hargaSatuan, diskon: 0, tanggal: editTanggal, pelanggan: editPelanggan.trim() || 'Umum' };
+    }).filter(Boolean) as TxRow[];
+    setRows(updatedRows);
+    localStorage.setItem('mma_penjualan_transaksi', JSON.stringify(updatedRows));
+
+    // 2. Kas (keuangan) — update jumlah entry terkait
+    if (editCheckoutId) {
+      try {
+        if (editMetode === 'cash') {
+          const kk = JSON.parse(localStorage.getItem('mma_kas_kecil') || '[]');
+          localStorage.setItem('mma_kas_kecil', JSON.stringify(kk.map((e: any) => e.checkoutId === editCheckoutId ? { ...e, jumlah: newTotal, tanggal: editTanggal } : e)));
+        } else {
+          const kb = JSON.parse(localStorage.getItem('mma_kas_besar_masuk') || '[]');
+          localStorage.setItem('mma_kas_besar_masuk', JSON.stringify(kb.map((e: any) => e.checkoutId === editCheckoutId ? { ...e, jumlah: newTotal, tanggal: editTanggal } : e)));
+        }
+      } catch {}
+    }
+
+    // 3. DB riwayat — hapus baris lama & insert ulang
+    for (const old of editGroup) {
+      try {
+        await fetch('/api/transaksi', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tanggal: old.tanggal, produk: old.produk, total: old.total }),
+        });
+      } catch {}
+    }
+    for (const it of items) {
+      try {
+        await fetch('/api/transaksi', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ produk: it.produk, jumlah: it.qty, hargaSatuan: it.hargaSatuan, pelanggan: editPelanggan.trim() || 'Umum', tanggal: editTanggal, diskon: 0 }),
+        });
+      } catch {}
+    }
+
+    // 4. Refresh semua pemakai data
+    window.dispatchEvent(new Event('refresh-laporan'));
+    window.dispatchEvent(new Event('kas-kecil-updated'));
+    onChanged?.();
+    setEditGroup(null);
+  };
 
   return (
     <div>
@@ -528,35 +705,71 @@ function DaftarTransaksi({ data }: { data: TransaksiEntry[] }) {
         <div>
           <h2 className="text-lg font-bold text-slate-800 sm:text-xl">Daftar Transaksi</h2>
           <p className="mt-1 text-sm text-slate-500">{filtered.length} transaksi • Total: <strong className="text-brand-700">Rp {grandTotal.toLocaleString('id-ID')}</strong></p>
+          <p className="text-[11px] text-slate-400">Sumber sama dengan Laporan — hapus/edit di sini otomatis sinkron ke laporan penjualan & keuangan.</p>
         </div>
-        <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="🔍 Cari..." className="w-40 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none" />
+        <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="🔍 Cari produk / pelanggan..." className="w-44 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none" />
       </div>
 
-      <div className="mt-3 overflow-x-auto rounded-xl border border-slate-100">
-        <table className="w-full text-left text-sm">
-          <thead>
-            <tr className="bg-brand-50 text-xs uppercase text-brand-500">
-              {['Produk','Jml','Harga','Total','Pelanggan','Tanggal'].map(c => <th key={c} className="px-3 py-3 font-semibold">{c}</th>)}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-50 bg-white">
-            {filtered.length === 0 ? (
-              <tr><td colSpan={6} className="py-8 text-center text-slate-400">Belum ada transaksi.</td></tr>
-            ) : (
-              filtered.map((t, i) => (
-                <tr key={t.id} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50/30'}>
-                  <td className="px-3 py-3 font-medium text-slate-800">{t.produk}</td>
-                  <td className="px-3 py-3">{t.jumlah}</td>
-                  <td className="px-3 py-3 text-slate-600">Rp {t.hargaSatuan.toLocaleString('id-ID')}</td>
-                  <td className="px-3 py-3 font-semibold text-brand-700">Rp {t.total.toLocaleString('id-ID')}</td>
-                  <td className="px-3 py-3 text-slate-600">{t.pelanggan}</td>
-                  <td className="px-3 py-3 text-slate-500">{t.tanggal}</td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+      <div className="mt-3 space-y-2">
+        {filtered.length === 0 ? (
+          <div className="rounded-xl border border-slate-100 py-10 text-center text-slate-400">Belum ada transaksi.</div>
+        ) : (
+          filtered.map(g => (
+            <div key={g.key} className="rounded-xl border border-slate-100 bg-white p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-700">{g.tanggal} {g.items[0]?.jam ? g.items[0].jam : ''}</span>
+                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${g.metode === 'cash' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'}`}>
+                    {g.metode === 'cash' ? '💵 Cash' : '🏦 Transfer'}
+                  </span>
+                  <span className="text-xs text-slate-500">· {g.pelanggan}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-bold text-brand-700">Rp {g.total.toLocaleString('id-ID')}</span>
+                  <button onClick={() => openEdit(g)} className="rounded-lg bg-brand-100 px-2 py-1 text-[11px] font-semibold text-brand-700 hover:bg-brand-200">✏️ Edit</button>
+                  <button onClick={() => hapus(g)} className="rounded-lg bg-red-100 px-2 py-1 text-[11px] font-semibold text-red-600 hover:bg-red-200">🗑 Hapus</button>
+                </div>
+              </div>
+              <div className="mt-2 divide-y divide-slate-50">
+                {g.items.map(i => (
+                  <div key={i.id} className="flex items-center justify-between py-1 text-xs">
+                    <span className="flex-1 text-slate-700 truncate pr-2">{i.produk} <span className="text-slate-400">x{i.qty} @Rp {i.hargaSatuan.toLocaleString('id-ID')}</span></span>
+                    <span className="font-semibold text-slate-800">Rp {i.total.toLocaleString('id-ID')}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))
+        )}
       </div>
+
+      {/* ── Modal Edit ── */}
+      {editGroup && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setEditGroup(null)}>
+          <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-2xl" onClick={e => e.stopPropagation()}>
+            <p className="text-sm font-bold text-slate-800">✏️ Edit Transaksi</p>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <label className="flex flex-col gap-1"><span className="text-[10px] font-semibold text-slate-500">Tanggal</span><input type="date" value={editTanggal} onChange={e => setEditTanggal(e.target.value)} className="rounded-lg border px-2 py-1 text-xs" /></label>
+              <label className="flex flex-col gap-1"><span className="text-[10px] font-semibold text-slate-500">Pelanggan</span><input value={editPelanggan} onChange={e => setEditPelanggan(e.target.value)} className="rounded-lg border px-2 py-1 text-xs" /></label>
+            </div>
+            <div className="mt-3 space-y-2">
+              {editGroup.map(i => (
+                <div key={i.id} className="flex items-center gap-2 rounded-lg bg-slate-50 p-2">
+                  <span className="flex-1 truncate text-xs text-slate-700">{i.produk}</span>
+                  <input type="number" min={1} value={i.qty} onChange={e => setEditGroup(prev => (prev || []).map(x => x.id === i.id ? { ...x, qty: +e.target.value } : x))} className="w-14 rounded-lg border px-1 py-1 text-center text-xs font-bold" title="Qty" />
+                  <input type="number" min={0} value={i.hargaSatuan} onChange={e => setEditGroup(prev => (prev || []).map(x => x.id === i.id ? { ...x, hargaSatuan: +e.target.value } : x))} className="w-24 rounded-lg border px-1 py-1 text-right text-xs font-bold" title="Harga jual" />
+                  <span className="w-20 text-right text-xs font-semibold text-brand-700">Rp {((+i.qty || 0) * (+i.hargaSatuan || 0)).toLocaleString('id-ID')}</span>
+                </div>
+              ))}
+            </div>
+            <p className="mt-2 text-[10px] text-slate-400">Item dengan qty 0 akan dihapus. Total otomatis dihitung ulang & disinkronkan ke laporan + kas + DB.</p>
+            <div className="mt-4 flex gap-2">
+              <button onClick={() => setEditGroup(null)} className="flex-1 rounded-xl bg-slate-100 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-200">Batal</button>
+              <button onClick={simpanEdit} className="flex-1 rounded-xl bg-brand-500 py-2 text-sm font-bold text-white hover:bg-brand-700">💾 Simpan</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

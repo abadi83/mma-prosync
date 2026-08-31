@@ -87,3 +87,25 @@ export async function createTransaksi(
     tanggal,
   };
 }
+
+/** Hapus SATU transaksi DB yang cocok (dipakai saat edit/hapus dari Daftar Transaksi kasir) */
+export async function deleteTransaksiByMatch(
+  tokoId: string | undefined,
+  match: { tanggal: string; produk: string; total: number },
+): Promise<number> {
+  const tid = tokoId || DEFAULT_TOKO;
+  const { rows: pRows } = await query('SELECT id FROM produk WHERE nama = $1 AND toko_id = $2 LIMIT 1', [match.produk, tid]);
+  if (pRows.length === 0) return 0;
+  const { rows: tRows } = await query(
+    `SELECT t.id FROM transaksi t
+     JOIN detail_transaksi dt ON dt.transaksi_id = t.id
+     WHERE t.toko_id = $1 AND t.tanggal::date = $2::date AND t.total = $3 AND dt.produk_id = $4
+     LIMIT 1`,
+    [tid, match.tanggal, match.total, pRows[0].id]
+  );
+  for (const r of tRows) {
+    // detail_transaksi ikut terhapus otomatis (ON DELETE CASCADE)
+    await query('DELETE FROM transaksi WHERE id = $1', [r.id]);
+  }
+  return tRows.length;
+}
