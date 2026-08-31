@@ -307,7 +307,7 @@ function LabaRugi({ periode, customStart, customEnd, orders }: { periode: Period
   }, []);
 
   const data = useMemo(() => {
-    if (!mounted) return { pendapatan: 0, hargaPokok: 0, biayaOperasional: 0, biayaLain: 0, labaKotor: 0, labaBersih: 0, feeMarketplace: 0, hppMarketplace: 0, breakdownPerToko: [] as any[], tokoList: [] as string[] };
+    if (!mounted) return { pendapatan: 0, hargaPokok: 0, biayaOperasional: 0, biayaLain: 0, labaKotor: 0, labaBersih: 0, feeMarketplace: 0, hppMarketplace: 0, breakdownPerToko: [] as any[], tokoList: [] as string[], kasirTotal: 0, kasirBreakdown: [] as any[] };
     const { penjualan, biaya, opex } = getRealData();
     const f = (list: any[], field: string) => filterByPeriode(list, field, periode, customStart, customEnd);
 
@@ -424,6 +424,18 @@ function LabaRugi({ periode, customStart, customEnd, orders }: { periode: Period
       labaKotor, labaBersih,
       feeMarketplace: marketplaceFee, hppMarketplace: marketplaceHpp,
       breakdownPerToko, tokoList: Array.from(tokoSet).sort(),
+      kasirTotal,
+      kasirBreakdown: filteredPenjualan.map((t: any) => ({
+        tanggal: t.tanggal || '',
+        jam: t.jam || '',
+        produk: t.produk || '',
+        sku: t.sku || '',
+        qty: t.qty || 0,
+        diskon: t.diskon || 0,
+        total: t.total || 0,
+        pelanggan: t.pelanggan || '',
+        metode: t.metode || '',
+      })),
     };
   }, [mounted, periode, filterToko, localRefresh, customStart, customEnd, orders]);
 
@@ -465,6 +477,8 @@ function LabaRugi({ periode, customStart, customEnd, orders }: { periode: Period
           hppMarketplace: data.hppMarketplace,
           breakdownPerToko: data.breakdownPerToko,
           filterToko: filterToko,
+          kasirTotal: data.kasirTotal,
+          kasirBreakdown: data.kasirBreakdown,
         }}
       />
     </div>

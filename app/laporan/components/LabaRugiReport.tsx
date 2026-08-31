@@ -25,6 +25,18 @@ export interface LabaRugiExtra {
     orderCount: number;
   }[];
   filterToko: string;
+  kasirTotal: number;
+  kasirBreakdown: {
+    tanggal: string;
+    jam: string;
+    produk: string;
+    sku: string;
+    qty: number;
+    diskon: number;
+    total: number;
+    pelanggan: string;
+    metode: string;
+  }[];
 }
 
 interface Props {
@@ -65,6 +77,20 @@ export function LabaRugiReport({ data, periode, extra }: Props) {
           <span className="text-sm font-medium text-slate-700">➕ Pendapatan Kotor (Penjualan)</span>
           <span className="text-sm font-bold text-slate-700">Rp {data.pendapatan.toLocaleString('id-ID')}</span>
         </div>
+
+        {/* Sub-rincian sumber pendapatan */}
+        {extra && (extra.kasirTotal > 0 || (data.pendapatan - extra.kasirTotal) > 0) && (
+          <div className="bg-white px-4 pb-2">
+            <div className="flex items-center justify-between px-4 py-1">
+              <span className="text-xs text-slate-500 pl-4">· Penjualan Kasir</span>
+              <span className="text-xs font-semibold text-slate-600">Rp {extra.kasirTotal.toLocaleString('id-ID')}</span>
+            </div>
+            <div className="flex items-center justify-between px-4 py-1">
+              <span className="text-xs text-slate-500 pl-4">· Marketplace</span>
+              <span className="text-xs font-semibold text-slate-600">Rp {(data.pendapatan - extra.kasirTotal).toLocaleString('id-ID')}</span>
+            </div>
+          </div>
+        )}
 
         {/* HPP */}
         <div className="flex items-center justify-between bg-red-50/50 px-4 py-3">
@@ -166,6 +192,46 @@ export function LabaRugiReport({ data, periode, extra }: Props) {
                     <td className="px-2 py-1.5 text-center text-slate-400">{t.orderCount}</td>
                   </tr>
                 ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ── Breakdown Penjualan Kasir ── */}
+      {extra && extra.kasirBreakdown.length > 0 && (
+        <div className="mt-4 overflow-hidden rounded-2xl border border-slate-100">
+          <div className="bg-slate-50 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            🧾 Breakdown Penjualan Kasir ({extra.kasirBreakdown.length} transaksi)
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-[10px]">
+              <thead><tr className="bg-slate-50 text-slate-500">
+                <th className="px-2 py-2 font-semibold">Tanggal</th>
+                <th className="px-2 py-2 font-semibold">Produk</th>
+                <th className="px-2 py-2 font-semibold text-center">Qty</th>
+                <th className="px-2 py-2 font-semibold text-right">Diskon</th>
+                <th className="px-2 py-2 font-semibold text-right">Total</th>
+                <th className="px-2 py-2 font-semibold">Pelanggan</th>
+                <th className="px-2 py-2 font-semibold text-center">Metode</th>
+              </tr></thead>
+              <tbody className="divide-y divide-slate-50 bg-white">
+                {[...extra.kasirBreakdown].sort((a, b) => b.tanggal.localeCompare(a.tanggal)).map((t, i) => (
+                  <tr key={`${t.tanggal}-${t.sku}-${i}`} className="hover:bg-brand-50/30">
+                    <td className="px-2 py-1.5 text-slate-500 whitespace-nowrap">{t.tanggal}{t.jam ? ` ${t.jam}` : ''}</td>
+                    <td className="px-2 py-1.5 font-medium text-slate-700 max-w-[180px] truncate" title={`${t.produk} (${t.sku})`}>{t.produk}</td>
+                    <td className="px-2 py-1.5 text-center text-slate-600">{t.qty}</td>
+                    <td className="px-2 py-1.5 text-right text-red-400">{t.diskon > 0 ? `−${t.diskon.toLocaleString('id-ID')}` : '—'}</td>
+                    <td className="px-2 py-1.5 text-right font-semibold text-brand-700">Rp {t.total.toLocaleString('id-ID')}</td>
+                    <td className="px-2 py-1.5 text-slate-600 max-w-[100px] truncate">{t.pelanggan}</td>
+                    <td className="px-2 py-1.5 text-center">{t.metode === 'cash' ? '💵' : t.metode === 'transfer' ? '🏦' : '—'}</td>
+                  </tr>
+                ))}
+                <tr className="bg-brand-50/60">
+                  <td colSpan={4} className="px-2 py-2 font-bold text-slate-700">Total Penjualan Kasir</td>
+                  <td className="px-2 py-2 text-right font-bold text-brand-700">Rp {extra.kasirTotal.toLocaleString('id-ID')}</td>
+                  <td colSpan={2} />
+                </tr>
               </tbody>
             </table>
           </div>
