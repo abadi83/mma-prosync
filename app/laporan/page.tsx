@@ -10,7 +10,7 @@ import { fetchMpSummary } from '@/app/lib/marketplaceOrdersClient';
 import { readTombstones, applyTombstones } from '@/app/lib/tombstones';
 
 type JenisLaporan = 'laba-rugi' | 'arus-kas' | 'stok' | 'omset';
-type Periode = 'minggu' | 'bulan' | 'tahun' | 'custom';
+type Periode = 'minggu' | 'bulan' | 'bulanLalu' | 'tahun' | 'custom';
 
 // Helper: baca data real dari localStorage
 function getRealData() {
@@ -37,24 +37,34 @@ function filterByPeriode(list: any[], dateField: string, periode: Periode, custo
   }
   const now = new Date();
   let start: Date;
+  let end: Date | null = null;
   if (periode === 'minggu') {
     // Minggu Ini: 7 hari terakhir
     start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6);
   } else if (periode === 'bulan') {
-    // Bulan Ini: dari tanggal 1 bulan berjalan (JULI TIDAK ikut)
+    // Bulan Ini: dari tanggal 1 bulan berjalan
     start = new Date(now.getFullYear(), now.getMonth(), 1);
+  } else if (periode === 'bulanLalu') {
+    // Bulan Lalu: tanggal 1 s/d akhir bulan sebelumnya (untuk input backdate)
+    start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    end = new Date(now.getFullYear(), now.getMonth(), 0);
   } else {
     // Tahun Ini: dari 1 Januari tahun berjalan
     start = new Date(now.getFullYear(), 0, 1);
   }
   // Format tanggal lokal (hindari selisih UTC yang bisa menggeser 1 hari)
   const startStr = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}-${String(start.getDate()).padStart(2, '0')}`;
-  return list.filter((item: any) => (item[dateField] || item.tanggal || '') >= startStr);
+  const endStr = end ? `${end.getFullYear()}-${String(end.getMonth() + 1).padStart(2, '0')}-${String(end.getDate()).padStart(2, '0')}` : null;
+  return list.filter((item: any) => {
+    const d = item[dateField] || item.tanggal || '';
+    return d >= startStr && (!endStr || d <= endStr);
+  });
 }
 
 const PERIODE_LABELS: Record<Periode, string> = {
   minggu: 'Minggu Ini',
   bulan: 'Bulan Ini',
+  bulanLalu: 'Bulan Lalu',
   tahun: 'Tahun Ini',
   custom: '📅 Custom',
 };

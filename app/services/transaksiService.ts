@@ -23,7 +23,7 @@ export async function getTransaksi(tokoId?: string): Promise<TransaksiItem[]> {
      LEFT JOIN pelanggan pl ON t.pelanggan_id = pl.id
      WHERE t.toko_id = $1
      ORDER BY t.tanggal DESC
-     LIMIT 200`,
+    LIMIT 1000`,
     [tokoId || DEFAULT_TOKO]
   );
   return rows;
@@ -37,11 +37,19 @@ export async function createTransaksi(
   // Total otomatis: qty × harga − diskon (share per item, minimal 0)
   const total = Math.max(0, entry.jumlah * entry.hargaSatuan - Math.round(entry.diskon || 0));
 
-  // Cari produk by nama
+  // Cari produk by nama — kalau belum ada, auto-buat row di tabel produk (FK aman, SKU asli bukan di tabel produk legacy)
   let produkId = entry.produkId;
   if (!produkId) {
     const { rows: pRows } = await query('SELECT id FROM produk WHERE nama = $1 AND toko_id = $2 LIMIT 1', [entry.produk, tid]);
-    if (pRows.length > 0) produkId = pRows[0].id;
+    if (pRows.length > 0) {
+      produkId = pRows[0].id;
+    } else {
+      const { rows: created } = await query(
+        'INSERT INTO produk (toko_id, nama) VALUES ($1, $2) RETURNING id',
+        [tid, entry.produk]
+      );
+      produkId = created.length > 0 ? created[0].id : null;
+    }
   }
 
   // Cari pelanggan by nama atau pakai default
