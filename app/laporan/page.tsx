@@ -14,10 +14,11 @@ type Periode = 'minggu' | 'bulan' | 'bulanLalu' | 'tahun' | 'custom';
 
 // Helper: baca data real dari localStorage
 function getRealData() {
-  if (typeof window === 'undefined') return { penjualan: [], payments: [], biaya: [], opex: [], modal: [], keuanganManual: [], mpIncome: [] };
+  if (typeof window === 'undefined') return { penjualan: [], penjualanLain: [], payments: [], biaya: [], opex: [], modal: [], keuanganManual: [], mpIncome: [] };
   try {
     return {
       penjualan: JSON.parse(localStorage.getItem('mma_penjualan_transaksi') || '[]'),
+      penjualanLain: JSON.parse(localStorage.getItem('mma_penjualan_lain') || '[]'),
       payments: applyTombstones('mma_payment_history', JSON.parse(localStorage.getItem('mma_payment_history') || '[]'), readTombstones()),
       biaya: JSON.parse(localStorage.getItem('mma_biaya_operasional') || '[]'),
       opex: JSON.parse(localStorage.getItem('mma_opex_purchases') || '[]'),
@@ -25,7 +26,7 @@ function getRealData() {
       keuanganManual: JSON.parse(localStorage.getItem('mma_keuangan_manual') || '[]'),
       mpIncome: JSON.parse(localStorage.getItem('mma_marketplace_income') || '[]'),
     };
-  } catch { return { penjualan: [], payments: [], biaya: [], opex: [], modal: [], keuanganManual: [], mpIncome: [] }; }
+  } catch { return { penjualan: [], penjualanLain: [], payments: [], biaya: [], opex: [], modal: [], keuanganManual: [], mpIncome: [] }; }
 }
 
 function filterByPeriode(list: any[], dateField: string, periode: Periode, customStart?: string, customEnd?: string): any[] {
@@ -91,7 +92,7 @@ export default function LaporanPage() {
     };
   }, []);
 
-  const realData = useMemo(() => (mounted ? getRealData() : { penjualan: [], payments: [], biaya: [], opex: [], modal: [], keuanganManual: [], mpIncome: [] }), [mounted, refreshKey]);
+  const realData = useMemo(() => (mounted ? getRealData() : { penjualan: [], penjualanLain: [], payments: [], biaya: [], opex: [], modal: [], keuanganManual: [], mpIncome: [] }), [mounted, refreshKey]);
 
   // ── Order marketplace dari PostgreSQL (API ringkasan) — fallback ke localStorage ──
   const [mpOrdersApi, setMpOrdersApi] = useState<any[]>([]);
@@ -168,9 +169,11 @@ export default function LaporanPage() {
     const opexTotal = opexFiltered.reduce((s: number, o: any) => s + (o.total || 0), 0);
     const totalPendapatan = kasirTotal + mpKotor;
     const totalHPP = hppKasir + mpHpp;
+    const pendapatanLain = filterByPeriode(realData.penjualanLain, 'tanggal', periode, customStart, customEnd)
+      .reduce((s: number, x: any) => s + (x.jumlah || 0), 0);
     const labaKotor = totalPendapatan - totalHPP - mpFee;
-    const labaBersih = labaKotor - biayaOps - opexTotal;
-    return { pendapatan: totalPendapatan, hargaPokok: totalHPP, biayaOperasional: biayaOps, biayaLain: opexTotal + mpFee, labaKotor, labaBersih };
+    const labaBersih = labaKotor - biayaOps - opexTotal + pendapatanLain;
+    return { pendapatan: totalPendapatan, hargaPokok: totalHPP, biayaOperasional: biayaOps, biayaLain: opexTotal + mpFee, pendapatanLain, labaKotor, labaBersih };
   }, [penjualanFiltered, biayaFiltered, opexFiltered, periode, realData, mpOrdersApi, customStart, customEnd]);
 
   // Arus Kas real
@@ -195,6 +198,7 @@ export default function LaporanPage() {
     if (jenis === 'laba-rugi') {
       return [
         ['Pendapatan', String(labaRugiData.pendapatan)],
+        ['Pendapatan Lain-lain', String(labaRugiData.pendapatanLain)],
         ['HPP (Pembayaran PO)', String(labaRugiData.hargaPokok)],
         ['Biaya Operasional', String(labaRugiData.biayaOperasional)],
         ['Biaya Lain (OPEX)', String(labaRugiData.biayaLain)],
@@ -307,8 +311,8 @@ function LabaRugi({ periode, customStart, customEnd, orders }: { periode: Period
   }, []);
 
   const data = useMemo(() => {
-    if (!mounted) return { pendapatan: 0, hargaPokok: 0, biayaOperasional: 0, biayaLain: 0, labaKotor: 0, labaBersih: 0, feeMarketplace: 0, hppMarketplace: 0, breakdownPerToko: [] as any[], tokoList: [] as string[], kasirTotal: 0, kasirBreakdown: [] as any[] };
-    const { penjualan, biaya, opex } = getRealData();
+    if (!mounted) return { pendapatan: 0, hargaPokok: 0, biayaOperasional: 0, biayaLain: 0, labaKotor: 0, labaBersih: 0, feeMarketplace: 0, hppMarketplace: 0, breakdownPerToko: [] as any[], tokoList: [] as string[], kasirTotal: 0, kasirBreakdown: [] as any[], pendapatanLain: 0, penjualanLainBreakdown: [] as any[] };
+    const { penjualan, penjualanLain, biaya, opex } = getRealData();
     const f = (list: any[], field: string) => filterByPeriode(list, field, periode, customStart, customEnd);
 
     // Pendapatan Kasir
@@ -416,9 +420,14 @@ function LabaRugi({ periode, customStart, customEnd, orders }: { periode: Period
     const b = f(biaya, 'tanggal').reduce((s: number, b2: any) => s + (b2.jumlah || 0), 0);
     const o = f(opex, 'tanggal').reduce((s: number, o2: any) => s + (o2.total || 0), 0);
     const totalBiaya = b + o + marketplaceFee;
-    // Laba/Rugi = Pendapatan Gross - HPP - Biaya
+
+    // ── Pendapatan Lain-lain (di luar kasir & MP: kardus bekas, barang afkir, dsb.) ──
+    const filteredLain = f(penjualanLain, 'tanggal');
+    const pendapatanLain = filteredLain.reduce((s: number, x: any) => s + (x.jumlah || 0), 0);
+
+    // Laba/Rugi = Pendapatan Gross - HPP - Biaya + Pendapatan Lain-lain
     const labaKotor = totalPendapatan - totalHppAll - marketplaceFee;
-    const labaBersih = labaKotor - b - o;
+    const labaBersih = labaKotor - b - o + pendapatanLain;
     return {
       pendapatan: totalPendapatan, hargaPokok: totalHppAll, biayaOperasional: b, biayaLain: o + marketplaceFee,
       labaKotor, labaBersih,
@@ -435,6 +444,14 @@ function LabaRugi({ periode, customStart, customEnd, orders }: { periode: Period
         total: t.total || 0,
         pelanggan: t.pelanggan || '',
         metode: t.metode || '',
+      })),
+      pendapatanLain,
+      penjualanLainBreakdown: filteredLain.map((x: any) => ({
+        tanggal: x.tanggal || '',
+        kategori: x.kategori || '',
+        keterangan: x.keterangan || '',
+        jumlah: x.jumlah || 0,
+        kas: x.kas || '',
       })),
     };
   }, [mounted, periode, filterToko, localRefresh, customStart, customEnd, orders]);
@@ -470,6 +487,7 @@ function LabaRugi({ periode, customStart, customEnd, orders }: { periode: Period
           biayaLain: data.biayaLain,
           labaKotor: data.labaKotor,
           labaBersih: data.labaBersih,
+          pendapatanLain: data.pendapatanLain,
         }}
         periode={PERIODE_LABELS[periode]}
         extra={{
@@ -479,6 +497,7 @@ function LabaRugi({ periode, customStart, customEnd, orders }: { periode: Period
           filterToko: filterToko,
           kasirTotal: data.kasirTotal,
           kasirBreakdown: data.kasirBreakdown,
+          penjualanLainBreakdown: data.penjualanLainBreakdown,
         }}
       />
     </div>

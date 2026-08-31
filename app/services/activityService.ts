@@ -25,6 +25,7 @@ const AKSI_LABEL: Record<string, string> = {
   'upload-pesanan': 'mengupload pesanan', 'upload-operasional': 'mengupload data operasional', 'upload-keuangan': 'mengupload data keuangan',
   opex: 'mencatat OPEX', biaya: 'mencatat biaya operasional', 'koreksi-po': 'memproses koreksi PO',
   'update-gambar': 'mengupdate gambar toko marketplace', 'video-konten': 'mengerjakan video konten SKU',
+  'penjualan-lain': 'mencatat penjualan lain-lain',
 };
 
 function mapTipeNotif(modul: string): 'stok' | 'penjualan' | 'sistem' | 'aktivitas' {

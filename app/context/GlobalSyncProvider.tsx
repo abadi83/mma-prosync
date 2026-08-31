@@ -37,6 +37,7 @@ const SYNC_KEYS = [
   'mma_bukti_bayar',
   // Penjualan
   'mma_penjualan_transaksi',
+  'mma_penjualan_lain',
   // Kepegawaian — TIDAK di-sync via /api/data lagi.
   // Sumber kebenaran pegawai = PostgreSQL (app/api/pegawai).
   // localStorage hanya cache lokal; sync dilakukan di halaman kepegawaian.

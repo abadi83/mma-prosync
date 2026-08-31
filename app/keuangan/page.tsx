@@ -92,10 +92,11 @@ const METODE_OPTIONS = [
 /* ================================================================ */
 /* Tab type                                                          */
 /* ================================================================ */
-type Tab = 'pembayaran' | 'aruskas' | 'pencairan' | 'riwayat' | 'arsip' | 'refund' | 'hapus';
+type Tab = 'pembayaran' | 'penjualan-lain' | 'aruskas' | 'pencairan' | 'riwayat' | 'arsip' | 'refund' | 'hapus';
 
 const TABS: { key: Tab; label: string; icon: string }[] = [
   { key: 'pembayaran', label: 'Pembayaran PO', icon: '💳' },
+  { key: 'penjualan-lain', label: 'Penjualan Lain', icon: '💵' },
   { key: 'aruskas', label: 'Arus Kas', icon: '📈' },
   { key: 'pencairan', label: 'Pencairan MP', icon: '💸' },
   { key: 'riwayat', label: 'Riwayat Bayar', icon: '📋' },
@@ -135,6 +136,7 @@ export default function KeuanganPage() {
 
       <section className="card-blue">
         {tab === 'pembayaran' && <PembayaranTab />}
+        {tab === 'penjualan-lain' && <PenjualanLainTab />}
         {tab === 'aruskas' && <ArusKasTab />}
         {tab === 'pencairan' && <PencairanTab />}
         {tab === 'riwayat' && <RiwayatTab />}
@@ -257,12 +259,12 @@ function SaldoKas() {
     const rows: any[] = [
       ...kasBesarMasukList.map((e: any) => ({
         id: `kb-${e.id || Math.random()}`, entryId: e.id, tanggal: e.tanggal || '',
-        sumber: e.sumber === 'penjualan' ? '💳 Penjualan Transfer' : '🏦 Manual',
+        sumber: e.sumber === 'penjualan' ? '💳 Penjualan Transfer' : e.sumber === 'penjualan-lain' ? '🧾 Penjualan Lain' : '🏦 Manual',
         ket: e.keterangan || '', jumlah: e.jumlah || 0, kas: 'besar',
       })),
       ...kasKecilList.filter((e: any) => e.jenis === 'masuk').map((e: any) => ({
         id: `kk-${e.id || Math.random()}`, entryId: e.id, tanggal: e.tanggal || '',
-        sumber: e.sumber === 'penjualan' ? '💵 Penjualan Cash' : e.sumber === 'refund' ? '↩️ Refund' : '✍️ Manual',
+        sumber: e.sumber === 'penjualan' ? '💵 Penjualan Cash' : e.sumber === 'refund' ? '↩️ Refund' : e.sumber === 'penjualan-lain' ? '🧾 Penjualan Lain' : '✍️ Manual',
         ket: e.keterangan || '', jumlah: e.jumlah || 0, kas: 'kecil',
       })),
       ...pencairan.map((p: any) => ({
@@ -1102,6 +1104,153 @@ function PembayaranTab() {
 }
 
 /* ================================================================ */
+/* ================================================================ */
+/* TAB: Penjualan Lain-lain (di luar Kasir & Marketplace)           */
+/* ================================================================ */
+const PENJUALAN_LAIN_STORAGE = 'mma_penjualan_lain';
+interface PenjualanLainEntry {
+  id: string; tanggal: string; kategori: string; keterangan: string;
+  jumlah: number; kas: 'besar' | 'kecil'; kasEntryId?: string;
+}
+const KATEGORI_LAIN = ['📦 Kardus Bekas', '🔁 Barang Retur/Afkir', '🛢️ Limbah/Oli', '🛠️ Aset Bekas', '✨ Lainnya'];
+
+function PenjualanLainTab() {
+  const [list, setList] = useState<PenjualanLainEntry[]>([]);
+  const [mounted, setMounted] = useState(false);
+  const [f, setF] = useState({ tanggal: new Date().toISOString().slice(0, 10), kategori: KATEGORI_LAIN[0], keterangan: '', jumlah: '', kas: 'kecil' as 'besar' | 'kecil' });
+  const [ferr, setFerr] = useState('');
+
+  useEffect(() => {
+    try { const r = localStorage.getItem(PENJUALAN_LAIN_STORAGE); if (r) setList(JSON.parse(r)); } catch {}
+    setMounted(true);
+  }, []);
+  useEffect(() => {
+    if (mounted) { try { localStorage.setItem(PENJUALAN_LAIN_STORAGE, JSON.stringify(list)); } catch {} }
+  }, [list, mounted]);
+
+  const simpan = () => {
+    setFerr('');
+    const jml = Math.round(+f.jumlah || 0);
+    if (jml <= 0) { setFerr('Jumlah harus lebih dari 0.'); return; }
+    if (!f.tanggal) { setFerr('Tanggal wajib diisi.'); return; }
+
+    // Catat ke kas tujuan (Kas Kecil / Kas Besar) — otomatis masuk Riwayat Uang Masuk & saldo
+    let kasEntryId = '';
+    const ketKas = `${f.kategori}${f.keterangan.trim() ? ` - ${f.keterangan.trim()}` : ''}`;
+    try {
+      if (f.kas === 'kecil') {
+        const kk = JSON.parse(localStorage.getItem(KAS_KECIL_STORAGE) || '[]');
+        kasEntryId = `kk-lain-${Date.now()}`;
+        kk.unshift({ id: kasEntryId, tanggal: f.tanggal, jumlah: jml, jenis: 'masuk', keterangan: ketKas, sumber: 'penjualan-lain' });
+        localStorage.setItem(KAS_KECIL_STORAGE, JSON.stringify(kk));
+        window.dispatchEvent(new Event('kas-kecil-updated'));
+      } else {
+        const kb = JSON.parse(localStorage.getItem('mma_kas_besar_masuk') || '[]');
+        kasEntryId = `kb-lain-${Date.now()}`;
+        kb.unshift({ id: kasEntryId, tanggal: f.tanggal, jumlah: jml, sumber: 'penjualan-lain', keterangan: ketKas });
+        localStorage.setItem('mma_kas_besar_masuk', JSON.stringify(kb));
+      }
+    } catch {}
+
+    const entry: PenjualanLainEntry = {
+      id: `pl-${Date.now()}`, tanggal: f.tanggal, kategori: f.kategori,
+      keterangan: f.keterangan.trim(), jumlah: jml, kas: f.kas, kasEntryId,
+    };
+    setList(prev => [entry, ...prev]);
+
+    recordActivity([{ modul: 'keuangan', aksi: 'penjualan-lain', refLabel: entry.kategori, detail: { jumlah: jml, kas: f.kas, keterangan: entry.keterangan, tanggal: f.tanggal } }]);
+
+    setF({ tanggal: new Date().toISOString().slice(0, 10), kategori: KATEGORI_LAIN[0], keterangan: '', jumlah: '', kas: 'kecil' });
+  };
+
+  const hapus = (entry: PenjualanLainEntry) => {
+    if (!window.confirm(`Hapus penjualan lain "${entry.kategori} ${entry.keterangan}" Rp ${entry.jumlah.toLocaleString('id-ID')}?\nEntry kas terkait juga akan dihapus & saldo menyesuaikan.`)) return;
+    setList(prev => prev.filter(e => e.id !== entry.id));
+    try {
+      if (entry.kas === 'kecil') {
+        const kk = JSON.parse(localStorage.getItem(KAS_KECIL_STORAGE) || '[]');
+        localStorage.setItem(KAS_KECIL_STORAGE, JSON.stringify(kk.filter((e: any) => e.id !== entry.kasEntryId)));
+        if (entry.kasEntryId) addTombstones([{ id: entry.kasEntryId, kind: 'kaskecil' }]);
+        window.dispatchEvent(new Event('kas-kecil-updated'));
+      } else {
+        const kb = JSON.parse(localStorage.getItem('mma_kas_besar_masuk') || '[]');
+        localStorage.setItem('mma_kas_besar_masuk', JSON.stringify(kb.filter((e: any) => e.id !== entry.kasEntryId)));
+        if (entry.kasEntryId) addTombstones([{ id: entry.kasEntryId, kind: 'kasbesar' }]);
+      }
+    } catch {}
+  };
+
+  const totalBulanIni = list
+    .filter(e => e.tanggal.startsWith(new Date().toISOString().slice(0, 7)))
+    .reduce((s, e) => s + e.jumlah, 0);
+
+  return (
+    <div>
+      <div className="mb-1 h-1 w-16 rounded-full bg-gradient-to-r from-indigo-500 to-indigo-300" />
+      <h2 className="text-lg font-bold text-slate-800 sm:text-xl">💵 Penjualan Lain-lain</h2>
+      <p className="mt-1 text-sm text-slate-500">Penjualan di luar Kasir & Online Marketplace — kardus bekas, barang retur/afkir, dsb. Otomatis masuk Laba Rugi, Arus Kas, dan kas pilihan.</p>
+
+      <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <div className="rounded-xl bg-indigo-50 p-3 text-center"><p className="text-2xl font-bold text-indigo-700">{list.length}</p><p className="text-xs text-indigo-500">Total Catatan</p></div>
+        <div className="rounded-xl bg-emerald-50 p-3 text-center"><p className="text-2xl font-bold text-emerald-700">Rp {totalBulanIni.toLocaleString('id-ID')}</p><p className="text-xs text-emerald-500">Total Bulan Ini</p></div>
+        <div className="rounded-xl bg-amber-50 p-3 text-center"><p className="text-2xl font-bold text-amber-700">Rp {list.reduce((s, e) => s + e.jumlah, 0).toLocaleString('id-ID')}</p><p className="text-xs text-amber-500">Total Semua</p></div>
+      </div>
+
+      {/* Form */}
+      <div className="mt-4 rounded-2xl border border-indigo-100 bg-indigo-50/40 p-4">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="flex flex-col gap-1"><span className="text-xs font-semibold text-slate-600">Tanggal</span><input type="date" value={f.tanggal} onChange={e => setF({ ...f, tanggal: e.target.value })} className="rounded-xl border px-2 py-1.5 text-sm" /></label>
+          <label className="flex flex-col gap-1"><span className="text-xs font-semibold text-slate-600">Kategori</span>
+            <select value={f.kategori} onChange={e => setF({ ...f, kategori: e.target.value })} className="rounded-xl border px-2 py-1.5 text-sm">
+              {KATEGORI_LAIN.map(k => <option key={k} value={k}>{k}</option>)}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1"><span className="text-xs font-semibold text-slate-600">Keterangan</span><input value={f.keterangan} onChange={e => setF({ ...f, keterangan: e.target.value })} placeholder="cth: 50 kg kardus ke pengepul" className="rounded-xl border px-2 py-1.5 text-sm" /></label>
+          <label className="flex flex-col gap-1"><span className="text-xs font-semibold text-slate-600">Jumlah (Rp)</span><input type="number" value={f.jumlah} onChange={e => setF({ ...f, jumlah: e.target.value })} placeholder="0" className="rounded-xl border px-2 py-1.5 text-sm font-bold" /></label>
+        </div>
+        <div className="mt-3 flex flex-wrap items-end gap-2">
+          <div className="flex gap-1">
+            <button onClick={() => setF({ ...f, kas: 'kecil' })} className={`rounded-xl px-3 py-1.5 text-xs font-bold transition ${f.kas === 'kecil' ? 'bg-amber-500 text-white' : 'bg-white text-slate-600 border border-slate-200'}`}>🟡 Masuk Kas Kecil</button>
+            <button onClick={() => setF({ ...f, kas: 'besar' })} className={`rounded-xl px-3 py-1.5 text-xs font-bold transition ${f.kas === 'besar' ? 'bg-emerald-500 text-white' : 'bg-white text-slate-600 border border-slate-200'}`}>🏦 Masuk Kas Besar</button>
+          </div>
+          <button onClick={simpan} className="rounded-xl bg-indigo-500 px-4 py-1.5 text-sm font-bold text-white hover:bg-indigo-700">💾 Simpan</button>
+        </div>
+        {ferr && <p className="mt-2 text-xs text-red-600">{ferr}</p>}
+      </div>
+
+      {/* Riwayat */}
+      <div className="mt-4 rounded-xl border border-slate-100 overflow-x-auto">
+        <table className="w-full text-left text-sm">
+          <thead><tr className="bg-slate-50 text-xs uppercase text-slate-500">
+            <th className="px-3 py-2.5 font-semibold">Tanggal</th>
+            <th className="px-3 py-2.5 font-semibold">Kategori</th>
+            <th className="px-3 py-2.5 font-semibold">Keterangan</th>
+            <th className="px-3 py-2.5 font-semibold">Kas</th>
+            <th className="px-3 py-2.5 font-semibold text-right">Jumlah</th>
+            <th className="px-3 py-2.5 font-semibold text-center">Aksi</th>
+          </tr></thead>
+          <tbody className="divide-y divide-slate-50 bg-white">
+            {list.length === 0 ? (
+              <tr><td colSpan={6} className="py-8 text-center text-slate-400">Belum ada penjualan lain-lain tercatat.</td></tr>
+            ) : (
+              list.map(e => (
+                <tr key={e.id} className="hover:bg-indigo-50/30">
+                  <td className="px-3 py-2 text-slate-500">{e.tanggal}</td>
+                  <td className="px-3 py-2 font-medium text-slate-700">{e.kategori}</td>
+                  <td className="px-3 py-2 text-slate-600">{e.keterangan || '-'}</td>
+                  <td className="px-3 py-2">{e.kas === 'besar' ? <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">🏦 Besar</span> : <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">🟡 Kecil</span>}</td>
+                  <td className="px-3 py-2 text-right font-bold text-emerald-600">Rp {e.jumlah.toLocaleString('id-ID')}</td>
+                  <td className="px-3 py-2 text-center"><button onClick={() => hapus(e)} title="Hapus (kas terkait ikut terhapus)" className="text-red-300 hover:text-red-600 text-xs">🗑</button></td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 /* TAB 2: Arus Kas                                                   */
 /* ================================================================ */
 function ArusKasTab() {
@@ -1111,6 +1260,7 @@ function ArusKasTab() {
   const [opexData] = useLocalStorage<OpexPurchase[]>(OPEX_STORAGE, []);
   const [pencairan] = useLocalStorage<PencairanEntry[]>(PENCAIRAN_STORAGE, []);
   const [penjualan] = useLocalStorage<any[]>('mma_penjualan_transaksi', []);
+  const [penjualanLain] = useLocalStorage<any[]>('mma_penjualan_lain', []);
 
   const [bulan, setBulan] = useState(() => {
     const now = new Date();
@@ -1124,10 +1274,11 @@ function ArusKasTab() {
   const totalOpex = opexData.filter(o => o.tanggal.startsWith(prefix)).reduce((s, o) => s + o.total, 0);
   const totalKeluar = totalPembayaran + totalBiaya + totalOpex;
 
-  // Pemasukan nyata: penjualan kasir + pencairan saldo marketplace
+  // Pemasukan nyata: penjualan kasir + penjualan lain-lain + pencairan saldo marketplace
   const totalPenjualan = penjualan.filter(t => t.tanggal && t.tanggal.startsWith(prefix)).reduce((s, t) => s + (t.total || 0), 0);
+  const totalPenjualanLain = penjualanLain.filter(t => t.tanggal && t.tanggal.startsWith(prefix)).reduce((s, t) => s + (t.jumlah || 0), 0);
   const totalPencairanBulan = pencairan.filter(p => p.tanggal && p.tanggal.startsWith(prefix)).reduce((s, p) => s + (p.jumlah || 0), 0);
-  const totalMasuk = totalPenjualan + totalPencairanBulan;
+  const totalMasuk = totalPenjualan + totalPenjualanLain + totalPencairanBulan;
 
   const saldoAkhir = totalMasuk - totalKeluar;
 
@@ -1142,15 +1293,16 @@ function ArusKasTab() {
       const biayaHari = biayaData.filter(b => b.tanggal === tgl).reduce((s, b) => s + b.jumlah, 0);
       const opexHari = opexData.filter(o => o.tanggal === tgl).reduce((s, o) => s + o.total, 0);
       const jualHari = penjualan.filter(t => t.tanggal === tgl).reduce((s, t) => s + (t.total || 0), 0);
+      const lainHari = penjualanLain.filter(t => t.tanggal === tgl).reduce((s, t) => s + (t.jumlah || 0), 0);
       const cairHari = pencairan.filter(p => p.tanggal === tgl).reduce((s, p) => s + (p.jumlah || 0), 0);
       days.push({
         tgl: String(d),
-        masuk: jualHari + cairHari,
+        masuk: jualHari + lainHari + cairHari,
         keluar: bayarHari + biayaHari + opexHari,
       });
     }
     return days;
-  }, [payments, biayaData, opexData, penjualan, pencairan, bulan]);
+  }, [payments, biayaData, opexData, penjualan, penjualanLain, pencairan, bulan]);
 
   const maxMasuk = Math.max(...dailyFlow.map(d => d.masuk), 1);
   const maxKeluar = Math.max(...dailyFlow.map(d => d.keluar), 1);

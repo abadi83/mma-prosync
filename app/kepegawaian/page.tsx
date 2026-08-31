@@ -1745,6 +1745,7 @@ function AktivitasSkuTab() {
     opex: 'bg-emerald-100 text-emerald-700',
     'update-gambar': 'bg-emerald-100 text-emerald-700',
     'video-konten': 'bg-pink-100 text-pink-700',
+    'penjualan-lain': 'bg-emerald-100 text-emerald-700',
     biaya: 'bg-amber-100 text-amber-700',
     'koreksi-po': 'bg-orange-100 text-orange-700',
   };

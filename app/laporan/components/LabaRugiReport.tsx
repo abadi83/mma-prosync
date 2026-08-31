@@ -9,6 +9,7 @@ export interface LabaRugiData {
   biayaLain: number;
   labaKotor: number;
   labaBersih: number;
+  pendapatanLain?: number;
 }
 
 export interface LabaRugiExtra {
@@ -36,6 +37,13 @@ export interface LabaRugiExtra {
     total: number;
     pelanggan: string;
     metode: string;
+  }[];
+  penjualanLainBreakdown: {
+    tanggal: string;
+    kategori: string;
+    keterangan: string;
+    jumlah: number;
+    kas: string;
   }[];
 }
 
@@ -103,6 +111,14 @@ export function LabaRugiReport({ data, periode, extra }: Props) {
           <span className="text-sm font-bold text-emerald-700">= Pendapatan Bersih</span>
           <span className="text-base font-bold text-emerald-700">Rp {pendapatanBersih.toLocaleString('id-ID')}</span>
         </div>
+
+        {/* Pendapatan Lain-lain (di luar kasir & marketplace) */}
+        {(data.pendapatanLain || 0) > 0 && (
+          <div className="flex items-center justify-between bg-white px-4 py-3">
+            <span className="text-sm text-slate-600 pl-4">➕ Pendapatan Lain-lain (Kardus, Barang Afkir, dsb.)</span>
+            <span className="text-sm font-semibold text-emerald-600">+ Rp {data.pendapatanLain!.toLocaleString('id-ID')}</span>
+          </div>
+        )}
 
         {/* Biaya Operasional */}
         <div className="flex items-center justify-between bg-white px-4 py-3">
@@ -231,6 +247,41 @@ export function LabaRugiReport({ data, periode, extra }: Props) {
                   <td colSpan={4} className="px-2 py-2 font-bold text-slate-700">Total Penjualan Kasir</td>
                   <td className="px-2 py-2 text-right font-bold text-brand-700">Rp {extra.kasirTotal.toLocaleString('id-ID')}</td>
                   <td colSpan={2} />
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ── Breakdown Pendapatan Lain-lain ── */}
+      {extra && extra.penjualanLainBreakdown.length > 0 && (
+        <div className="mt-4 overflow-hidden rounded-2xl border border-slate-100">
+          <div className="bg-slate-50 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            🧾 Breakdown Pendapatan Lain-lain ({extra.penjualanLainBreakdown.length} catatan)
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-[10px]">
+              <thead><tr className="bg-slate-50 text-slate-500">
+                <th className="px-2 py-2 font-semibold">Tanggal</th>
+                <th className="px-2 py-2 font-semibold">Kategori</th>
+                <th className="px-2 py-2 font-semibold">Keterangan</th>
+                <th className="px-2 py-2 font-semibold text-center">Kas</th>
+                <th className="px-2 py-2 font-semibold text-right">Jumlah</th>
+              </tr></thead>
+              <tbody className="divide-y divide-slate-50 bg-white">
+                {[...extra.penjualanLainBreakdown].sort((a, b) => b.tanggal.localeCompare(a.tanggal)).map((x, i) => (
+                  <tr key={`${x.tanggal}-${i}`} className="hover:bg-indigo-50/30">
+                    <td className="px-2 py-1.5 text-slate-500 whitespace-nowrap">{x.tanggal}</td>
+                    <td className="px-2 py-1.5 font-medium text-slate-700">{x.kategori}</td>
+                    <td className="px-2 py-1.5 text-slate-600 max-w-[200px] truncate" title={x.keterangan}>{x.keterangan || '-'}</td>
+                    <td className="px-2 py-1.5 text-center">{x.kas === 'besar' ? '🏦 Besar' : x.kas === 'kecil' ? '🟡 Kecil' : '—'}</td>
+                    <td className="px-2 py-1.5 text-right font-semibold text-emerald-600">Rp {x.jumlah.toLocaleString('id-ID')}</td>
+                  </tr>
+                ))}
+                <tr className="bg-indigo-50/50">
+                  <td colSpan={4} className="px-2 py-2 font-bold text-slate-700">Total Pendapatan Lain-lain</td>
+                  <td className="px-2 py-2 text-right font-bold text-emerald-700">Rp {(data.pendapatanLain || 0).toLocaleString('id-ID')}</td>
                 </tr>
               </tbody>
             </table>
