@@ -166,12 +166,15 @@ function SaldoKas() {
   const [saldoAwal, setSaldoAwal] = useState(0);
   const [kasKecilList, setKasKecilList] = useState<KasKecilEntry[]>([]);
   const [kasBesarMasukList, setKasBesarMasukList] = useState<any[]>([]);
+  const [kasBesarKeluarList, setKasBesarKeluarList] = useState<any[]>([]);
   const [kasFilter, setKasFilter] = useState<'semua' | 'besar' | 'kecil'>('semua');
   const [pencairan, setPencairan] = useState<PencairanEntry[]>([]);
   const [mpOrders, setMpOrders] = useState<any[]>([]);
   const [mounted, setMounted] = useState(false);
   const [showTambah, setShowTambah] = useState(false);
+  const [showTambahKB, setShowTambahKB] = useState(false);
   const [formKK, setFormKK] = useState({ jumlah: '', jenis: 'masuk' as 'masuk' | 'keluar', keterangan: '' });
+  const [formKB, setFormKB] = useState({ jumlah: '', jenis: 'masuk' as 'masuk' | 'keluar', keterangan: '' });
 
   useEffect(() => {
     try {
@@ -185,6 +188,8 @@ function SaldoKas() {
       if (kk) setKasKecilList(applyTombstones(KAS_KECIL_STORAGE, JSON.parse(kk), tombs));
       const kb = localStorage.getItem('mma_kas_besar_masuk');
       if (kb) setKasBesarMasukList(applyTombstones('mma_kas_besar_masuk', JSON.parse(kb), tombs));
+      const kbk = localStorage.getItem('mma_kas_besar_keluar');
+      if (kbk) setKasBesarKeluarList(applyTombstones('mma_kas_besar_keluar', JSON.parse(kbk), tombs));
     } catch {}
     setPencairan(loadPencairan());
     fetchMpSummary().then(setMpOrders).catch(() => {});
@@ -196,6 +201,8 @@ function SaldoKas() {
         if (kk) setKasKecilList(applyTombstones(KAS_KECIL_STORAGE, JSON.parse(kk), tombs));
         const kb = localStorage.getItem('mma_kas_besar_masuk');
         if (kb) setKasBesarMasukList(applyTombstones('mma_kas_besar_masuk', JSON.parse(kb), tombs));
+        const kbk = localStorage.getItem('mma_kas_besar_keluar');
+        if (kbk) setKasBesarKeluarList(applyTombstones('mma_kas_besar_keluar', JSON.parse(kbk), tombs));
       } catch {}
     };
     window.addEventListener('pencairan-updated', onUpdate);
@@ -250,18 +257,51 @@ function SaldoKas() {
     } catch { return []; }
   })();
 
-  // Penjualan transfer → eksplisit masuk Kas Besar
+  // Penjualan transfer & setoran → eksplisit masuk Kas Besar; keluar manual mengurangi
   const totalKasBesarMasuk = kasBesarMasukList.reduce((s: number, e: any) => s + (e.jumlah || 0), 0);
+  const totalKasBesarKeluar = kasBesarKeluarList.reduce((s: number, e: any) => s + (e.jumlah || 0), 0);
 
-  const kasBesar = saldoAwal - totalPengeluaran + totalPencairanSum + refundBesar + totalKasBesarMasuk; // pencairan, refund & penjualan transfer masuk ke Kas Besar
+  const kasBesar = saldoAwal - totalPengeluaran - totalKasBesarKeluar + totalPencairanSum + refundBesar + totalKasBesarMasuk; // pencairan, refund, penjualan transfer & setoran masuk ke Kas Besar
   const totalSaldo = kasBesar + kasKecil + saldoMP;
+
+  /* ── Atur Kas Besar: setoran / pengambilan manual ── */
+  const tambahKasBesar = () => {
+    const jml = Math.round(+formKB.jumlah || 0);
+    if (jml <= 0) return;
+    const ket = formKB.keterangan.trim();
+    try {
+      if (formKB.jenis === 'masuk') {
+        const kb = JSON.parse(localStorage.getItem('mma_kas_besar_masuk') || '[]');
+        kb.unshift({ id: `kb-manual-${Date.now()}`, tanggal: new Date().toISOString().slice(0, 10), jumlah: jml, sumber: 'manual', keterangan: ket ? `Setoran: ${ket}` : 'Setoran modal / top-up Kas Besar' });
+        localStorage.setItem('mma_kas_besar_masuk', JSON.stringify(kb));
+      } else {
+        const kbk = JSON.parse(localStorage.getItem('mma_kas_besar_keluar') || '[]');
+        kbk.unshift({ id: `kbk-manual-${Date.now()}`, tanggal: new Date().toISOString().slice(0, 10), jumlah: jml, keterangan: ket || 'Pengambilan manual Kas Besar' });
+        localStorage.setItem('mma_kas_besar_keluar', JSON.stringify(kbk));
+      }
+    } catch {}
+    window.dispatchEvent(new Event('kas-kecil-updated'));
+    setShowTambahKB(false);
+    setFormKB({ jumlah: '', jenis: 'masuk', keterangan: '' });
+  };
+
+  const hapusKasBesarKeluar = (entry: any) => {
+    if (!window.confirm(`Hapus pengeluaran manual Kas Besar "${entry.keterangan}" Rp ${entry.jumlah.toLocaleString('id-ID')}?`)) return;
+    const next = kasBesarKeluarList.filter(e => e.id !== entry.id);
+    setKasBesarKeluarList(next);
+    try {
+      localStorage.setItem('mma_kas_besar_keluar', JSON.stringify(next));
+      addTombstones([{ id: entry.id, kind: 'kasbesarkeluar' }]);
+    } catch {}
+    window.dispatchEvent(new Event('kas-kecil-updated'));
+  };
 
   // ── Riwayat uang masuk (Kas Besar & Kas Kecil) ──
   const riwayatMasuk = (() => {
     const rows: any[] = [
       ...kasBesarMasukList.map((e: any) => ({
         id: `kb-${e.id || Math.random()}`, entryId: e.id, tanggal: e.tanggal || '',
-        sumber: e.sumber === 'penjualan' ? '💳 Penjualan Transfer' : e.sumber === 'penjualan-lain' ? '🧾 Penjualan Lain' : '🏦 Manual',
+        sumber: e.sumber === 'penjualan' ? '💳 Penjualan Transfer' : e.sumber === 'penjualan-lain' ? '🧾 Penjualan Lain' : '🏦 Setoran Manual',
         ket: e.keterangan || '', jumlah: e.jumlah || 0, kas: 'besar',
       })),
       ...kasKecilList.filter((e: any) => e.jenis === 'masuk').map((e: any) => ({
@@ -331,8 +371,12 @@ function SaldoKas() {
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-3 text-center">
           <p className="text-[10px] text-emerald-500 uppercase">Kas Besar</p>
-          <p className="text-sm font-bold text-emerald-700">{fmt(kasBesar)}</p>
-          <p className="text-[9px] text-emerald-400">Modal + Pencairan + Refund + Jualan Transfer − Pengeluaran</p>
+          <p className={`text-sm font-bold ${kasBesar >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>{fmt(kasBesar)}</p>
+          <p className="text-[9px] text-emerald-400">Modal + Pencairan + Refund + Jualan − Pengeluaran</p>
+          <button onClick={() => setShowTambahKB(!showTambahKB)}
+            className="mt-1 text-[9px] text-emerald-500 hover:text-emerald-700 underline">
+            {showTambahKB ? 'Tutup' : '+ Atur'}
+          </button>
         </div>
         <div className="rounded-xl bg-amber-50 border border-amber-200 p-3 text-center">
           <p className="text-[10px] text-amber-500 uppercase">Kas Kecil</p>
@@ -440,6 +484,60 @@ function SaldoKas() {
             <button onClick={tambahKasKecil} className="rounded-lg bg-amber-500 px-3 py-1 text-xs font-bold text-white hover:bg-amber-600">Simpan</button>
           </div>
         </div>
+      )}
+
+      {/* Form Atur Kas Besar: setoran / pengambilan manual */}
+      {showTambahKB && (
+        <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50/50 p-3">
+          <p className="text-xs font-semibold text-emerald-700 mb-2">🏦 Atur Kas Besar — setoran modal / pengambilan manual (mis. bayar PO pakai uang pribadi)</p>
+          <div className="flex gap-2 items-end">
+            <div>
+              <label className="block text-[10px] text-slate-500 mb-0.5">Jumlah</label>
+              <input type="number" value={formKB.jumlah} onChange={e => setFormKB(p => ({ ...p, jumlah: e.target.value }))}
+                className="w-32 rounded-lg border px-2 py-1 text-xs font-bold" placeholder="0" />
+            </div>
+            <div>
+              <label className="block text-[10px] text-slate-500 mb-0.5">Jenis</label>
+              <select value={formKB.jenis} onChange={e => setFormKB(p => ({ ...p, jenis: e.target.value as 'masuk' | 'keluar' }))}
+                className="rounded-lg border px-2 py-1 text-xs">
+                <option value="masuk">📥 Setoran Masuk</option>
+                <option value="keluar">📤 Ambil / Bayar Manual</option>
+              </select>
+            </div>
+            <div className="flex-1">
+              <label className="block text-[10px] text-slate-500 mb-0.5">Keterangan</label>
+              <input type="text" value={formKB.keterangan} onChange={e => setFormKB(p => ({ ...p, keterangan: e.target.value }))}
+                className="w-full rounded-lg border px-2 py-1 text-xs" placeholder="cth: setoran bos Rp 5jt, bayar PO pakai uang pribadi..." />
+            </div>
+            <button onClick={tambahKasBesar} className="rounded-lg bg-emerald-500 px-3 py-1 text-xs font-bold text-white hover:bg-emerald-600">Simpan</button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Keluar Kas Besar (Manual) ── */}
+      {kasBesarKeluarList.length > 0 && (
+        <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3">
+          <p className="text-sm font-bold text-slate-700">📤 Keluar Kas Besar (Manual)</p>
+          <table className="mt-2 w-full text-left text-[11px]">
+            <tbody className="divide-y divide-slate-50">
+              {kasBesarKeluarList.map(e => (
+                <tr key={e.id}>
+                  <td className="py-1.5 pr-2 text-slate-500 whitespace-nowrap">{e.tanggal}</td>
+                  <td className="py-1.5 pr-2 text-slate-600 truncate max-w-[220px]" title={e.keterangan}>{e.keterangan || '-'}</td>
+                  <td className="py-1.5 pr-2 text-right font-bold text-red-500">− Rp {e.jumlah.toLocaleString('id-ID')}</td>
+                  <td className="py-1.5 pl-2 text-center"><button onClick={() => hapusKasBesarKeluar(e)} title="Hapus" className="text-red-300 hover:text-red-600 text-xs">🗑</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Peringatan saldo minus */}
+      {kasBesar < 0 && (
+        <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600">
+          ⚠️ <strong>Kas Besar minus {fmt(Math.abs(kasBesar))}</strong> — artinya pengeluaran (bayar PO/biaya) lebih besar dari uang masuk Kas Besar. Kalau pembayarannya pakai uang pribadi/sumber lain, catat lewat <strong>+ Atur Kas Besar</strong> → 📥 Setoran Masuk supaya saldo sesuai kenyataan.
+        </p>
       )}
     </div>
   );

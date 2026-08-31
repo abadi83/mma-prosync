@@ -10,8 +10,8 @@
 export const TOMBSTONE_KEY = 'mma_tombstones';
 
 export interface Tombstone {
-  id: string;          // payment id ATAU noPO ATAU entry id kas kecil/kas besar masuk
-  kind: 'payment' | 'po' | 'kaskecil' | 'kasbesar';
+  id: string;          // payment id ATAU noPO ATAU entry id kas kecil/kas besar masuk/keluar
+  kind: 'payment' | 'po' | 'kaskecil' | 'kasbesar' | 'kasbesarkeluar';
   deletedAt: string;
 }
 
@@ -31,7 +31,7 @@ export function writeTombstones(list: Tombstone[]): void {
   try { localStorage.setItem(TOMBSTONE_KEY, JSON.stringify(list)); } catch {}
 }
 
-export function addTombstones(entries: { id: string; kind: 'payment' | 'po' | 'kaskecil' | 'kasbesar' }[]): Tombstone[] {
+export function addTombstones(entries: { id: string; kind: 'payment' | 'po' | 'kaskecil' | 'kasbesar' | 'kasbesarkeluar' }[]): Tombstone[] {
   if (entries.length === 0) return readTombstones();
   const now = new Date().toISOString();
   const existing = readTombstones();
@@ -60,6 +60,7 @@ export function applyTombstones(key: string, data: any, tombs: Tombstone[]): any
   const payIds = new Set(tombs.filter(t => t.kind === 'payment').map(t => t.id));
   const kasKecilIds = new Set(tombs.filter(t => t.kind === 'kaskecil').map(t => t.id));
   const kasBesarIds = new Set(tombs.filter(t => t.kind === 'kasbesar').map(t => t.id));
+  const kasBesarKeluarIds = new Set(tombs.filter(t => t.kind === 'kasbesarkeluar').map(t => t.id));
 
   if (key === 'mma_hpp_purchases') {
     return data.filter((i: any) => !poIds.has(i?.noPO));
@@ -78,6 +79,9 @@ export function applyTombstones(key: string, data: any, tombs: Tombstone[]): any
   }
   if (key === 'mma_kas_besar_masuk') {
     return data.filter((i: any) => !kasBesarIds.has(i?.id));
+  }
+  if (key === 'mma_kas_besar_keluar') {
+    return data.filter((i: any) => !kasBesarKeluarIds.has(i?.id));
   }
   return data;
 }
