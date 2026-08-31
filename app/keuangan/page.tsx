@@ -7,7 +7,7 @@ import type { BuktiBayar, OcrResult } from '@/app/types';
 import { fetchMpSummary } from '@/app/lib/marketplaceOrdersClient';
 import { loadPencairan, savePencairan, totalPencairan, PENCAIRAN_STORAGE, type PencairanEntry } from '@/app/lib/pencairan';
 import { recordActivity } from '@/app/lib/recordActivity';
-import { readTombstones, applyTombstones, type Tombstone } from '@/app/lib/tombstones';
+import { readTombstones, applyTombstones, addTombstones, type Tombstone } from '@/app/lib/tombstones';
 import HapusDataTab from './HapusDataTab';
 
 /* ================================================================ */
@@ -256,13 +256,13 @@ function SaldoKas() {
   const riwayatMasuk = (() => {
     const rows: any[] = [
       ...kasBesarMasukList.map((e: any) => ({
-        id: `kb-${e.id || Math.random()}`, tanggal: e.tanggal || '',
+        id: `kb-${e.id || Math.random()}`, entryId: e.id, tanggal: e.tanggal || '',
         sumber: e.sumber === 'penjualan' ? '💳 Penjualan Transfer' : '🏦 Manual',
         ket: e.keterangan || '', jumlah: e.jumlah || 0, kas: 'besar',
       })),
       ...kasKecilList.filter((e: any) => e.jenis === 'masuk').map((e: any) => ({
-        id: `kk-${e.id || Math.random()}`, tanggal: e.tanggal || '',
-        sumber: e.sumber === 'penjualan' ? '💵 Penjualan Cash' : '✍️ Manual',
+        id: `kk-${e.id || Math.random()}`, entryId: e.id, tanggal: e.tanggal || '',
+        sumber: e.sumber === 'penjualan' ? '💵 Penjualan Cash' : e.sumber === 'refund' ? '↩️ Refund' : '✍️ Manual',
         ket: e.keterangan || '', jumlah: e.jumlah || 0, kas: 'kecil',
       })),
       ...pencairan.map((p: any) => ({
@@ -278,6 +278,26 @@ function SaldoKas() {
       .filter(r => kasFilter === 'semua' || r.kas === kasFilter)
       .sort((a, b) => String(b.tanggal).localeCompare(String(a.tanggal)));
   })();
+
+  /* Hapus satu entry uang masuk (permanen lintas perangkat via tombstone) */
+  const hapusRiwayatMasuk = (row: any) => {
+    if (!row || !row.entryId) return;
+    if (!window.confirm(`Hapus "${row.ket || row.sumber}" dari riwayat ${row.kas === 'besar' ? 'Kas Besar' : 'Kas Kecil'}?\nSaldo akan menyesuaikan otomatis.`)) return;
+    try {
+      if (row.kas === 'kecil') {
+        const next = kasKecilList.filter((e: any) => e.id !== row.entryId);
+        setKasKecilList(next);
+        localStorage.setItem(KAS_KECIL_STORAGE, JSON.stringify(next));
+        addTombstones([{ id: row.entryId, kind: 'kaskecil' }]);
+        window.dispatchEvent(new Event('kas-kecil-updated'));
+      } else {
+        const next = kasBesarMasukList.filter((e: any) => e.id !== row.entryId);
+        setKasBesarMasukList(next);
+        localStorage.setItem('mma_kas_besar_masuk', JSON.stringify(next));
+        addTombstones([{ id: row.entryId, kind: 'kasbesar' }]);
+      }
+    } catch {}
+  };
 
   const tambahKasKecil = () => {
     const jml = +formKK.jumlah || 0;
@@ -357,11 +377,12 @@ function SaldoKas() {
                 <th className="py-1.5 pr-2 font-semibold">Keterangan</th>
                 <th className="py-1.5 pr-2 font-semibold">Kas</th>
                 <th className="py-1.5 font-semibold text-right">Jumlah</th>
+                <th className="py-1.5 pl-2 font-semibold text-center">Aksi</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
               {riwayatMasuk.length === 0 ? (
-                <tr><td colSpan={5} className="py-4 text-center text-slate-300">Belum ada uang masuk tercatat.</td></tr>
+                <tr><td colSpan={6} className="py-4 text-center text-slate-300">Belum ada uang masuk tercatat.</td></tr>
               ) : (
                 riwayatMasuk.map(r => (
                   <tr key={r.id}>
@@ -374,6 +395,13 @@ function SaldoKas() {
                         : <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold text-amber-700">🟡 Kecil</span>}
                     </td>
                     <td className="py-1.5 text-right font-bold text-emerald-600">{fmt(r.jumlah)}</td>
+                    <td className="py-1.5 pl-2 text-center">
+                      {r.entryId ? (
+                        <button onClick={() => hapusRiwayatMasuk(r)} title="Hapus entry ini" className="text-red-300 hover:text-red-600 text-xs">🗑</button>
+                      ) : (
+                        <span className="text-slate-200">—</span>
+                      )}
+                    </td>
                   </tr>
                 ))
               )}
