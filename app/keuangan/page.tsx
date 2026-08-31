@@ -180,20 +180,22 @@ function SaldoKas() {
         const modalList = JSON.parse(modalRaw);
         setSaldoAwal(modalList.reduce((s: number, m: any) => s + (m.jumlah || 0), 0));
       }
+      const tombs = readTombstones();
       const kk = localStorage.getItem(KAS_KECIL_STORAGE);
-      if (kk) setKasKecilList(JSON.parse(kk));
+      if (kk) setKasKecilList(applyTombstones(KAS_KECIL_STORAGE, JSON.parse(kk), tombs));
       const kb = localStorage.getItem('mma_kas_besar_masuk');
-      if (kb) setKasBesarMasukList(JSON.parse(kb));
+      if (kb) setKasBesarMasukList(applyTombstones('mma_kas_besar_masuk', JSON.parse(kb), tombs));
     } catch {}
     setPencairan(loadPencairan());
     fetchMpSummary().then(setMpOrders).catch(() => {});
     const onUpdate = () => {
       setPencairan(loadPencairan());
       try {
+        const tombs = readTombstones();
         const kk = localStorage.getItem(KAS_KECIL_STORAGE);
-        if (kk) setKasKecilList(JSON.parse(kk));
+        if (kk) setKasKecilList(applyTombstones(KAS_KECIL_STORAGE, JSON.parse(kk), tombs));
         const kb = localStorage.getItem('mma_kas_besar_masuk');
-        if (kb) setKasBesarMasukList(JSON.parse(kb));
+        if (kb) setKasBesarMasukList(applyTombstones('mma_kas_besar_masuk', JSON.parse(kb), tombs));
       } catch {}
     };
     window.addEventListener('pencairan-updated', onUpdate);

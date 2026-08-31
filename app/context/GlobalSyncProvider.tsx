@@ -196,6 +196,8 @@ export function GlobalSyncProvider({ children }: { children: React.ReactNode }) 
       const remote = await pullFromServer(key);
       let server = remote ? remote.data : null;
       const deletedAt = remote ? remote.deletedAt : null;
+      // Snapshot server ASLI (sebelum difilter tombstone) — untuk deteksi perubahan yang perlu dipush balik
+      const serverOrigStr = remote ? JSON.stringify(remote.data ?? null) : null;
 
       // ── Partial-delete tombstone: item yang dihapus permanen tidak boleh
       //    hidup lagi dari copy server / perangkat lain ──
@@ -248,6 +250,10 @@ export function GlobalSyncProvider({ children }: { children: React.ReactNode }) 
         // Hanya server punya data → terapkan ke lokal
         writeLocal(key, server);
         localSnapshots.current[key] = JSON.stringify(server);
+        // Kalau tombstone memfilter data server, bersihkan juga copy server-nya
+        if (serverOrigStr !== JSON.stringify(server)) {
+          await pushToServer(key, server);
+        }
         notifyListeners(key);
         return;
       }
@@ -290,7 +296,8 @@ export function GlobalSyncProvider({ children }: { children: React.ReactNode }) 
         localSnapshots.current[key] = localStr;
       }
 
-      if (JSON.stringify(server) !== mergedStr) {
+      // Bandingkan dengan server ASLI (sebelum filter tombstone) supaya hasil filter ikut dipush
+      if (serverOrigStr !== mergedStr) {
         await pushToServer(key, merged);
       }
     } catch {}
