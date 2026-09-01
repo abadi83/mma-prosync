@@ -10,7 +10,7 @@ type Tab = 'kasir' | 'daftar' | 'ringkasan';
 const TABS: { key: Tab; label: string; icon: string }[] = [
   { key: 'kasir', label: 'Kasir', icon: '🧾' },
   { key: 'daftar', label: 'Daftar Transaksi', icon: '📃' },
-  { key: 'ringkasan', label: 'Ringkasan Harian', icon: '📊' },
+  { key: 'ringkasan', label: 'Ringkasan Penjualan', icon: '📊' },
 ];
 
 interface CartItem { id: string; produk: string; harga: number; hargaAsli: number; hargaModal: number; qty: number; }
@@ -775,9 +775,18 @@ function DaftarTransaksi({ onChanged }: { onChanged?: () => void }) {
 }
 
 /* ═══════════════════════════════════════════════════════════════════ */
-/* RINGKASAN HARIAN                                                   */
+/* RINGKASAN HARIAN + RIWAYAT BULANAN & TAHUNAN                          */
 /* ═══════════════════════════════════════════════════════════════════ */
 function RingkasanHarian({ data }: { data: TransaksiEntry[] }) {
+  type Periode = 'hari' | 'bulan' | 'tahun';
+  const [periode, setPeriode] = useState<Periode>('hari');
+  const [bulanStr, setBulanStr] = useState(() => new Date().toISOString().slice(0, 7));
+  const tahunSekarang = new Date().getFullYear();
+  const [tahunStr, setTahunStr] = useState(String(tahunSekarang));
+
+  const fmtRp = (n: number) => `Rp ${n.toLocaleString('id-ID')}`;
+
+  /* ── Hari Ini (flow existing, tidak diubah) ── */
   const hariIni = new Date().toISOString().slice(0, 10);
   const todayTx = data.filter(t => t.tanggal === hariIni);
   const totalPenjualan = todayTx.reduce((s, t) => s + t.total, 0);
@@ -788,35 +797,176 @@ function RingkasanHarian({ data }: { data: TransaksiEntry[] }) {
   todayTx.forEach(t => produkMap.set(t.produk, (produkMap.get(t.produk) || 0) + t.jumlah));
   const topProduk = Array.from(produkMap.entries()).sort((a, b) => b[1] - a[1]).slice(0, 5);
 
+  /* ── Bulanan ── */
+  const bulanTx = useMemo(() => data.filter(t => (t.tanggal || '').startsWith(bulanStr)), [data, bulanStr]);
+  const totalBulan = bulanTx.reduce((s, t) => s + t.total, 0);
+  const jmlBulan = bulanTx.length;
+  const hariAktif = new Set(bulanTx.map(t => t.tanggal)).size;
+  const rataHarian = hariAktif > 0 ? Math.round(totalBulan / hariAktif) : 0;
+  const topProdukBulan = useMemo(() => {
+    const m = new Map<string, number>();
+    bulanTx.forEach(t => m.set(t.produk, (m.get(t.produk) || 0) + t.jumlah));
+    return Array.from(m.entries()).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  }, [bulanTx]);
+  const perHari = useMemo(() => {
+    const m = new Map<number, { total: number; jml: number }>();
+    bulanTx.forEach(t => {
+      const d = Number((t.tanggal || '').slice(8, 10));
+      if (!d) return;
+      const cur = m.get(d) || { total: 0, jml: 0 };
+      cur.total += t.total; cur.jml += 1;
+      m.set(d, cur);
+    });
+    return Array.from(m.entries()).sort((a, b) => a[0] - b[0]);
+  }, [bulanTx]);
+  const maxHarian = Math.max(...perHari.map(([, v]) => v.total), 1);
+
+  /* ── Tahunan ── */
+  const tahunTx = useMemo(() => data.filter(t => (t.tanggal || '').startsWith(tahunStr)), [data, tahunStr]);
+  const totalTahun = tahunTx.reduce((s, t) => s + t.total, 0);
+  const jmlTahun = tahunTx.length;
+  const bulanAktif = new Set(tahunTx.map(t => (t.tanggal || '').slice(0, 7))).size;
+  const rataBulanan = bulanAktif > 0 ? Math.round(totalTahun / bulanAktif) : 0;
+  const topProdukTahun = useMemo(() => {
+    const m = new Map<string, number>();
+    tahunTx.forEach(t => m.set(t.produk, (m.get(t.produk) || 0) + t.jumlah));
+    return Array.from(m.entries()).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  }, [tahunTx]);
+  const NAMA_BULAN = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+  const perBulan = useMemo(() => {
+    const m = new Map<number, { total: number; jml: number }>();
+    tahunTx.forEach(t => {
+      const mo = Number((t.tanggal || '').slice(5, 7));
+      if (!mo) return;
+      const cur = m.get(mo) || { total: 0, jml: 0 };
+      cur.total += t.total; cur.jml += 1;
+      m.set(mo, cur);
+    });
+    return Array.from(m.entries()).sort((a, b) => a[0] - b[0]);
+  }, [tahunTx]);
+  const maxBulanan = Math.max(...perBulan.map(([, v]) => v.total), 1);
+
+  /* Daftar tahun yang ada di data (untuk pilihan dropdown tahun) */
+  const tahunOptions = useMemo(() => {
+    const set = new Set<number>([tahunSekarang]);
+    data.forEach(t => { const y = Number((t.tanggal || '').slice(0, 4)); if (y) set.add(y); });
+    return Array.from(set).sort((a, b) => b - a);
+  }, [data, tahunSekarang]);
+
+  const labelTanggal = periode === 'hari'
+    ? new Date().toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
+    : periode === 'bulan'
+      ? `Riwayat ${new Date(bulanStr + '-01').toLocaleDateString('id-ID', { month: 'long', year: 'numeric' })}`
+      : `Riwayat Tahun ${tahunStr}`;
+
+  const cards = periode === 'hari' ? [
+    { icon: '💰', label: 'Total Penjualan', value: fmtRp(totalPenjualan), grad: 'from-brand-50 to-brand-100', lbl: 'text-brand-500', val: 'text-brand-700' },
+    { icon: '📃', label: 'Jml Transaksi', value: String(jumlahTransaksi), grad: 'from-emerald-50 to-emerald-100', lbl: 'text-emerald-600', val: 'text-emerald-700' },
+    { icon: '📊', label: 'Rata-Rata', value: fmtRp(rataRata), grad: 'from-amber-50 to-amber-100', lbl: 'text-amber-600', val: 'text-amber-700' },
+  ] : periode === 'bulan' ? [
+    { icon: '💰', label: 'Total Bulan Ini', value: fmtRp(totalBulan), grad: 'from-brand-50 to-brand-100', lbl: 'text-brand-500', val: 'text-brand-700' },
+    { icon: '📃', label: 'Jml Transaksi', value: String(jmlBulan), grad: 'from-emerald-50 to-emerald-100', lbl: 'text-emerald-600', val: 'text-emerald-700' },
+    { icon: '📅', label: 'Rata-Rata / Hari Aktif', value: fmtRp(rataHarian), grad: 'from-amber-50 to-amber-100', lbl: 'text-amber-600', val: 'text-amber-700' },
+  ] : [
+    { icon: '💰', label: 'Total Tahun Ini', value: fmtRp(totalTahun), grad: 'from-brand-50 to-brand-100', lbl: 'text-brand-500', val: 'text-brand-700' },
+    { icon: '📃', label: 'Jml Transaksi', value: String(jmlTahun), grad: 'from-emerald-50 to-emerald-100', lbl: 'text-emerald-600', val: 'text-emerald-700' },
+    { icon: '📅', label: 'Rata-Rata / Bulan Aktif', value: fmtRp(rataBulanan), grad: 'from-amber-50 to-amber-100', lbl: 'text-amber-600', val: 'text-amber-700' },
+  ];
+
+  const topList = periode === 'hari' ? topProduk : periode === 'bulan' ? topProdukBulan : topProdukTahun;
+  const topTitle = periode === 'hari' ? '🏆 Produk Terlaris Hari Ini' : periode === 'bulan' ? '🏆 Produk Terlaris Bulan Ini' : '🏆 Produk Terlaris Tahun Ini';
+
   return (
     <div>
       <div className="mb-1 h-1 w-16 rounded-full bg-gradient-to-r from-brand-500 to-brand-300" />
-      <h2 className="text-lg font-bold text-slate-800 sm:text-xl">Ringkasan Harian</h2>
-      <p className="mt-1 text-sm text-slate-500">{new Date().toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
-
-      <div className="mt-4 grid gap-3 sm:grid-cols-3">
-        <div className="rounded-2xl bg-gradient-to-br from-brand-50 to-brand-100 p-5 text-center shadow-sm">
-          <p className="text-3xl">💰</p>
-          <p className="mt-1 text-xs font-semibold uppercase text-brand-500">Total Penjualan</p>
-          <p className="mt-1 text-xl font-bold text-brand-700">Rp {totalPenjualan.toLocaleString('id-ID')}</p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-bold text-slate-800 sm:text-xl">Ringkasan Penjualan</h2>
+          <p className="mt-1 text-sm text-slate-500">{labelTanggal}</p>
         </div>
-        <div className="rounded-2xl bg-gradient-to-br from-emerald-50 to-emerald-100 p-5 text-center shadow-sm">
-          <p className="text-3xl">📃</p>
-          <p className="mt-1 text-xs font-semibold uppercase text-emerald-600">Jml Transaksi</p>
-          <p className="mt-1 text-xl font-bold text-emerald-700">{jumlahTransaksi}</p>
-        </div>
-        <div className="rounded-2xl bg-gradient-to-br from-amber-50 to-amber-100 p-5 text-center shadow-sm">
-          <p className="text-3xl">📊</p>
-          <p className="mt-1 text-xs font-semibold uppercase text-amber-600">Rata-Rata</p>
-          <p className="mt-1 text-xl font-bold text-amber-700">Rp {rataRata.toLocaleString('id-ID')}</p>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
+            {(['hari', 'bulan', 'tahun'] as Periode[]).map(p => (
+              <button key={p} onClick={() => setPeriode(p)}
+                className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${periode === p ? 'bg-brand-500 text-white shadow' : 'text-slate-600 hover:bg-brand-50 hover:text-brand-700'}`}>
+                {p === 'hari' ? 'Hari Ini' : p === 'bulan' ? 'Bulanan' : 'Tahunan'}
+              </button>
+            ))}
+          </div>
+          {periode === 'bulan' && (
+            <input type="month" value={bulanStr} onChange={e => setBulanStr(e.target.value)}
+              className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm focus:border-brand-500 focus:outline-none" />
+          )}
+          {periode === 'tahun' && (
+            <select value={tahunStr} onChange={e => setTahunStr(e.target.value)}
+              className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm focus:border-brand-500 focus:outline-none">
+              {tahunOptions.map(y => <option key={y} value={String(y)}>{y}</option>)}
+            </select>
+          )}
         </div>
       </div>
 
-      {topProduk.length > 0 && (
+      <div className="mt-4 grid gap-3 sm:grid-cols-3">
+        {cards.map(c => (
+          <div key={c.label} className={`rounded-2xl bg-gradient-to-br ${c.grad} p-5 text-center shadow-sm`}>
+            <p className="text-3xl">{c.icon}</p>
+            <p className={`mt-1 text-xs font-semibold uppercase ${c.lbl}`}>{c.label}</p>
+            <p className={`mt-1 text-xl font-bold ${c.val}`}>{c.value}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* ── Riwayat per hari (mode bulanan) ── */}
+      {periode === 'bulan' && (
         <div className="mt-4 rounded-2xl border border-brand-100 bg-white p-4">
-          <p className="text-sm font-bold text-slate-700">🏆 Produk Terlaris Hari Ini</p>
+          <p className="text-sm font-bold text-slate-700">📅 Riwayat per Hari</p>
+          {perHari.length > 0 ? (
+            <div className="mt-3 space-y-1.5">
+              {perHari.map(([d, v]) => (
+                <div key={d} className="flex items-center gap-2 text-xs">
+                  <span className="w-6 shrink-0 text-right font-semibold text-slate-500">{d}</span>
+                  <div className="h-4 flex-1 overflow-hidden rounded-full bg-slate-100">
+                    <div className="h-full rounded-full bg-gradient-to-r from-brand-500 to-brand-300" style={{ width: `${Math.max((v.total / maxHarian) * 100, 3)}%` }} />
+                  </div>
+                  <span className="w-28 shrink-0 text-right font-semibold text-brand-700">{fmtRp(v.total)}</span>
+                  <span className="w-14 shrink-0 text-slate-400">{v.jml} trx</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="mt-3 text-center text-sm text-slate-400">Belum ada transaksi di bulan ini.</p>
+          )}
+        </div>
+      )}
+
+      {/* ── Riwayat per bulan (mode tahunan) ── */}
+      {periode === 'tahun' && (
+        <div className="mt-4 rounded-2xl border border-brand-100 bg-white p-4">
+          <p className="text-sm font-bold text-slate-700">🗓️ Riwayat per Bulan</p>
+          {perBulan.length > 0 ? (
+            <div className="mt-3 space-y-1.5">
+              {perBulan.map(([mo, v]) => (
+                <div key={mo} className="flex items-center gap-2 text-xs">
+                  <span className="w-9 shrink-0 font-semibold text-slate-500">{NAMA_BULAN[mo - 1]}</span>
+                  <div className="h-4 flex-1 overflow-hidden rounded-full bg-slate-100">
+                    <div className="h-full rounded-full bg-gradient-to-r from-brand-500 to-brand-300" style={{ width: `${Math.max((v.total / maxBulanan) * 100, 3)}%` }} />
+                  </div>
+                  <span className="w-28 shrink-0 text-right font-semibold text-brand-700">{fmtRp(v.total)}</span>
+                  <span className="w-14 shrink-0 text-slate-400">{v.jml} trx</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="mt-3 text-center text-sm text-slate-400">Belum ada transaksi di tahun ini.</p>
+          )}
+        </div>
+      )}
+
+      {topList.length > 0 && (
+        <div className="mt-4 rounded-2xl border border-brand-100 bg-white p-4">
+          <p className="text-sm font-bold text-slate-700">{topTitle}</p>
           <div className="mt-2 space-y-1">
-            {topProduk.map(([nama, qty], i) => (
+            {topList.map(([nama, qty], i) => (
               <div key={nama} className="flex items-center gap-2 text-sm">
                 <span className="flex h-5 w-5 items-center justify-center rounded-full bg-brand-100 text-xs font-bold text-brand-700">{i + 1}</span>
                 <span className="flex-1 text-slate-700">{nama}</span>

@@ -14,7 +14,7 @@ describe('PenjualanPage', () => {
     expect(screen.getByText('Operasional')).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /kasir/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /daftar transaksi/i })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: /ringkasan harian/i })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /ringkasan penjualan/i })).toBeInTheDocument();
   });
 
   it('shows Kasir with product catalog and cart', () => {
@@ -37,9 +37,9 @@ describe('PenjualanPage', () => {
     expect(screen.getByText('Budi')).toBeInTheDocument();
   });
 
-  it('switches to Ringkasan Harian tab', () => {
+  it('switches to Ringkasan Penjualan tab', () => {
     render(<PenjualanPage />);
-    fireEvent.click(screen.getByRole('tab', { name: /ringkasan harian/i }));
+    fireEvent.click(screen.getByRole('tab', { name: /ringkasan penjualan/i }));
     expect(screen.getByText('Total Penjualan')).toBeInTheDocument();
     expect(screen.getByText('Jml Transaksi')).toBeInTheDocument();
     expect(screen.getByText('Rata-Rata')).toBeInTheDocument();
