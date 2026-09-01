@@ -1355,6 +1355,8 @@ function OpexTab() {
   const [namaItem, setNamaItem] = useState('');
   const [kategori, setKategori] = useState(OPEX_KATEGORI[0]);
   const [subKategori, setSubKategori] = useState('');
+  const [kategoriCustom, setKategoriCustom] = useState('');
+  const [subKategoriCustom, setSubKategoriCustom] = useState('');
   const [qty, setQty] = useState('');
   const [satuan, setSatuan] = useState('pcs');
   const [hargaSatuan, setHargaSatuan] = useState('');
@@ -1373,8 +1375,11 @@ function OpexTab() {
   /* Buka form untuk edit */
   const openEdit = (p: OpexPurchase) => {
     setNamaItem(p.namaItem);
-    setKategori(p.kategori);
-    setSubKategori(p.subKategori || '');
+    if (OPEX_KATEGORI.includes(p.kategori)) { setKategori(p.kategori); setKategoriCustom(''); }
+    else { setKategori('__custom__'); setKategoriCustom(p.kategori); }
+    const subs = OPEX_SUB_KATEGORI[p.kategori] || [];
+    if (p.subKategori && !subs.includes(p.subKategori)) { setSubKategori('__custom__'); setSubKategoriCustom(p.subKategori); }
+    else { setSubKategori(p.subKategori || ''); setSubKategoriCustom(''); }
     setQty(String(p.qty));
     setSatuan(p.satuan);
     setHargaSatuan(String(p.hargaSatuan));
@@ -1402,14 +1407,18 @@ function OpexTab() {
     if (!namaItem.trim()) { setFerr('Nama item wajib diisi.'); return; }
     if (!qty || +qty <= 0) { setFerr('Jumlah harus lebih dari 0.'); return; }
     if (!hargaSatuan || +hargaSatuan <= 0) { setFerr('Harga satuan harus lebih dari 0.'); return; }
+    const kat = kategori === '__custom__' ? (kategoriCustom.trim() || 'Lainnya') : kategori;
+    const sub = kat === 'Packing & Kemasan'
+      ? (subKategori === '__custom__' ? subKategoriCustom.trim() : subKategori)
+      : '';
 
     if (editId) {
       // Update entry
       setPurchases(prev => prev.map(p => p.id === editId ? {
         ...p,
         namaItem: namaItem.trim(),
-        kategori,
-        subKategori: kategori === 'Packing & Kemasan' ? subKategori : '',
+        kategori: kat,
+        subKategori: sub,
         qty: +qty,
         satuan,
         hargaSatuan: +hargaSatuan,
@@ -1417,7 +1426,7 @@ function OpexTab() {
         supplierNama: supplierNama.trim() || '-',
         tanggal: tanggal || new Date().toISOString().slice(0, 10),
       } : p));
-      recordActivity([{ modul: 'pembelian', aksi: 'opex', refLabel: `${namaItem.trim()} (${kategori})`, detail: { total: +qty * +hargaSatuan, tanggal, edit: true } }]);
+      recordActivity([{ modul: 'pembelian', aksi: 'opex', refLabel: `${namaItem.trim()} (${kat})`, detail: { total: +qty * +hargaSatuan, tanggal, edit: true } }]);
       cancelEdit();
       return;
     }
@@ -1425,8 +1434,8 @@ function OpexTab() {
     const purchase: OpexPurchase = {
       id: `opex-${Date.now()}`,
       namaItem: namaItem.trim(),
-      kategori,
-      subKategori: kategori === 'Packing & Kemasan' ? subKategori : '',
+      kategori: kat,
+      subKategori: sub,
       qty: +qty,
       satuan,
       hargaSatuan: +hargaSatuan,
@@ -1439,7 +1448,7 @@ function OpexTab() {
     recordActivity([{ modul: 'pembelian', aksi: 'opex', refLabel: `${purchase.namaItem} (${purchase.kategori})`, detail: { total: purchase.total, tanggal: purchase.tanggal } }]);
     setNamaItem(''); setQty(''); setHargaSatuan(''); setSupplierNama('');
     setTanggal(new Date().toISOString().slice(0, 10));
-    setKategori(OPEX_KATEGORI[0]); setSubKategori(''); setSatuan('pcs');
+    setKategori(OPEX_KATEGORI[0]); setSubKategori(''); setKategoriCustom(''); setSubKategoriCustom(''); setKategoriCustom(''); setSubKategoriCustom(''); setSatuan('pcs');
   };
 
   const totalBulanIni = useMemo(() => {
@@ -1485,9 +1494,13 @@ function OpexTab() {
           </div>
           <div>
             <label className="block text-xs font-semibold text-slate-600 mb-1">Kategori</label>
-            <select value={kategori} onChange={e => { setKategori(e.target.value); setSubKategori(''); }} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-100">
-              {OPEX_KATEGORI.map(k => <option key={k} value={k}>{k}</option>)}
+            <select value={kategori} onChange={e => { setKategori(e.target.value); setSubKategori(''); setKategoriCustom(p => (e.target.value === '__custom__' ? p : '')); }} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-100">
+              {kategoriOptions.map(k => <option key={k} value={k}>{k}</option>)}
+              <option value="__custom__">➕ Tambah Baru...</option>
             </select>
+            {kategori === '__custom__' && (
+              <input type="text" value={kategoriCustom} onChange={e => setKategoriCustom(e.target.value)} placeholder="Nama kategori baru..." className="mt-1 w-full rounded-lg border border-dashed border-emerald-300 bg-white px-2 py-1.5 text-xs focus:border-emerald-500 focus:outline-none" />
+            )}
           </div>
           {kategori === 'Packing & Kemasan' && (
             <div>
@@ -1495,7 +1508,11 @@ function OpexTab() {
               <select value={subKategori} onChange={e => setSubKategori(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-100">
                 <option value="">— Pilih —</option>
                 {OPEX_SUB_KATEGORI['Packing & Kemasan'].map(s => <option key={s} value={s}>{s}</option>)}
+                <option value="__custom__">➕ Tambah Baru...</option>
               </select>
+              {subKategori === '__custom__' && (
+                <input type="text" value={subKategoriCustom} onChange={e => setSubKategoriCustom(e.target.value)} placeholder="Nama sub kategori baru..." className="mt-1 w-full rounded-lg border border-dashed border-emerald-300 bg-white px-2 py-1.5 text-xs focus:border-emerald-500 focus:outline-none" />
+              )}
             </div>
           )}
           <div>
@@ -1545,7 +1562,7 @@ function OpexTab() {
         </select>
         <select value={filterKategori} onChange={e => setFilterKategori(e.target.value)} className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-xs font-semibold text-slate-700 focus:border-emerald-500 focus:outline-none">
           <option value="semua">Semua Kategori</option>
-          {OPEX_KATEGORI.map(k => <option key={k} value={k}>{k}</option>)}
+          {kategoriOptions.map(k => <option key={k} value={k}>{k}</option>)}
         </select>
         <span className="text-[11px] text-slate-400">{filtered.length} dari {purchases.length} item</span>
         {(filterKategori !== 'semua' || filterBulan !== 'semua') && (
@@ -1627,6 +1644,7 @@ function BiayaOpTab() {
 
   const [deskripsi, setDeskripsi] = useState('');
   const [kategori, setKategori] = useState(BIAYA_KATEGORI[0]);
+  const [kategoriCustom, setKategoriCustom] = useState('');
   const [jumlah, setJumlah] = useState('');
   const [tanggal, setTanggal] = useState(() => new Date().toISOString().slice(0, 10));
   const [ferr, setFerr] = useState('');
@@ -1637,9 +1655,17 @@ function BiayaOpTab() {
   const [filterKategori, setFilterKategori] = useState('semua');
   const [filterBulan, setFilterBulan] = useState('semua');
 
+  /* Opsi kategori = bawaan + kategori yang sudah dipakai di data (custom tetap bisa dipilih/difilter) */
+  const kategoriOptions = useMemo(() => {
+    const set = new Set<string>(BIAYA_KATEGORI);
+    for (const b of biayaList) if (b.kategori) set.add(b.kategori);
+    return Array.from(set);
+  }, [biayaList]);
+
   const openEdit = (b: BiayaOp) => {
     setDeskripsi(b.deskripsi);
-    setKategori(b.kategori);
+    if (BIAYA_KATEGORI.includes(b.kategori)) { setKategori(b.kategori); setKategoriCustom(''); }
+    else { setKategori('__custom__'); setKategoriCustom(b.kategori); }
     setJumlah(String(b.jumlah));
     setTanggal(b.tanggal);
     setEditId(b.id);
@@ -1650,7 +1676,7 @@ function BiayaOpTab() {
     setEditId(null);
     setDeskripsi(''); setJumlah('');
     setTanggal(new Date().toISOString().slice(0, 10));
-    setKategori(BIAYA_KATEGORI[0]);
+    setKategori(BIAYA_KATEGORI[0]); setKategoriCustom('');
   };
 
   const handleDelete = () => {
@@ -1663,16 +1689,17 @@ function BiayaOpTab() {
     setFerr('');
     if (!deskripsi.trim()) { setFerr('Deskripsi wajib diisi.'); return; }
     if (!jumlah || +jumlah <= 0) { setFerr('Jumlah harus lebih dari 0.'); return; }
+    const kat = kategori === '__custom__' ? (kategoriCustom.trim() || 'Lainnya') : kategori;
 
     if (editId) {
       setBiayaList(prev => prev.map(b => b.id === editId ? {
         ...b,
         deskripsi: deskripsi.trim(),
-        kategori,
+        kategori: kat,
         jumlah: +jumlah,
         tanggal: tanggal || new Date().toISOString().slice(0, 10),
       } : b));
-      recordActivity([{ modul: 'pembelian', aksi: 'biaya', refLabel: `${deskripsi.trim()} (${kategori})`, detail: { jumlah: +jumlah, tanggal, edit: true } }]);
+      recordActivity([{ modul: 'pembelian', aksi: 'biaya', refLabel: `${deskripsi.trim()} (${kat})`, detail: { jumlah: +jumlah, tanggal, edit: true } }]);
       cancelEdit();
       return;
     }
@@ -1680,7 +1707,7 @@ function BiayaOpTab() {
     const biaya: BiayaOp = {
       id: `biaya-${Date.now()}`,
       deskripsi: deskripsi.trim(),
-      kategori,
+      kategori: kat,
       jumlah: +jumlah,
       tanggal: tanggal || new Date().toISOString().slice(0, 10),
     };
@@ -1689,7 +1716,7 @@ function BiayaOpTab() {
     recordActivity([{ modul: 'pembelian', aksi: 'biaya', refLabel: `${biaya.deskripsi} (${biaya.kategori})`, detail: { jumlah: biaya.jumlah, tanggal: biaya.tanggal } }]);
     setDeskripsi(''); setJumlah('');
     setTanggal(new Date().toISOString().slice(0, 10));
-    setKategori(BIAYA_KATEGORI[0]);
+    setKategori(BIAYA_KATEGORI[0]); setKategoriCustom('');
   };
 
   /* Summary */
@@ -1751,8 +1778,12 @@ function BiayaOpTab() {
           <div>
             <label className="block text-xs font-semibold text-slate-600 mb-1">Kategori</label>
             <select value={kategori} onChange={e => setKategori(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-100">
-              {BIAYA_KATEGORI.map(k => <option key={k} value={k}>{k}</option>)}
+              {kategoriOptions.map(k => <option key={k} value={k}>{k}</option>)}
+              <option value="__custom__">➕ Tambah Baru...</option>
             </select>
+            {kategori === '__custom__' && (
+              <input type="text" value={kategoriCustom} onChange={e => setKategoriCustom(e.target.value)} placeholder="Nama kategori baru..." className="mt-1 w-full rounded-lg border border-dashed border-emerald-300 bg-white px-2 py-1.5 text-xs focus:border-emerald-500 focus:outline-none" />
+            )}
           </div>
           <div>
             <label className="block text-xs font-semibold text-slate-600 mb-1">Jumlah (Rp) *</label>
@@ -1781,7 +1812,7 @@ function BiayaOpTab() {
         </select>
         <select value={filterKategori} onChange={e => setFilterKategori(e.target.value)} className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-xs font-semibold text-slate-700 focus:border-emerald-500 focus:outline-none">
           <option value="semua">Semua Kategori</option>
-          {BIAYA_KATEGORI.map(k => <option key={k} value={k}>{k}</option>)}
+          {kategoriOptions.map(k => <option key={k} value={k}>{k}</option>)}
         </select>
         <span className="text-[11px] text-slate-400">{filtered.length} dari {biayaList.length} catatan</span>
         {(filterKategori !== 'semua' || filterBulan !== 'semua') && (
