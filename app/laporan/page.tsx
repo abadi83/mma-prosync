@@ -311,7 +311,7 @@ function LabaRugi({ periode, customStart, customEnd, orders }: { periode: Period
   }, []);
 
   const data = useMemo(() => {
-    if (!mounted) return { pendapatan: 0, hargaPokok: 0, biayaOperasional: 0, biayaLain: 0, labaKotor: 0, labaBersih: 0, feeMarketplace: 0, hppMarketplace: 0, breakdownPerToko: [] as any[], tokoList: [] as string[], kasirTotal: 0, kasirBreakdown: [] as any[], pendapatanLain: 0, penjualanLainBreakdown: [] as any[] };
+    if (!mounted) return { pendapatan: 0, hargaPokok: 0, biayaOperasional: 0, biayaLain: 0, labaKotor: 0, labaBersih: 0, feeMarketplace: 0, hppMarketplace: 0, breakdownPerToko: [] as any[], tokoList: [] as string[], kasirTotal: 0, kasirBreakdown: [] as any[], pendapatanLain: 0, penjualanLainBreakdown: [] as any[], biayaBreakdown: [] as any[], opexBreakdown: [] as any[] };
     const { penjualan, penjualanLain, biaya, opex } = getRealData();
     const f = (list: any[], field: string) => filterByPeriode(list, field, periode, customStart, customEnd);
 
@@ -417,9 +417,25 @@ function LabaRugi({ periode, customStart, customEnd, orders }: { periode: Period
     } catch {}
     const totalHppAll = hppKasir + marketplaceHpp;
     // Biaya = operasional + opex + fee marketplace (fee + biaya proses)
-    const b = f(biaya, 'tanggal').reduce((s: number, b2: any) => s + (b2.jumlah || 0), 0);
-    const o = f(opex, 'tanggal').reduce((s: number, o2: any) => s + (o2.total || 0), 0);
+    const biayaFiltered = f(biaya, 'tanggal');
+    const opexFiltered = f(opex, 'tanggal');
+    const b = biayaFiltered.reduce((s: number, b2: any) => s + (b2.jumlah || 0), 0);
+    const o = opexFiltered.reduce((s: number, o2: any) => s + (o2.total || 0), 0);
     const totalBiaya = b + o + marketplaceFee;
+
+    // ── Breakdown per kategori (biaya operasional & OPEX) ──
+    const groupSum = (list: any[], kategoriField: string, jumlahField: string) => {
+      const m = new Map<string, number>();
+      for (const x of list) {
+        const k = (x[kategoriField] || '').toString().trim() || 'Lainnya';
+        m.set(k, (m.get(k) || 0) + (x[jumlahField] || 0));
+      }
+      return Array.from(m.entries())
+        .map(([kategori, jumlah]) => ({ kategori, jumlah }))
+        .sort((a, b) => b.jumlah - a.jumlah);
+    };
+    const biayaBreakdown = groupSum(biayaFiltered, 'kategori', 'jumlah');
+    const opexBreakdown = groupSum(opexFiltered, 'kategori', 'total');
 
     // ── Pendapatan Lain-lain (di luar kasir & MP: kardus bekas, barang afkir, dsb.) ──
     const filteredLain = f(penjualanLain, 'tanggal');
@@ -453,6 +469,8 @@ function LabaRugi({ periode, customStart, customEnd, orders }: { periode: Period
         jumlah: x.jumlah || 0,
         kas: x.kas || '',
       })),
+      biayaBreakdown,
+      opexBreakdown,
     };
   }, [mounted, periode, filterToko, localRefresh, customStart, customEnd, orders]);
 
@@ -498,6 +516,8 @@ function LabaRugi({ periode, customStart, customEnd, orders }: { periode: Period
           kasirTotal: data.kasirTotal,
           kasirBreakdown: data.kasirBreakdown,
           penjualanLainBreakdown: data.penjualanLainBreakdown,
+          biayaBreakdown: data.biayaBreakdown,
+          opexBreakdown: data.opexBreakdown,
         }}
       />
     </div>

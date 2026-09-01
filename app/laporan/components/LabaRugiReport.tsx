@@ -45,6 +45,8 @@ export interface LabaRugiExtra {
     jumlah: number;
     kas: string;
   }[];
+  biayaBreakdown: { kategori: string; jumlah: number }[];
+  opexBreakdown: { kategori: string; jumlah: number }[];
 }
 
 interface Props {
@@ -126,11 +128,21 @@ export function LabaRugiReport({ data, periode, extra }: Props) {
           <span className="text-sm font-semibold text-red-500">- Rp {data.biayaOperasional.toLocaleString('id-ID')}</span>
         </div>
 
-        {/* Biaya Lain */}
-        <div className="flex items-center justify-between bg-slate-50/50 px-4 py-3">
-          <span className="text-sm text-slate-600 pl-4">➖ Biaya Lain-lain (OPEX)</span>
-          <span className="text-sm font-semibold text-red-500">- Rp {data.biayaLain.toLocaleString('id-ID')}</span>
-        </div>
+        {/* Fee Marketplace (dipisah dari OPEX) */}
+        {(extra?.feeMarketplace || 0) > 0 && (
+          <div className="flex items-center justify-between bg-slate-50/50 px-4 py-3">
+            <span className="text-sm text-slate-600 pl-4">➖ Fee Marketplace</span>
+            <span className="text-sm font-semibold text-red-500">- Rp {extra!.feeMarketplace.toLocaleString('id-ID')}</span>
+          </div>
+        )}
+
+        {/* Biaya Lain-lain (OPEX murni — tanpa fee marketplace) */}
+        {(data.biayaLain - (extra?.feeMarketplace || 0)) > 0 && (
+          <div className="flex items-center justify-between bg-slate-50/50 px-4 py-3">
+            <span className="text-sm text-slate-600 pl-4">➖ Biaya Lain-lain (OPEX)</span>
+            <span className="text-sm font-semibold text-red-500">- Rp {(data.biayaLain - (extra?.feeMarketplace || 0)).toLocaleString('id-ID')}</span>
+          </div>
+        )}
 
         {/* Laba Bersih */}
         <div className={`flex items-center justify-between px-4 py-4 ${labaBersih >= 0 ? 'bg-brand-100/70' : 'bg-red-100/70'}`}>
@@ -155,6 +167,50 @@ export function LabaRugiReport({ data, periode, extra }: Props) {
           </span>
         </div>
       </div>
+
+      {/* ── Breakdown Biaya Operasional & OPEX per kategori ── */}
+      {extra && (extra.biayaBreakdown.length > 0 || extra.opexBreakdown.length > 0) && (
+        <div className="mt-4 grid gap-4 lg:grid-cols-2">
+          {extra.biayaBreakdown.length > 0 && (
+            <div className="overflow-hidden rounded-2xl border border-slate-100">
+              <div className="bg-slate-50 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                💸 Breakdown Biaya Operasional
+              </div>
+              <div className="divide-y divide-slate-50 bg-white">
+                {extra.biayaBreakdown.map((k, i) => (
+                  <div key={i} className="flex items-center justify-between px-4 py-2 text-xs">
+                    <span className="text-slate-600">{k.kategori}</span>
+                    <span className="font-semibold text-red-500">Rp {k.jumlah.toLocaleString('id-ID')}</span>
+                  </div>
+                ))}
+                <div className="flex items-center justify-between bg-red-50/50 px-4 py-2 text-xs font-bold">
+                  <span className="text-red-600">Total</span>
+                  <span className="text-red-600">Rp {extra.biayaBreakdown.reduce((s, k) => s + k.jumlah, 0).toLocaleString('id-ID')}</span>
+                </div>
+              </div>
+            </div>
+          )}
+          {extra.opexBreakdown.length > 0 && (
+            <div className="overflow-hidden rounded-2xl border border-slate-100">
+              <div className="bg-slate-50 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                🛒 Breakdown OPEX (Biaya Lain-lain)
+              </div>
+              <div className="divide-y divide-slate-50 bg-white">
+                {extra.opexBreakdown.map((k, i) => (
+                  <div key={i} className="flex items-center justify-between px-4 py-2 text-xs">
+                    <span className="text-slate-600">{k.kategori}</span>
+                    <span className="font-semibold text-red-500">Rp {k.jumlah.toLocaleString('id-ID')}</span>
+                  </div>
+                ))}
+                <div className="flex items-center justify-between bg-red-50/50 px-4 py-2 text-xs font-bold">
+                  <span className="text-red-600">Total</span>
+                  <span className="text-red-600">Rp {extra.opexBreakdown.reduce((s, k) => s + k.jumlah, 0).toLocaleString('id-ID')}</span>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ── Marketplace Fee & HPP Breakdown ── */}
       {extra && (extra.feeMarketplace > 0 || extra.hppMarketplace > 0) && (
