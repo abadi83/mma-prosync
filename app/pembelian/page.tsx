@@ -134,7 +134,7 @@ const OPEX_SUB_KATEGORI: Record<string, string[]> = {
 const OPEX_SATUAN = ['pcs', 'roll', 'pack', 'kg', 'liter', 'set', 'box'];
 
 /* ── Kategori Biaya Operasional ── */
-const BIAYA_KATEGORI = ['Listrik & Air', 'Internet & Pulsa', 'Transport & BBM', 'Sewa Tempat', 'Gaji & Upah', 'Marketing & Iklan', 'Maintenance', 'Cicilan Kendaraan', 'Cicilan Utang Usaha', 'Ongkir Supplier', 'Ongkir Refund Customer', 'Refund Manual Marketplace', 'Lainnya'];
+const BIAYA_KATEGORI = ['Listrik & Air', 'Internet & Pulsa', 'Transport & BBM', 'Sewa Tempat', 'Gaji & Upah', 'Marketing & Iklan', 'Maintenance', 'Cicilan Kendaraan', 'Cicilan Utang Usaha', 'Ongkir Supplier', 'Ongkir Refund Customer', 'Refund Manual Marketplace', 'Fee Pengantaran Barang/Toren', 'Fee Marketing', 'Renovasi dan Infrastruktur', 'Parkir', 'Tips Supplier', 'Gas 3kg', 'Air Minum', 'Biaya Tukang', 'Service Kendaraan Gudang', 'Lainnya'];
 
 /* Format label bulan untuk filter (YYYY-MM → "Agustus 2026") */
 const NAMA_BULAN = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
