@@ -89,6 +89,7 @@ interface OpexPurchase {
   id: string;
   namaItem: string;
   kategori: string;
+  subKategori?: string;
   qty: number;
   satuan: string;
   hargaSatuan: number;
@@ -127,10 +128,13 @@ const TABS: { key: Tab; label: string; icon: string }[] = [
 
 /* ── Kategori OPEX ── */
 const OPEX_KATEGORI = ['Packing & Kemasan', 'ATK & Kantor', 'Kebersihan', 'Peralatan', 'Lainnya'];
+const OPEX_SUB_KATEGORI: Record<string, string[]> = {
+  'Packing & Kemasan': ['Kardus', 'Bubble Wrap', 'Plastik', 'Lakban', 'Lainnya'],
+};
 const OPEX_SATUAN = ['pcs', 'roll', 'pack', 'kg', 'liter', 'set', 'box'];
 
 /* ── Kategori Biaya Operasional ── */
-const BIAYA_KATEGORI = ['Listrik & Air', 'Internet & Pulsa', 'Transport & BBM', 'Sewa Tempat', 'Gaji & Upah', 'Marketing & Iklan', 'Maintenance', 'Lainnya'];
+const BIAYA_KATEGORI = ['Listrik & Air', 'Internet & Pulsa', 'Transport & BBM', 'Sewa Tempat', 'Gaji & Upah', 'Marketing & Iklan', 'Maintenance', 'Cicilan Kendaraan', 'Cicilan Utang Usaha', 'Ongkir Supplier', 'Ongkir Refund Customer', 'Refund Manual Marketplace', 'Lainnya'];
 
 /* Format label bulan untuk filter (YYYY-MM → "Agustus 2026") */
 const NAMA_BULAN = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
@@ -593,7 +597,10 @@ function DashboardTab() {
   /* ── OPEX by Kategori ── */
   const opexByKategori = useMemo(() => {
     const map: Record<string, number> = {};
-    opexFiltered.forEach(p => { map[p.kategori] = (map[p.kategori] || 0) + p.total; });
+    opexFiltered.forEach(p => {
+      const k = p.subKategori ? `${p.kategori} — ${p.subKategori}` : p.kategori;
+      map[k] = (map[k] || 0) + p.total;
+    });
     return Object.entries(map).sort((a, b) => b[1] - a[1]);
   }, [opexFiltered]);
   const maxOpexKat = Math.max(...opexByKategori.map(k => k[1]), 1);
@@ -1347,6 +1354,7 @@ function OpexTab() {
 
   const [namaItem, setNamaItem] = useState('');
   const [kategori, setKategori] = useState(OPEX_KATEGORI[0]);
+  const [subKategori, setSubKategori] = useState('');
   const [qty, setQty] = useState('');
   const [satuan, setSatuan] = useState('pcs');
   const [hargaSatuan, setHargaSatuan] = useState('');
@@ -1366,6 +1374,7 @@ function OpexTab() {
   const openEdit = (p: OpexPurchase) => {
     setNamaItem(p.namaItem);
     setKategori(p.kategori);
+    setSubKategori(p.subKategori || '');
     setQty(String(p.qty));
     setSatuan(p.satuan);
     setHargaSatuan(String(p.hargaSatuan));
@@ -1400,6 +1409,7 @@ function OpexTab() {
         ...p,
         namaItem: namaItem.trim(),
         kategori,
+        subKategori: kategori === 'Packing & Kemasan' ? subKategori : '',
         qty: +qty,
         satuan,
         hargaSatuan: +hargaSatuan,
@@ -1416,6 +1426,7 @@ function OpexTab() {
       id: `opex-${Date.now()}`,
       namaItem: namaItem.trim(),
       kategori,
+      subKategori: kategori === 'Packing & Kemasan' ? subKategori : '',
       qty: +qty,
       satuan,
       hargaSatuan: +hargaSatuan,
@@ -1428,7 +1439,7 @@ function OpexTab() {
     recordActivity([{ modul: 'pembelian', aksi: 'opex', refLabel: `${purchase.namaItem} (${purchase.kategori})`, detail: { total: purchase.total, tanggal: purchase.tanggal } }]);
     setNamaItem(''); setQty(''); setHargaSatuan(''); setSupplierNama('');
     setTanggal(new Date().toISOString().slice(0, 10));
-    setKategori(OPEX_KATEGORI[0]); setSatuan('pcs');
+    setKategori(OPEX_KATEGORI[0]); setSubKategori(''); setSatuan('pcs');
   };
 
   const totalBulanIni = useMemo(() => {
@@ -1448,10 +1459,13 @@ function OpexTab() {
     return true;
   }), [purchases, filterKategori, filterBulan]);
 
-  /* Group by kategori untuk summary (ikut filter) */
+  /* Group by kategori (sub-kategori digabung ke label) untuk summary (ikut filter) */
   const byKategori = useMemo(() => {
     const map: Record<string, number> = {};
-    filtered.forEach(p => { map[p.kategori] = (map[p.kategori] || 0) + p.total; });
+    filtered.forEach(p => {
+      const k = p.subKategori ? `${p.kategori} — ${p.subKategori}` : p.kategori;
+      map[k] = (map[k] || 0) + p.total;
+    });
     return Object.entries(map).sort((a, b) => b[1] - a[1]);
   }, [filtered]);
 
@@ -1471,10 +1485,19 @@ function OpexTab() {
           </div>
           <div>
             <label className="block text-xs font-semibold text-slate-600 mb-1">Kategori</label>
-            <select value={kategori} onChange={e => setKategori(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-100">
+            <select value={kategori} onChange={e => { setKategori(e.target.value); setSubKategori(''); }} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-100">
               {OPEX_KATEGORI.map(k => <option key={k} value={k}>{k}</option>)}
             </select>
           </div>
+          {kategori === 'Packing & Kemasan' && (
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">Sub Kategori Packing</label>
+              <select value={subKategori} onChange={e => setSubKategori(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-100">
+                <option value="">— Pilih —</option>
+                {OPEX_SUB_KATEGORI['Packing & Kemasan'].map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+          )}
           <div>
             <label className="block text-xs font-semibold text-slate-600 mb-1">Jumlah (Qty) *</label>
             <input type="number" value={qty} onChange={e => setQty(e.target.value)} placeholder="0" className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-center font-bold focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-100" />
@@ -1563,7 +1586,7 @@ function OpexTab() {
               <tr key={p.id} className={`hover:bg-slate-50 transition ${editId === p.id ? 'bg-amber-50/50' : ''}`}>
                 <td className="px-3 py-2.5 text-xs text-slate-500">{p.tanggal}</td>
                 <td className="px-3 py-2.5 max-w-[200px] truncate font-medium text-slate-800" title={p.namaItem}>{p.namaItem}</td>
-                <td className="px-3 py-2.5 text-xs text-slate-500 hidden sm:table-cell"><span className="rounded-full bg-slate-100 px-2 py-0.5">{p.kategori}</span></td>
+                <td className="px-3 py-2.5 text-xs text-slate-500 hidden sm:table-cell"><span className="rounded-full bg-slate-100 px-2 py-0.5">{p.kategori}{p.subKategori ? ` • ${p.subKategori}` : ''}</span></td>
                 <td className="px-3 py-2.5 text-center text-slate-700">{p.qty} {p.satuan}</td>
                 <td className="px-3 py-2.5 text-right text-slate-600">Rp {p.hargaSatuan.toLocaleString('id-ID')}</td>
                 <td className="px-3 py-2.5 text-right font-bold text-slate-800">Rp {p.total.toLocaleString('id-ID')}</td>

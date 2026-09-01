@@ -435,7 +435,15 @@ function LabaRugi({ periode, customStart, customEnd, orders }: { periode: Period
         .sort((a, b) => b.jumlah - a.jumlah);
     };
     const biayaBreakdown = groupSum(biayaFiltered, 'kategori', 'jumlah');
-    const opexBreakdown = groupSum(opexFiltered, 'kategori', 'total');
+    // OPEX: kalau ada sub-kategori (Packing & Kemasan → Kardus, Bubble Wrap, dll), gabung ke label biar detail
+    const opexBreakdown = (() => {
+      const m = new Map<string, number>();
+      for (const x of opexFiltered) {
+        const k = x.subKategori ? `${x.kategori || ''} — ${x.subKategori}` : (x.kategori || '').toString().trim() || 'Lainnya';
+        m.set(k, (m.get(k) || 0) + (x.total || 0));
+      }
+      return Array.from(m.entries()).map(([kategori, jumlah]) => ({ kategori, jumlah })).sort((a, b) => b.jumlah - a.jumlah);
+    })();
 
     // ── Pendapatan Lain-lain (di luar kasir & MP: kardus bekas, barang afkir, dsb.) ──
     const filteredLain = f(penjualanLain, 'tanggal');
