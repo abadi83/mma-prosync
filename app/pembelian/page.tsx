@@ -1370,6 +1370,13 @@ function OpexTab() {
   const [filterKategori, setFilterKategori] = useState('semua');
   const [filterBulan, setFilterBulan] = useState('semua');
 
+  /* Opsi kategori = bawaan + kategori yang sudah dipakai di data (custom tetap bisa dipilih/difilter) */
+  const kategoriOptions = useMemo(() => {
+    const set = new Set<string>(OPEX_KATEGORI);
+    for (const p of purchases) if (p.kategori) set.add(p.kategori);
+    return Array.from(set);
+  }, [purchases]);
+
   const total = useMemo(() => (+qty || 0) * (+hargaSatuan || 0), [qty, hargaSatuan]);
 
   /* Buka form untuk edit */
