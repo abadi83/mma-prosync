@@ -9,6 +9,7 @@ import InvoiceExport, { type InvoicePOData, type InvoicePOItem, InvoicePreview }
 import KoreksiPOTab from '@/app/pembelian/components/KoreksiPOTab';
 import { useSuppliers } from '@/app/hooks/useSuppliers';
 import { recordActivity } from '@/app/lib/recordActivity';
+import { addTombstones } from '@/app/lib/tombstones';
 import type { BuktiBayar } from '@/app/types';
 
 /* ================================================================ */
@@ -1406,6 +1407,7 @@ function OpexTab() {
   const handleDelete = () => {
     if (!deleteId) return;
     setPurchases(prev => prev.filter(p => p.id !== deleteId));
+    addTombstones([{ id: deleteId, kind: 'opex' }]);
     setDeleteId(null);
   };
 
@@ -1689,6 +1691,7 @@ function BiayaOpTab() {
   const handleDelete = () => {
     if (!deleteId) return;
     setBiayaList(prev => prev.filter(b => b.id !== deleteId));
+    addTombstones([{ id: deleteId, kind: 'biaya' }]);
     setDeleteId(null);
   };
 

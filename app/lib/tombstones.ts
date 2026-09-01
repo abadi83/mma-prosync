@@ -9,9 +9,11 @@
 
 export const TOMBSTONE_KEY = 'mma_tombstones';
 
+export type TombstoneKind = 'payment' | 'po' | 'kaskecil' | 'kasbesar' | 'kasbesarkeluar' | 'biaya' | 'opex';
+
 export interface Tombstone {
-  id: string;          // payment id ATAU noPO ATAU entry id kas kecil/kas besar masuk/keluar
-  kind: 'payment' | 'po' | 'kaskecil' | 'kasbesar' | 'kasbesarkeluar';
+  id: string;          // payment id ATAU noPO ATAU entry id kas kecil/kas besar masuk/keluar/biaya/opex
+  kind: TombstoneKind;
   deletedAt: string;
 }
 
@@ -31,7 +33,7 @@ export function writeTombstones(list: Tombstone[]): void {
   try { localStorage.setItem(TOMBSTONE_KEY, JSON.stringify(list)); } catch {}
 }
 
-export function addTombstones(entries: { id: string; kind: 'payment' | 'po' | 'kaskecil' | 'kasbesar' | 'kasbesarkeluar' }[]): Tombstone[] {
+export function addTombstones(entries: { id: string; kind: TombstoneKind }[]): Tombstone[] {
   if (entries.length === 0) return readTombstones();
   const now = new Date().toISOString();
   const existing = readTombstones();
@@ -61,6 +63,8 @@ export function applyTombstones(key: string, data: any, tombs: Tombstone[]): any
   const kasKecilIds = new Set(tombs.filter(t => t.kind === 'kaskecil').map(t => t.id));
   const kasBesarIds = new Set(tombs.filter(t => t.kind === 'kasbesar').map(t => t.id));
   const kasBesarKeluarIds = new Set(tombs.filter(t => t.kind === 'kasbesarkeluar').map(t => t.id));
+  const biayaIds = new Set(tombs.filter(t => t.kind === 'biaya').map(t => t.id));
+  const opexIds = new Set(tombs.filter(t => t.kind === 'opex').map(t => t.id));
 
   if (key === 'mma_hpp_purchases') {
     return data.filter((i: any) => !poIds.has(i?.noPO));
@@ -82,6 +86,12 @@ export function applyTombstones(key: string, data: any, tombs: Tombstone[]): any
   }
   if (key === 'mma_kas_besar_keluar') {
     return data.filter((i: any) => !kasBesarKeluarIds.has(i?.id));
+  }
+  if (key === 'mma_biaya_operasional') {
+    return data.filter((i: any) => !biayaIds.has(i?.id));
+  }
+  if (key === 'mma_opex_purchases') {
+    return data.filter((i: any) => !opexIds.has(i?.id));
   }
   return data;
 }
