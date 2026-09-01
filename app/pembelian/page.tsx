@@ -1378,6 +1378,13 @@ function OpexTab() {
     return Array.from(set);
   }, [purchases]);
 
+  /* Opsi sub kategori Packing = bawaan + sub yang sudah dipakai di data (custom tetap bisa dipilih) */
+  const subKategoriOptions = useMemo(() => {
+    const set = new Set<string>(OPEX_SUB_KATEGORI['Packing & Kemasan'] || []);
+    for (const p of purchases) if (p.subKategori && p.kategori === 'Packing & Kemasan') set.add(p.subKategori);
+    return Array.from(set);
+  }, [purchases]);
+
   const total = useMemo(() => (+qty || 0) * (+hargaSatuan || 0), [qty, hargaSatuan]);
 
   /* Buka form untuk edit */
@@ -1385,8 +1392,7 @@ function OpexTab() {
     setNamaItem(p.namaItem);
     if (OPEX_KATEGORI.includes(p.kategori)) { setKategori(p.kategori); setKategoriCustom(''); }
     else { setKategori('__custom__'); setKategoriCustom(p.kategori); }
-    const subs = OPEX_SUB_KATEGORI[p.kategori] || [];
-    if (p.subKategori && !subs.includes(p.subKategori)) { setSubKategori('__custom__'); setSubKategoriCustom(p.subKategori); }
+    if (p.subKategori && !subKategoriOptions.includes(p.subKategori)) { setSubKategori('__custom__'); setSubKategoriCustom(p.subKategori); }
     else { setSubKategori(p.subKategori || ''); setSubKategoriCustom(''); }
     setQty(String(p.qty));
     setSatuan(p.satuan);
@@ -1516,7 +1522,7 @@ function OpexTab() {
               <label className="block text-xs font-semibold text-slate-600 mb-1">Sub Kategori Packing</label>
               <select value={subKategori} onChange={e => setSubKategori(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-100">
                 <option value="">— Pilih —</option>
-                {OPEX_SUB_KATEGORI['Packing & Kemasan'].map(s => <option key={s} value={s}>{s}</option>)}
+                {subKategoriOptions.map(s => <option key={s} value={s}>{s}</option>)}
                 <option value="__custom__">➕ Tambah Baru...</option>
               </select>
               {subKategori === '__custom__' && (
