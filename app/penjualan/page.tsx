@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
-import { useSkus } from '@/app/context/SkuContext';
+import { useSkus, type SkuItem } from '@/app/context/SkuContext';
 import { recordActivity } from '@/app/lib/recordActivity';
 import { addTombstones } from '@/app/lib/tombstones';
 
