@@ -1128,7 +1128,10 @@ function InputKeuangan() {
           const isRetur = o.statusPesanan?.toLowerCase().includes('retur') || o.statusPesanan?.toLowerCase().includes('dibatalkan');
           // Retur: HPP gak dihitung (barang balik ke stok). Normal: HPP dihitung.
           const effectiveHpp = isRetur ? 0 : totalHPP;
-          const labaFinal = grossRevenue - totalBiayaFinal - effectiveHpp;
+          // Retur/klaim dengan total biaya NEGATIF (fee dibalikin MP) → jangan dikurangkan
+          // (biaya 0) supaya nilai klaim tidak terhitung dobel.
+          const biayaFinal = isRetur && totalBiayaFinal < 0 ? 0 : totalBiayaFinal;
+          const labaFinal = grossRevenue - biayaFinal - effectiveHpp;
 
           newOrders.push({
             id: `mp-${Date.now()}-${orderId.slice(-6)}`,
@@ -1140,7 +1143,7 @@ function InputKeuangan() {
             tokoNama,
             pendapatanKotor: grossRevenue,                        // ← dari kolom H/I Excel (Total Harga Produk)
             pendapatanBersih: labaFinal,                          // ← LABA BERSIH: Kotor - Fee - HPP (sebelum OPEX)
-            totalBiaya: totalBiayaFinal,                          // ← TOTAL semua kolom fee (M+N+Q+R+S+T+U...)
+            totalBiaya: biayaFinal,                               // ← TOTAL semua kolom fee (M+N+Q+R+S+T+U...)
             feeAdmin: o.feeAdmin,
             feeLayanan: o.feeLayanan,
             ongkirAktual: o.ongkirAktual,
