@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { listMarketplaceOrders, getMpSummary, listMpResi, upsertMarketplaceOrders, deleteAllMarketplaceOrders, MarketplaceOrder } from '@/app/services/marketplaceOrderService';
+import { listMarketplaceOrders, getMpSummary, listMpResi, upsertMarketplaceOrders, updateMarketplaceOrder, deleteAllMarketplaceOrders, MarketplaceOrder } from '@/app/services/marketplaceOrderService';
 
 export const dynamic = 'force-dynamic';
 const json = (data: any, status = 200) => NextResponse.json(data, { status });
@@ -32,6 +32,20 @@ export async function POST(request: Request) {
     return json({ success: true, ...result });
   } catch {
     return json({ error: 'Gagal menyimpan order marketplace' }, 500);
+  }
+}
+
+/** PUT /api/marketplace-orders — update satu order (edit SKU/HPP manual) */
+export async function PUT(request: Request) {
+  try {
+    const body = await request.json();
+    const { id, ...rest } = body;
+    if (!id) return json({ error: 'id wajib diisi' }, 400);
+    const ok = await updateMarketplaceOrder(id, rest);
+    if (!ok) return json({ error: 'Order tidak ditemukan' }, 404);
+    return json({ success: true, updated: true });
+  } catch {
+    return json({ error: 'Gagal update order marketplace' }, 500);
   }
 }
 

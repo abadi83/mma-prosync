@@ -3,6 +3,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { useAgregasi, type AgregasiRow } from '@/app/context/AgregasiContext';
+import { useSkus } from '@/app/context/SkuContext';
 import { useUser } from '@/app/hooks/useUser';
 import { fetchMarketplaceOrders, fetchMpSummary } from '@/app/lib/marketplaceOrdersClient';
 import { recordActivity } from '@/app/lib/recordActivity';
@@ -1517,11 +1518,17 @@ function RiwayatEntry() {
 
 /* ── Upload History: tampilkan detail order marketplace + HPP match ── */
 function UploadHistory() {
+  const { skus } = useSkus();
   const [orders, setOrders] = useState<MpOrder[]>([]);
   const [summary, setSummary] = useState<any[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [showAllSku, setShowAllSku] = useState(false);
   const [filterStatus, setFilterStatus] = useState('semua');
+  // ── Edit SKU / HPP ──
+  const [editOrder, setEditOrder] = useState<MpOrder | null>(null);
+  const [editItems, setEditItems] = useState<MpOrderItem[]>([]);
+  const [editErr, setEditErr] = useState('');
+  const [savingEdit, setSavingEdit] = useState(false);
   // Filter ringkasan: marketplace, toko, periode
   const [fMp, setFMp] = useState('semua');
   const [fToko, setFToko] = useState('semua');
@@ -1557,6 +1564,61 @@ function UploadHistory() {
 
   const toggle = (id: string) => {
     setExpanded(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  };
+
+  /* ── Edit SKU / HPP per order ── */
+  const openEdit = (o: MpOrder) => {
+    setEditOrder(o);
+    setEditItems(o.items.map(it => ({ ...it })));
+    setEditErr('');
+  };
+
+  const patchItem = (idx: number, patch: Partial<MpOrderItem>) => {
+    setEditItems(prev => prev.map((it, i) => (i === idx ? { ...it, ...patch } : it)));
+  };
+
+  const onSkuChange = (idx: number, val: string) => {
+    const clean = val.trim();
+    const m = skus.find(s => s.sku.toLowerCase() === clean.toLowerCase());
+    setEditItems(prev => prev.map((it, i) => {
+      if (i !== idx) return it;
+      if (m) {
+        const hpp = Number(m.hargaBaru) || Number(m.hargaModalLama) || 0;
+        return { ...it, sku: m.sku, nama: it.nama || m.nama, hpp: it.hpp > 0 ? it.hpp : hpp };
+      }
+      return { ...it, sku: clean };
+    }));
+  };
+
+  const editTotalHpp = editItems.reduce((s, it) => s + (Number(it.hpp) || 0) * (Number(it.qty) || 0), 0);
+  const editLaba = editOrder ? editOrder.pendapatanKotor - editOrder.totalBiaya - editTotalHpp : 0;
+
+  const saveEdit = async () => {
+    if (!editOrder) return;
+    setSavingEdit(true); setEditErr('');
+    try {
+      const res = await fetch('/api/marketplace-orders', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: editOrder.id,
+          items: editItems,
+          totalHPP: editTotalHpp,
+          labaKotor: editLaba,
+          pendapatanBersih: editLaba,
+        }),
+      });
+      if (!res.ok) throw new Error('gagal');
+      setOrders(prev => prev.map(o => o.id === editOrder.id
+        ? { ...o, items: editItems, totalHPP: editTotalHpp, labaKotor: editLaba, pendapatanBersih: editLaba }
+        : o));
+      try { setSummary(await fetchMpSummary()); } catch {}
+      window.dispatchEvent(new Event('refresh-laporan'));
+      setEditOrder(null);
+    } catch {
+      setEditErr('Gagal menyimpan. Coba lagi.');
+    }
+    setSavingEdit(false);
   };
 
   if (orders.length === 0) return null;
@@ -1796,7 +1858,10 @@ function UploadHistory() {
 
                           {/* SKU Detail dengan HPP */}
                           <div>
-                            <p className="text-[11px] font-bold text-slate-600 mb-2">📦 Detail SKU & HPP (dari Master Data):</p>
+                            <div className="flex items-center justify-between mb-2">
+                              <p className="text-[11px] font-bold text-slate-600">📦 Detail SKU & HPP (dari Master Data):</p>
+                              <button onClick={(e) => { e.stopPropagation(); openEdit(o); }} className="rounded-lg bg-brand-500 px-2.5 py-1 text-[10px] font-semibold text-white transition hover:bg-brand-600">✏️ Edit SKU / HPP</button>
+                            </div>
                             <div className="overflow-x-auto rounded-lg border border-slate-100">
                               <table className="w-full text-[10px]">
                                 <thead><tr className="bg-slate-100 text-slate-500">
@@ -1892,6 +1957,62 @@ function UploadHistory() {
       )}
 
       {orders.length > 100 && <p className="text-xs text-slate-400 text-center">Menampilkan 100 dari {orders.length} order</p>}
+
+      {/* ── Modal Edit SKU / HPP ── */}
+      {editOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-5 shadow-xl">
+            <h3 className="text-base font-bold text-slate-800">✏️ Edit SKU / HPP</h3>
+            <p className="mt-1 text-xs text-slate-400">
+              {editOrder.noPesanan} • {editOrder.marketplace} — {editOrder.tokoNama}<br />
+              Kotor: Rp {editOrder.pendapatanKotor.toLocaleString('id-ID')} • Biaya: −Rp {editOrder.totalBiaya.toLocaleString('id-ID')}
+            </p>
+            {editErr && <p className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600">{editErr}</p>}
+            <datalist id="sku-dl-edit">
+              {skus.slice(0, 1500).map(s => <option key={s.id} value={s.sku}>{s.nama}</option>)}
+            </datalist>
+            <div className="mt-3 overflow-x-auto rounded-xl border border-slate-100">
+              <table className="w-full text-xs">
+                <thead><tr className="bg-slate-100 text-[10px] uppercase text-slate-500">
+                  <th className="px-2 py-2 text-left">SKU (ketik/cari)</th>
+                  <th className="px-2 py-2 text-left">Nama Produk</th>
+                  <th className="px-2 py-2 text-center w-14">Qty</th>
+                  <th className="px-2 py-2 text-right w-24">Harga Jual</th>
+                  <th className="px-2 py-2 text-right w-28">HPP / Unit</th>
+                </tr></thead>
+                <tbody className="divide-y divide-slate-50">
+                  {editItems.map((it, idx) => (
+                    <tr key={idx}>
+                      <td className="px-2 py-1.5">
+                        <input type="text" list="sku-dl-edit" value={it.sku} onChange={e => onSkuChange(idx, e.target.value)}
+                          placeholder="ketik SKU…" className="w-36 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 font-mono text-[11px] focus:border-brand-500 focus:outline-none" />
+                      </td>
+                      <td className="max-w-[180px] truncate px-2 py-1.5 text-slate-600" title={it.nama}>{it.nama || '-'}</td>
+                      <td className="px-2 py-1.5 text-center">
+                        <input type="number" value={it.qty} onChange={e => patchItem(idx, { qty: Math.max(1, parseInt(e.target.value) || 1) })}
+                          className="w-12 rounded-lg border border-slate-200 bg-slate-50 px-1 py-1 text-center text-[11px] focus:border-brand-500 focus:outline-none" />
+                      </td>
+                      <td className="px-2 py-1.5 text-right">Rp {Number(it.hargaJual || 0).toLocaleString('id-ID')}</td>
+                      <td className="px-2 py-1.5 text-right">
+                        <input type="number" value={it.hpp} onChange={e => patchItem(idx, { hpp: Number(e.target.value) || 0 })}
+                          className="w-24 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-right text-[11px] focus:border-brand-500 focus:outline-none" />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="mt-3 flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2 text-xs">
+              <span className="text-slate-500">Total HPP: <b className="text-purple-600">Rp {editTotalHpp.toLocaleString('id-ID')}</b></span>
+              <span className="text-slate-500">Laba baru: <b className={editLaba >= 0 ? 'text-emerald-600' : 'text-red-600'}>Rp {editLaba.toLocaleString('id-ID')}</b></span>
+            </div>
+            <div className="mt-3 flex justify-end gap-2">
+              <button onClick={() => setEditOrder(null)} disabled={savingEdit} className="rounded-xl bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-600">Batal</button>
+              <button onClick={saveEdit} disabled={savingEdit} className="rounded-xl bg-brand-500 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-600">{savingEdit ? '⏳ Menyimpan…' : '💾 Simpan'}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

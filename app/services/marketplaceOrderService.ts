@@ -161,6 +161,21 @@ export async function upsertMarketplaceOrders(orders: MarketplaceOrder[], tokoId
   return { inserted, updated, moved };
 }
 
+/** Update satu order (edit SKU/HPP manual) — hanya field yang dikirim yang diubah. */
+export async function updateMarketplaceOrder(id: string, data: Partial<MarketplaceOrder>, tokoId?: string): Promise<boolean> {
+  const sets: string[] = []; const vals: any[] = []; let i = 1;
+  const add = (col: string, val: any) => { sets.push(`${col} = $${i++}`); vals.push(val); };
+  if (data.items !== undefined) add('items', JSON.stringify(data.items || []));
+  if (data.totalHPP !== undefined) add('total_hpp', Number(data.totalHPP) || 0);
+  if (data.labaKotor !== undefined) add('laba_kotor', Number(data.labaKotor) || 0);
+  if (data.pendapatanBersih !== undefined) add('pendapatan_bersih', Number(data.pendapatanBersih) || 0);
+  if (data.catatan !== undefined) add('catatan', data.catatan);
+  if (sets.length === 0) return false;
+  vals.push(id);
+  const { rowCount } = await query(`UPDATE marketplace_order SET ${sets.join(', ')} WHERE id = $${i}`, vals);
+  return (rowCount || 0) > 0;
+}
+
 /** Ringkasan agregat per (marketplace, toko, tanggal) — kecil, buat dashboard/laporan (hindari 8MB full). */
 export async function getMpSummary(tokoId?: string) {
   const { rows } = await query(
