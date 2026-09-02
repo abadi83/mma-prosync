@@ -923,12 +923,15 @@ function InputKeuangan() {
           let ordersSaved = false;
           let dbInserted = fresh.length;
           let dbUpdated = 0;
+          let dbMoved = 0;
           let saldoMatched = 0;
           try {
             const existing = JSON.parse(localStorage.getItem('mma_marketplace_orders') || '[]');
             const seen = new Map<string, any>();
             for (const o of [...fresh, ...existing]) { const k = `${o.marketplace}||${o.noPesanan}`; if (!seen.has(k)) seen.set(k, o); }
-            const cleaned = Array.from(seen.values()).slice(0, 3000);
+            // Koreksi toko: buang copy cache lama yang marketplacenya beda untuk noPesanan yang sama
+            const freshNoPes = new Set(fresh.map((o: any) => o.noPesanan));
+            const cleaned = Array.from(seen.values()).filter((o: any) => !(freshNoPes.has(o.noPesanan) && o.marketplace !== marketplaceLabel)).slice(0, 3000);
 
             // Sumber utama = PostgreSQL di VPS (browser tidak kehabisan storage).
             // localStorage hanya cache 50 terbaru untuk fallback offline.
@@ -939,7 +942,7 @@ function InputKeuangan() {
               if (res.ok) {
                 try {
                   const j = await res.json();
-                  if (typeof j.inserted === 'number') { dbInserted = j.inserted; dbUpdated = j.updated || 0; }
+                  if (typeof j.inserted === 'number') { dbInserted = j.inserted; dbUpdated = j.updated || 0; dbMoved = j.moved || 0; }
                 } catch {}
               }
             } catch {}
@@ -981,7 +984,7 @@ function InputKeuangan() {
             jumlah: freshCount, keterangan: `Upload ${file.name}${skippedCount > 0 ? ` (${skippedCount} dilewati)` : ''}`,
           });
 
-          alert(`✅ Upload ${marketplaceLabel} - Lazada selesai.\n📥 ${dbInserted} baru • ${dbUpdated} diperbarui${skippedCount > 0 ? ` • ${skippedCount} dilewati` : ''}.\n\n📊 Ringkasan (file ini):\n💰 Kotor: Rp ${totalKotor.toLocaleString('id-ID')}\n🛒 Fee: Rp ${totalFee.toLocaleString('id-ID')}\n📦 HPP: Rp ${totalHppFresh.toLocaleString('id-ID')}\n📈 Profit: Rp ${totalNet.toLocaleString('id-ID')}${unmatchedSku>0?`\n⚠️ ${unmatchedSku} SKU tidak match`:'\n✅ Semua SKU match'}${saldoMatched>0?`\n\n💰 ${saldoMatched} pesanan operasional ditandai "Masuk Saldo".`:''}`);
+          alert(`✅ Upload ${marketplaceLabel} selesai.\n📥 ${dbInserted} baru • ${dbUpdated} diperbarui${dbMoved > 0 ? ` • 🔁 ${dbMoved} DIPINDAH dari marketplace/toko lama` : ''}${skippedCount > 0 ? ` • ${skippedCount} dilewati` : ''}.\n\n📊 Ringkasan (file ini):\n💰 Kotor: Rp ${totalKotor.toLocaleString('id-ID')}\n🛒 Fee: Rp ${totalFee.toLocaleString('id-ID')}\n📦 HPP: Rp ${totalHppFresh.toLocaleString('id-ID')}\n📈 Profit: Rp ${totalNet.toLocaleString('id-ID')}${unmatchedSku>0?`\n⚠️ ${unmatchedSku} SKU tidak match`:'\n✅ Semua SKU match'}${saldoMatched>0?`\n\n💰 ${saldoMatched} pesanan operasional ditandai "Masuk Saldo".`:''}`);
           setTimeout(() => setSuccess(false), 5000);
           setUploading(false);
           if (fileRef.current) fileRef.current.value = '';
@@ -1168,12 +1171,15 @@ function InputKeuangan() {
         let ordersSaved = false;
         let dbInserted = fresh.length;
         let dbUpdated = 0;
+        let dbMoved = 0;
         let saldoMatched = 0;
         try {
           const existing = JSON.parse(localStorage.getItem('mma_marketplace_orders') || '[]');
           const seen = new Map<string, any>();
           for (const o of [...fresh, ...existing]) { const k = `${o.marketplace}||${o.noPesanan}`; if (!seen.has(k)) seen.set(k, o); }
-          const cleaned = Array.from(seen.values()).slice(0, 3000);
+          // Koreksi toko: buang copy cache lama yang marketplacenya beda untuk noPesanan yang sama
+          const freshNoPes = new Set(fresh.map((o: any) => o.noPesanan));
+          const cleaned = Array.from(seen.values()).filter((o: any) => !(freshNoPes.has(o.noPesanan) && o.marketplace !== marketplaceLabel)).slice(0, 3000);
 
           // Sumber utama = PostgreSQL di VPS (browser tidak kehabisan storage).
           // localStorage hanya cache 50 terbaru untuk fallback offline.
@@ -1184,7 +1190,7 @@ function InputKeuangan() {
             if (res.ok) {
               try {
                 const j = await res.json();
-                if (typeof j.inserted === 'number') { dbInserted = j.inserted; dbUpdated = j.updated || 0; }
+                if (typeof j.inserted === 'number') { dbInserted = j.inserted; dbUpdated = j.updated || 0; dbMoved = j.moved || 0; }
               } catch {}
             }
           } catch {}
@@ -1244,7 +1250,7 @@ function InputKeuangan() {
         const unmatchedMsg = unmatchedSku > 0
           ? `\n⚠️ ${unmatchedSku} SKU tidak ditemukan di Master: ${unmatchedList.slice(0,5).join(', ')}${unmatchedList.length>5?'...':''}`
           : '';
-        alert(`✅ Upload ${marketplaceLabel} selesai.\n📥 ${dbInserted} baru • ${dbUpdated} diperbarui${skippedCount > 0 ? ` • ${skippedCount} dilewati` : ''}.\n\n📊 Ringkasan (file ini):\n💰 Kotor: Rp ${totalKotor.toLocaleString('id-ID')}\n🛒 Fee: Rp ${totalFee.toLocaleString('id-ID')}\n📦 HPP: Rp ${totalHppFresh.toLocaleString('id-ID')}\n📈 Profit: Rp ${totalNet.toLocaleString('id-ID')}\n\n🔍 Kolom Terdeteksi:\n${colsFound.join('\n')}${hppMsg}${unmatchedMsg}${saldoMatched>0?`\n\n💰 ${saldoMatched} pesanan operasional ditandai "Masuk Saldo".`:''}`);
+        alert(`✅ Upload ${marketplaceLabel} selesai.\n📥 ${dbInserted} baru • ${dbUpdated} diperbarui${dbMoved > 0 ? ` • 🔁 ${dbMoved} DIPINDAH dari marketplace/toko lama` : ''}${skippedCount > 0 ? ` • ${skippedCount} dilewati` : ''}.\n\n📊 Ringkasan (file ini):\n💰 Kotor: Rp ${totalKotor.toLocaleString('id-ID')}\n🛒 Fee: Rp ${totalFee.toLocaleString('id-ID')}\n📦 HPP: Rp ${totalHppFresh.toLocaleString('id-ID')}\n📈 Profit: Rp ${totalNet.toLocaleString('id-ID')}\n\n🔍 Kolom Terdeteksi:\n${colsFound.join('\n')}${hppMsg}${unmatchedMsg}${saldoMatched>0?`\n\n💰 ${saldoMatched} pesanan operasional ditandai "Masuk Saldo".`:''}`);
         setTimeout(() => setSuccess(false), 5000);
       } catch { setErr('Gagal membaca file. Pastikan format Excel benar.'); }
       setUploading(false);
@@ -1332,6 +1338,7 @@ function InputKeuangan() {
           </label>
         </div>
         <p className="text-[10px] text-emerald-600 mt-1">✅ Fee breakdown per order • HPP auto dari Master SKU • Support multi-SKU (baris induk+anak)</p>
+        <p className="text-[10px] text-amber-600 mt-1">💡 Salah pilih Marketplace/Toko? Upload ulang file yang sama dengan pilihan yang BENAR — baris lama otomatis DIPINDAH (bukan dobel).</p>
       </div>
 
       {err && <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{err}</p>}

@@ -76,10 +76,46 @@ export async function listMarketplaceOrders(tokoId?: string, limit = 0): Promise
   return rows.map(mapRow);
 }
 
-export async function upsertMarketplaceOrders(orders: MarketplaceOrder[], tokoId?: string): Promise<{ inserted: number; updated: number }> {
+export async function upsertMarketplaceOrders(orders: MarketplaceOrder[], tokoId?: string): Promise<{ inserted: number; updated: number; moved: number }> {
+  const tid = tokoId || DEFAULT_TOKO;
   let inserted = 0;
   let updated = 0;
+  let moved = 0;
   for (const o of orders) {
+    // ── Koreksi Marketplace/Toko: noPesanan ini sudah ada di marketplace LAIN?
+    //    → PINDAH (update baris lama), jangan insert duplikat. ──
+    const ex = await query(
+      'SELECT id, marketplace FROM marketplace_order WHERE toko_id = $1 AND no_pesanan = $2 ORDER BY id DESC LIMIT 1',
+      [tid, o.noPesanan]
+    );
+    if (ex.rows.length > 0 && ex.rows[0].marketplace !== o.marketplace) {
+      const targetId = ex.rows[0].id;
+      // Bersihkan duplikat noPesanan lain (sisa upload yang salah sebelumnya) — target jadi satu-satunya,
+      // lalu pindahkan marketplace/toko + data terbaru ke baris target.
+      await query(
+        'DELETE FROM marketplace_order WHERE toko_id = $1 AND no_pesanan = $2 AND id <> $3',
+        [tid, o.noPesanan, targetId]
+      );
+      await query(
+        `UPDATE marketplace_order SET
+           marketplace = $1, tanggal = $2, toko_nama = $3, pendapatan_kotor = $4, pendapatan_bersih = $5,
+           total_biaya = $6, fee_admin = $7, fee_layanan = $8, ongkir_aktual = $9, subsidi_ongkir = $10,
+           biaya_pemrosesan = $11, premi_proteksi = $12, biaya_ams = $13, biaya_transaksi = $14, komisi = $15,
+           items = $16::jsonb, total_hpp = $17, laba_kotor = $18, catatan = $19, status_pesanan = $20, no_resi = $21
+         WHERE id = $22`,
+        [
+          o.marketplace, o.tanggal || '', o.tokoNama || '',
+          o.pendapatanKotor || 0, o.pendapatanBersih || 0, o.totalBiaya || 0,
+          o.feeAdmin || 0, o.feeLayanan || 0, o.ongkirAktual || 0, o.subsidiOngkir || 0,
+          o.biayaPemrosesan || 0, o.premiProteksi || 0, o.biayaAMS || 0, o.biayaTransaksi || 0,
+          o.komisi || 0, JSON.stringify(o.items || []), o.totalHPP || 0, o.labaKotor || 0,
+          o.catatan || '', o.statusPesanan || '', o.noResi || '',
+          targetId,
+        ]
+      );
+      moved++;
+      continue;
+    }
     const { rows } = await query(
       `INSERT INTO marketplace_order (
          toko_id, no_pesanan, marketplace, tanggal, toko_nama, pendapatan_kotor, pendapatan_bersih,
@@ -122,7 +158,7 @@ export async function upsertMarketplaceOrders(orders: MarketplaceOrder[], tokoId
     );
     if (rows[0]?.is_inserted) inserted++; else updated++;
   }
-  return { inserted, updated };
+  return { inserted, updated, moved };
 }
 
 /** Ringkasan agregat per (marketplace, toko, tanggal) — kecil, buat dashboard/laporan (hindari 8MB full). */
