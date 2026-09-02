@@ -1125,13 +1125,25 @@ function InputKeuangan() {
           const totalBiayaFinal = totalFeeAll > 0 ? totalFeeAll : (o.totalBiaya || 0);
 
           // ── Deteksi Retur ──
-          const isRetur = o.statusPesanan?.toLowerCase().includes('retur') || o.statusPesanan?.toLowerCase().includes('dibatalkan');
+          const statusLower = (o.statusPesanan || '').toLowerCase();
+          const isRetur = statusLower.includes('retur') || statusLower.includes('dibatalkan');
           // Retur: HPP gak dihitung (barang balik ke stok). Normal: HPP dihitung.
           const effectiveHpp = isRetur ? 0 : totalHPP;
+          // ── FORMULA KONSISTEN ──
+          // Normal / Retur Sebagian : kotor = Total Harga Produk, bersih = kotor − biaya − HPP
+          // Retur PENUH              : kotor = "Total Penghasilan" (bertanda; uang yang benar-benar
+          //                            masuk/keluar), biaya = 0 → bersih = penghasilan.
+          //                            Klaim/refund tidak boleh dihitung dobel dari kolom harga produk.
+          const isReturSebagian = statusLower.includes('sebagian');
+          let grossFinal = grossRevenue;
+          let biayaFinal = totalBiayaFinal;
+          if (isRetur && !isReturSebagian && o.penghasilan) {
+            grossFinal = o.penghasilan;
+            biayaFinal = 0;
+          }
           // Retur/klaim dengan total biaya NEGATIF (fee dibalikin MP) → jangan dikurangkan
-          // (biaya 0) supaya nilai klaim tidak terhitung dobel.
-          const biayaFinal = isRetur && totalBiayaFinal < 0 ? 0 : totalBiayaFinal;
-          const labaFinal = grossRevenue - biayaFinal - effectiveHpp;
+          if (isRetur && biayaFinal < 0) biayaFinal = 0;
+          const labaFinal = grossFinal - biayaFinal - effectiveHpp;
 
           newOrders.push({
             id: `mp-${Date.now()}-${orderId.slice(-6)}`,
@@ -1141,7 +1153,7 @@ function InputKeuangan() {
             marketplaceId: mpObj.id,
             marketplace: marketplaceLabel,
             tokoNama,
-            pendapatanKotor: grossRevenue,                        // ← dari kolom H/I Excel (Total Harga Produk)
+            pendapatanKotor: grossFinal,                          // ← normal: Total Harga Produk; retur penuh: Total Penghasilan (bertanda)
             pendapatanBersih: labaFinal,                          // ← LABA BERSIH: Kotor - Fee - HPP (sebelum OPEX)
             totalBiaya: biayaFinal,                               // ← TOTAL semua kolom fee (M+N+Q+R+S+T+U...)
             feeAdmin: o.feeAdmin,
