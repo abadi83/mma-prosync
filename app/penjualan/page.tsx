@@ -22,6 +22,12 @@ export default function PenjualanPage() {
   const [transaksi, setTransaksi] = useState<TransaksiEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Deep link: /penjualan?tab=perbaikan → langsung buka tab Perbaikan Data
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search).get('tab');
+    if (p === 'perbaikan' || p === 'daftar' || p === 'ringkasan') setTab(p);
+  }, []);
+
   // Fetch transaksi dari API
   const fetchTransaksi = useCallback(async () => {
     try {

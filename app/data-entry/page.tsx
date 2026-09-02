@@ -153,6 +153,9 @@ export default function DataEntryPage() {
         <p className="text-xs font-semibold uppercase tracking-[0.25em] text-brand-100 sm:text-sm">Data Entry</p>
         <h1 className="mt-2 text-2xl font-bold sm:text-3xl">Input Data</h1>
         <p className="mt-1 text-sm text-brand-100 sm:text-base">Catat data operasional harian & keuangan per marketplace secara terstruktur.</p>
+        <a href="/penjualan?tab=perbaikan" className="mt-3 inline-flex items-center gap-1.5 rounded-xl bg-white/15 px-4 py-2 text-sm font-semibold text-white backdrop-blur transition hover:bg-white/25">
+          🛠️ Perbaikan SKU / HPP & Produk Tanpa SKU →
+        </a>
       </header>
 
       <nav className="flex gap-1 overflow-x-auto rounded-2xl bg-white p-1 shadow-sm" role="tablist">
