@@ -914,10 +914,11 @@ function InputKeuangan() {
             });
           }
 
-          // Dedup: skip order yang sudah pernah diupload (key: marketplace||noPesanan)
+          // Dedup: skip order yang sudah pernah diupload DI TOKO INI (key: marketplace||toko||noPesanan).
+          // Upload ulang file yang sama dengan toko berbeda TIDAK di-skip — server akan memindahkan baris.
           let existingKeys = new Set<string>();
-          try { existingKeys = new Set((JSON.parse(localStorage.getItem('mma_marketplace_orders') || '[]') as any[]).map((o: any) => `${o.marketplace}||${o.noPesanan}`)); } catch {}
-          const fresh = newOrders.filter(o => !existingKeys.has(`${o.marketplace}||${o.noPesanan}`));
+          try { existingKeys = new Set((JSON.parse(localStorage.getItem('mma_marketplace_orders') || '[]') as any[]).map((o: any) => `${o.marketplace}||${o.tokoNama}||${o.noPesanan}`)); } catch {}
+          const fresh = newOrders.filter(o => !existingKeys.has(`${o.marketplace}||${tokoNama}||${o.noPesanan}`));
           const freshCount = fresh.length;
           const skippedCount = newOrders.length - freshCount;
 
@@ -932,10 +933,11 @@ function InputKeuangan() {
           try {
             const existing = JSON.parse(localStorage.getItem('mma_marketplace_orders') || '[]');
             const seen = new Map<string, any>();
-            for (const o of [...fresh, ...existing]) { const k = `${o.marketplace}||${o.noPesanan}`; if (!seen.has(k)) seen.set(k, o); }
-            // Koreksi toko: buang copy cache lama yang marketplacenya beda untuk noPesanan yang sama
+            for (const o of [...fresh, ...existing]) { const k = `${o.marketplace}||${o.tokoNama}||${o.noPesanan}`; if (!seen.has(k)) seen.set(k, o); }
+            // Koreksi toko: buang copy cache lama utk noPesanan yang sama tapi marketplace/toko berbeda
+            const freshKeys = new Set(fresh.map((o: any) => `${o.marketplace}||${o.tokoNama}||${o.noPesanan}`));
             const freshNoPes = new Set(fresh.map((o: any) => o.noPesanan));
-            const cleaned = Array.from(seen.values()).filter((o: any) => !(freshNoPes.has(o.noPesanan) && o.marketplace !== marketplaceLabel)).slice(0, 3000);
+            const cleaned = Array.from(seen.values()).filter((o: any) => !freshNoPes.has(o.noPesanan) || freshKeys.has(`${o.marketplace}||${o.tokoNama}||${o.noPesanan}`)).slice(0, 3000);
 
             // Sumber utama = PostgreSQL di VPS (browser tidak kehabisan storage).
             // localStorage hanya cache 50 terbaru untuk fallback offline.
@@ -1177,10 +1179,11 @@ function InputKeuangan() {
           });
         }
 
-        // Dedup: skip order yang sudah pernah diupload (key: marketplace||noPesanan)
+        // Dedup: skip order yang sudah pernah diupload DI TOKO INI (key: marketplace||toko||noPesanan).
+        // Upload ulang file yang sama dengan toko berbeda TIDAK di-skip — server akan memindahkan baris.
         let existingKeys = new Set<string>();
-        try { existingKeys = new Set((JSON.parse(localStorage.getItem('mma_marketplace_orders') || '[]') as any[]).map((o: any) => `${o.marketplace}||${o.noPesanan}`)); } catch {}
-        const fresh = newOrders.filter(o => !existingKeys.has(`${o.marketplace}||${o.noPesanan}`));
+        try { existingKeys = new Set((JSON.parse(localStorage.getItem('mma_marketplace_orders') || '[]') as any[]).map((o: any) => `${o.marketplace}||${o.tokoNama}||${o.noPesanan}`)); } catch {}
+        const fresh = newOrders.filter(o => !existingKeys.has(`${o.marketplace}||${tokoNama}||${o.noPesanan}`));
         const freshCount = fresh.length;
         const skippedCount = newOrders.length - freshCount;
 
@@ -1195,10 +1198,11 @@ function InputKeuangan() {
         try {
           const existing = JSON.parse(localStorage.getItem('mma_marketplace_orders') || '[]');
           const seen = new Map<string, any>();
-          for (const o of [...fresh, ...existing]) { const k = `${o.marketplace}||${o.noPesanan}`; if (!seen.has(k)) seen.set(k, o); }
-          // Koreksi toko: buang copy cache lama yang marketplacenya beda untuk noPesanan yang sama
+          for (const o of [...fresh, ...existing]) { const k = `${o.marketplace}||${o.tokoNama}||${o.noPesanan}`; if (!seen.has(k)) seen.set(k, o); }
+          // Koreksi toko: buang copy cache lama utk noPesanan yang sama tapi marketplace/toko berbeda
+          const freshKeys = new Set(fresh.map((o: any) => `${o.marketplace}||${o.tokoNama}||${o.noPesanan}`));
           const freshNoPes = new Set(fresh.map((o: any) => o.noPesanan));
-          const cleaned = Array.from(seen.values()).filter((o: any) => !(freshNoPes.has(o.noPesanan) && o.marketplace !== marketplaceLabel)).slice(0, 3000);
+          const cleaned = Array.from(seen.values()).filter((o: any) => !freshNoPes.has(o.noPesanan) || freshKeys.has(`${o.marketplace}||${o.tokoNama}||${o.noPesanan}`)).slice(0, 3000);
 
           // Sumber utama = PostgreSQL di VPS (browser tidak kehabisan storage).
           // localStorage hanya cache 50 terbaru untuk fallback offline.
