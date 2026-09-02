@@ -1665,6 +1665,7 @@ function UploadHistory() {
     if (fMp !== 'semua' && o.marketplace !== fMp) return false;
     if (fToko !== 'semua' && o.tokoNama !== fToko) return false;
     if (!cocokPeriode(o.tanggal || '')) return false;
+    if (filterStatus === 'tanpahpp') return o.totalHPP <= 0;
     if (filterStatus === 'nonretur') return !o.statusPesanan?.toLowerCase().includes('retur') && !o.statusPesanan?.toLowerCase().includes('dibatalkan');
     if (filterStatus === 'retur') return o.statusPesanan?.toLowerCase().includes('retur') || o.statusPesanan?.toLowerCase().includes('dibatalkan');
     if (filterStatus !== 'semua') return o.statusPesanan === filterStatus;
@@ -1801,6 +1802,7 @@ function UploadHistory() {
             <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
               className="rounded-lg border bg-white px-3 py-1.5 text-[10px] font-semibold text-slate-600">
               <option value="semua">Semua Status</option>
+              <option value="tanpahpp">⚠️ Tanpa HPP / SKU</option>
               <option value="nonretur">✅ Non-Retur (Normal)</option>
               <option value="retur">🔴 Retur / Dibatalkan</option>
               {statusList.map(s => <option key={s} value={s}>{s}</option>)}
