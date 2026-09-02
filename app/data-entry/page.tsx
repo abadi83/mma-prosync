@@ -1524,6 +1524,7 @@ function UploadHistory() {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [showAllSku, setShowAllSku] = useState(false);
   const [filterStatus, setFilterStatus] = useState('semua');
+  const [fCari, setFCari] = useState(''); // pencarian No. Pesanan
   // ── Edit SKU / HPP ──
   const [editOrder, setEditOrder] = useState<MpOrder | null>(null);
   const [editItems, setEditItems] = useState<MpOrderItem[]>([]);
@@ -1654,8 +1655,9 @@ function UploadHistory() {
   // Status list for filter
   const statusList = Array.from(new Set(orders.map(o => o.statusPesanan || '').filter(Boolean))).sort();
 
-  // Filter by status + marketplace/toko/periode
+  // Filter by status + marketplace/toko/periode + pencarian No. Pesanan
   const filteredOrders = orders.filter(o => {
+    if (fCari && !o.noPesanan.toLowerCase().includes(fCari.trim().toLowerCase())) return false;
     if (fMp !== 'semua' && o.marketplace !== fMp) return false;
     if (fToko !== 'semua' && o.tokoNama !== fToko) return false;
     if (!cocokPeriode(o.tanggal || '')) return false;
@@ -1783,26 +1785,32 @@ function UploadHistory() {
         </div>
       </div>
 
-      {/* ── Status Filter ── */}
-      {statusList.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2 mt-3">
-          <span className="text-[10px] font-semibold text-slate-500">📋 Status:</span>
-          <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
-            className="rounded-lg border bg-white px-3 py-1.5 text-[10px] font-semibold text-slate-600">
-            <option value="semua">Semua Status</option>
-            <option value="nonretur">✅ Non-Retur (Normal)</option>
-            <option value="retur">🔴 Retur / Dibatalkan</option>
-            {statusList.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
-        </div>
-      )}
+      {/* ── Status Filter + Pencarian No. Pesanan ── */}
+      <div className="flex flex-wrap items-center gap-2 mt-3">
+        <input type="text" value={fCari} onChange={e => setFCari(e.target.value)}
+          placeholder="🔍 Cari No. Pesanan…"
+          className="w-52 rounded-lg border bg-white px-3 py-1.5 text-[10px] font-semibold text-slate-600 focus:border-brand-500 focus:outline-none" />
+        {fCari && <button onClick={() => setFCari('')} className="text-[10px] font-semibold text-slate-400 hover:text-slate-600">✕ bersihkan</button>}
+        {statusList.length > 0 && (
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-semibold text-slate-500">📋 Status:</span>
+            <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
+              className="rounded-lg border bg-white px-3 py-1.5 text-[10px] font-semibold text-slate-600">
+              <option value="semua">Semua Status</option>
+              <option value="nonretur">✅ Non-Retur (Normal)</option>
+              <option value="retur">🔴 Retur / Dibatalkan</option>
+              {statusList.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+        )}
+      </div>
 
       {/* Tabel Utama */}
       <div className="rounded-xl border border-slate-100 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead><tr className="bg-brand-50 text-[10px] uppercase text-brand-500">
-              {['No. Pesanan','Tgl','MP','Status','Kotor','Fee','B.Proses','HPP','Laba/Rugi','SKU'].map(c => <th key={c} className="px-2 py-2 font-semibold whitespace-nowrap">{c}</th>)}
+              {['No. Pesanan','Tgl','MP','Toko','Status','Kotor','Fee','B.Proses','HPP','Laba/Rugi','SKU'].map(c => <th key={c} className="px-2 py-2 font-semibold whitespace-nowrap">{c}</th>)}
             </tr></thead>
             <tbody className="divide-y divide-slate-50 bg-white">
               {filteredOrders.slice(0, 100).map(o => {
@@ -1814,6 +1822,7 @@ function UploadHistory() {
                       <td className="px-2 py-2 font-mono text-[10px] text-slate-600 max-w-[100px] truncate">{o.noPesanan}</td>
                       <td className="px-2 py-2 text-[10px] whitespace-nowrap">{o.tanggal}</td>
                       <td className="px-2 py-2 font-medium text-[10px]">{o.marketplace}</td>
+                      <td className="px-2 py-2 text-[10px] text-slate-500 max-w-[90px] truncate" title={o.tokoNama}>{o.tokoNama || '-'}</td>
                       <td className="px-2 py-2 text-[10px]">
                         {o.statusPesanan ? (
                           <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${o.statusPesanan.toLowerCase().includes('retur') || o.statusPesanan.toLowerCase().includes('dibatalkan') ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}>{o.statusPesanan}</span>
@@ -1829,7 +1838,7 @@ function UploadHistory() {
                     {/* ── EXPANDED DETAIL ROW ── */}
                     {isOpen && (
                       <tr key={`det-${o.id}`}>
-                        <td colSpan={11} className="px-4 py-3 bg-slate-50/70 border-t border-slate-100">
+                        <td colSpan={12} className="px-4 py-3 bg-slate-50/70 border-t border-slate-100">
                           {/* Fee Breakdown */}
                           <div className="mb-3">
                             <p className="text-[11px] font-bold text-slate-600 mb-2">💰 Rincian Biaya (per ORDER — paket):</p>
