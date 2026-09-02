@@ -5,12 +5,13 @@ import { useSkus } from '@/app/context/SkuContext';
 import { recordActivity } from '@/app/lib/recordActivity';
 import { addTombstones } from '@/app/lib/tombstones';
 
-type Tab = 'kasir' | 'daftar' | 'ringkasan';
+type Tab = 'kasir' | 'daftar' | 'ringkasan' | 'perbaikan';
 
 const TABS: { key: Tab; label: string; icon: string }[] = [
   { key: 'kasir', label: 'Kasir', icon: '🧾' },
   { key: 'daftar', label: 'Daftar Transaksi', icon: '📃' },
   { key: 'ringkasan', label: 'Ringkasan Penjualan', icon: '📊' },
+  { key: 'perbaikan', label: 'Perbaikan Data', icon: '🛠️' },
 ];
 
 interface CartItem { id: string; produk: string; harga: number; hargaAsli: number; hargaModal: number; qty: number; }
@@ -93,6 +94,7 @@ export default function PenjualanPage() {
         {tab==='kasir' && <KasirTab onCheckout={handleCheckout} />}
         {tab==='daftar' && <DaftarTransaksi onChanged={fetchTransaksi} />}
         {tab==='ringkasan' && <RingkasanHarian data={transaksi} />}
+        {tab==='perbaikan' && <PerbaikanDataTab />}
       </section>
     </main>
   );
@@ -775,6 +777,282 @@ function DaftarTransaksi({ onChanged }: { onChanged?: () => void }) {
 }
 
 /* ═══════════════════════════════════════════════════════════════════ */
+/* ═══════════════════════════════════════════════════════════════════ */
+/* PERBAIKAN DATA — SKU tanpa HPP & Produk tanpa SKU                   */
+/* ═══════════════════════════════════════════════════════════════════ */
+interface ProdukRow { id: string; nama: string; kategoriNama: string; hargaBeli: number; hargaJual: number; stokMin: number; }
+
+function PerbaikanDataTab() {
+  const { skus, forceSync } = useSkus();
+  const [produkList, setProdukList] = useState<ProdukRow[]>([]);
+  const [q, setQ] = useState('');
+  const [msg, setMsg] = useState('');
+  const [err, setErr] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  // ── Edit SKU (tambah HPP / nama) ──
+  const [editSku, setEditSku] = useState<SkuItem | null>(null);
+  const [fNama, setFNama] = useState('');
+  const [fHpp, setFHpp] = useState('');
+  const [fJual, setFJual] = useState('');
+  const [fSatuan, setFSatuan] = useState('pcs');
+
+  // ── Daftarkan Produk transaksi → Master Data ──
+  const [editProduk, setEditProduk] = useState<ProdukRow | null>(null);
+  const [pSku, setPSku] = useState('');
+  const [pNama, setPNama] = useState('');
+  const [pHpp, setPHpp] = useState('');
+  const [pJual, setPJual] = useState('');
+  const [pSatuan, setPSatuan] = useState('pcs');
+
+  const loadProduk = useCallback(async () => {
+    try {
+      const res = await fetch('/api/produk');
+      if (res.ok) setProdukList(await res.json());
+    } catch {}
+  }, []);
+
+  useEffect(() => { loadProduk(); }, [loadProduk]);
+
+  /* SKU tanpa HPP (harga modal 0) ATAU tanpa nama */
+  const skusBermasalah = useMemo(() => {
+    const qq = q.trim().toLowerCase();
+    return skus
+      .filter(s => {
+        const hpp = Number(s.hargaBaru) || Number(s.hargaModalLama) || 0;
+        if (hpp > 0 && s.nama.trim()) return false;
+        if (!qq) return true;
+        return s.nama.toLowerCase().includes(qq) || s.sku.toLowerCase().includes(qq);
+      })
+      .sort((a, b) => a.nama.localeCompare(b.nama));
+  }, [skus, q]);
+
+  /* Nama-nama yang sudah ada di Master Data (case-insensitive) */
+  const masterNama = useMemo(() => {
+    const set = new Set<string>();
+    for (const s of skus) if (s.nama) set.add(s.nama.trim().toLowerCase());
+    return set;
+  }, [skus]);
+
+  /* Produk transaksi yang belum terdaftar di Master Data */
+  const produkTanpaSku = useMemo(() => {
+    const qq = q.trim().toLowerCase();
+    return produkList
+      .filter(p => {
+        if (masterNama.has(p.nama.trim().toLowerCase())) return false;
+        if (!qq) return true;
+        return p.nama.toLowerCase().includes(qq);
+      })
+      .sort((a, b) => a.nama.localeCompare(b.nama));
+  }, [produkList, masterNama, q]);
+
+  const fmt = (n: number) => `Rp ${Number(n || 0).toLocaleString('id-ID')}`;
+
+  const openEditSku = (s: SkuItem) => {
+    setEditSku(s);
+    setFNama(s.nama || '');
+    setFHpp(String(Number(s.hargaBaru) || 0));
+    setFJual(String(Number(s.hargaJual) || 0));
+    setFSatuan(s.satuan || 'pcs');
+    setMsg(''); setErr('');
+  };
+
+  const saveSku = async () => {
+    if (!editSku) return;
+    setSaving(true); setErr(''); setMsg('');
+    try {
+      const res = await fetch('/api/sku-master', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: editSku.id,
+          nama: fNama.trim() || editSku.nama,
+          hargaBaru: Number(fHpp) || 0,
+          hargaJual: Number(fJual) || 0,
+          satuan: fSatuan.trim() || 'pcs',
+        }),
+      });
+      if (!res.ok) throw new Error('gagal');
+      await forceSync();
+      setEditSku(null);
+      setMsg(`✅ "${fNama.trim() || editSku.nama}" berhasil diupdate di Master Data.`);
+    } catch {
+      setErr('Gagal update SKU. Coba lagi.');
+    }
+    setSaving(false);
+  };
+
+  const openEditProduk = (p: ProdukRow) => {
+    setEditProduk(p);
+    setPSku('');
+    setPNama(p.nama);
+    setPHpp(String(Number(p.hargaBeli) || 0));
+    setPJual(String(Number(p.hargaJual) || 0));
+    setPSatuan('pcs');
+    setMsg(''); setErr('');
+  };
+
+  const saveProduk = async () => {
+    if (!editProduk) return;
+    if (!pSku.trim()) { setErr('Kode SKU wajib diisi.'); return; }
+    if (!pNama.trim()) { setErr('Nama produk wajib diisi.'); return; }
+    setSaving(true); setErr(''); setMsg('');
+    try {
+      const res = await fetch('/api/sku-master', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sku: pSku.trim(), nama: pNama.trim(),
+          hargaBaru: Number(pHpp) || 0,
+          hargaJual: Number(pJual) || 0,
+          satuan: pSatuan.trim() || 'pcs',
+          aktif: 1,
+        }),
+      });
+      if (!res.ok) throw new Error('gagal');
+      await forceSync();
+      await loadProduk();
+      setEditProduk(null);
+      setMsg(`✅ "${pNama.trim()}" otomatis masuk Master Data (SKU: ${pSku.trim()}).`);
+    } catch {
+      setErr('Gagal simpan ke Master Data. Coba lagi.');
+    }
+    setSaving(false);
+  };
+
+  return (
+    <div>
+      <div className="mb-1 h-1 w-16 rounded-full bg-gradient-to-r from-brand-500 to-brand-300" />
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-bold text-slate-800 sm:text-xl">🛠️ Perbaikan Data Produk</h2>
+          <p className="mt-1 text-sm text-slate-500">SKU tanpa HPP & produk transaksi tanpa SKU — edit di sini, otomatis tersimpan di Master Data.</p>
+        </div>
+        <input type="text" value={q} onChange={e => setQ(e.target.value)} placeholder="🔍 Cari nama / SKU…"
+          className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm focus:border-brand-500 focus:outline-none" />
+      </div>
+      {msg && <p className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{msg}</p>}
+      {err && <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{err}</p>}
+
+      {/* ── 1. SKU tanpa HPP / tanpa Nama ── */}
+      <div className="mt-4 rounded-2xl border border-amber-200 bg-white p-4">
+        <p className="text-sm font-bold text-amber-700">📦 SKU tanpa HPP / tanpa Nama ({skusBermasalah.length})</p>
+        <p className="text-xs text-slate-400">Harga modal 0 → laba di kasir tidak terhitung dengan benar.</p>
+        <div className="mt-2 max-h-80 overflow-y-auto divide-y divide-slate-50">
+          {skusBermasalah.length === 0 && <p className="py-3 text-center text-sm text-slate-400">🎉 Semua SKU sudah punya HPP & nama.</p>}
+          {skusBermasalah.slice(0, 200).map(s => {
+            const hpp = Number(s.hargaBaru) || Number(s.hargaModalLama) || 0;
+            return (
+              <div key={s.id} className="flex items-center gap-2 py-2 text-sm">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-semibold text-slate-700">{s.nama || '— tanpa nama —'}</p>
+                  <p className="text-xs text-slate-400">{s.sku || 'tanpa kode'} • HPP: {fmt(hpp)} • Jual: {fmt(s.hargaJual)}</p>
+                </div>
+                {!s.nama.trim() && <span className="shrink-0 rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-bold text-red-600">TANPA NAMA</span>}
+                {hpp <= 0 && <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-600">TANPA HPP</span>}
+                <button onClick={() => openEditSku(s)} className="shrink-0 rounded-lg bg-brand-500 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-brand-600">✏️ Edit</button>
+              </div>
+            );
+          })}
+          {skusBermasalah.length > 200 && <p className="py-2 text-center text-xs text-slate-400">+{skusBermasalah.length - 200} lainnya — persempit pencarian</p>}
+        </div>
+      </div>
+
+      {/* ── 2. Produk tanpa SKU ── */}
+      <div className="mt-4 rounded-2xl border border-red-200 bg-white p-4">
+        <p className="text-sm font-bold text-red-600">🛒 Produk Transaksi Tanpa SKU ({produkTanpaSku.length})</p>
+        <p className="text-xs text-slate-400">Produk dari kasir / barang masuk yang belum terdaftar di Master Data.</p>
+        <div className="mt-2 max-h-80 overflow-y-auto divide-y divide-slate-50">
+          {produkTanpaSku.length === 0 && <p className="py-3 text-center text-sm text-slate-400">🎉 Semua produk transaksi sudah terdaftar di Master Data.</p>}
+          {produkTanpaSku.map(p => (
+            <div key={p.id} className="flex items-center gap-2 py-2 text-sm">
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-semibold text-slate-700">{p.nama}</p>
+                <p className="text-xs text-slate-400">Beli: {fmt(p.hargaBeli)} • Jual: {fmt(p.hargaJual)}</p>
+              </div>
+              <button onClick={() => openEditProduk(p)} className="shrink-0 rounded-lg bg-red-500 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-red-600">✏️ Daftarkan SKU</button>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Modal: Update SKU ── */}
+      {editSku && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl">
+            <h3 className="text-base font-bold text-slate-800">✏️ Update SKU di Master Data</h3>
+            <p className="mt-1 text-xs text-slate-400">Kode: {editSku.sku || '—'}</p>
+            <div className="mt-3 space-y-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Nama Produk</label>
+                <input type="text" value={fNama} onChange={e => setFNama(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Harga Modal (HPP) *</label>
+                  <input type="number" value={fHpp} onChange={e => setFHpp(e.target.value)} placeholder="0" className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Harga Jual</label>
+                  <input type="number" value={fJual} onChange={e => setFJual(e.target.value)} placeholder="0" className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Satuan</label>
+                <input type="text" value={fSatuan} onChange={e => setFSatuan(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none" />
+              </div>
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button onClick={() => setEditSku(null)} disabled={saving} className="rounded-xl bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-600">Batal</button>
+              <button onClick={saveSku} disabled={saving} className="rounded-xl bg-brand-500 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-600">{saving ? '⏳ Menyimpan…' : '💾 Simpan'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal: Daftarkan Produk ke Master Data ── */}
+      {editProduk && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl">
+            <h3 className="text-base font-bold text-slate-800">🛒 Daftarkan ke Master Data</h3>
+            <p className="mt-1 text-xs text-slate-400">Produk otomatis masuk Master Data setelah disimpan.</p>
+            <div className="mt-3 space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Kode SKU *</label>
+                  <input type="text" value={pSku} onChange={e => setPSku(e.target.value)} placeholder="mis. BESI-5MM" className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Satuan</label>
+                  <input type="text" value={pSatuan} onChange={e => setPSatuan(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Nama Produk *</label>
+                <input type="text" value={pNama} onChange={e => setPNama(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Harga Modal (HPP)</label>
+                  <input type="number" value={pHpp} onChange={e => setPHpp(e.target.value)} placeholder="0" className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Harga Jual</label>
+                  <input type="number" value={pJual} onChange={e => setPJual(e.target.value)} placeholder="0" className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none" />
+                </div>
+              </div>
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button onClick={() => setEditProduk(null)} disabled={saving} className="rounded-xl bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-600">Batal</button>
+              <button onClick={saveProduk} disabled={saving} className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-600">{saving ? '⏳ Menyimpan…' : '💾 Simpan'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* RINGKASAN HARIAN + RIWAYAT BULANAN & TAHUNAN                          */
 /* ═══════════════════════════════════════════════════════════════════ */
 function RingkasanHarian({ data }: { data: TransaksiEntry[] }) {
