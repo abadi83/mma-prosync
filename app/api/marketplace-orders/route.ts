@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { listMarketplaceOrders, getMpSummary, listMpResi, upsertMarketplaceOrders, updateMarketplaceOrder, deleteAllMarketplaceOrders, MarketplaceOrder } from '@/app/services/marketplaceOrderService';
+import { listMarketplaceOrders, getMpSummary, listMpResi, upsertMarketplaceOrders, updateMarketplaceOrder, deleteAllMarketplaceOrders, deleteMarketplaceOrdersByCatatan, MarketplaceOrder } from '@/app/services/marketplaceOrderService';
 
 export const dynamic = 'force-dynamic';
 const json = (data: any, status = 200) => NextResponse.json(data, { status });
@@ -49,9 +49,17 @@ export async function PUT(request: Request) {
   }
 }
 
-/** DELETE /api/marketplace-orders — hapus semua order marketplace (reset) */
-export async function DELETE() {
+/** DELETE /api/marketplace-orders
+ *  ?catatan=...  → hapus satu batch upload (semua order dengan catatan tsb)
+ *  tanpa param    → hapus semua order marketplace (reset) */
+export async function DELETE(request: Request) {
   try {
+    const { searchParams } = new URL(request.url);
+    const catatan = searchParams.get('catatan');
+    if (catatan) {
+      const deleted = await deleteMarketplaceOrdersByCatatan(catatan);
+      return json({ success: true, deleted });
+    }
     const deleted = await deleteAllMarketplaceOrders();
     return json({ success: true, deleted });
   } catch {

@@ -219,3 +219,9 @@ export async function deleteAllMarketplaceOrders(tokoId?: string): Promise<numbe
   const { rowCount } = await query('DELETE FROM marketplace_order WHERE toko_id = $1', [tokoId || DEFAULT_TOKO]);
   return rowCount || 0;
 }
+
+/** Hapus satu batch upload (semua order dengan catatan file yang sama) — revisi laporan otomatis via refetch. */
+export async function deleteMarketplaceOrdersByCatatan(catatan: string, tokoId?: string): Promise<number> {
+  const { rowCount } = await query('DELETE FROM marketplace_order WHERE toko_id = $1 AND catatan = $2', [tokoId || DEFAULT_TOKO, catatan]);
+  return rowCount || 0;
+}

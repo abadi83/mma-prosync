@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import * as XLSX from 'xlsx';
 import { useAgregasi, type AgregasiRow } from '@/app/context/AgregasiContext';
 import { useSkus } from '@/app/context/SkuContext';
@@ -1534,6 +1534,10 @@ function UploadHistory() {
   const [editItems, setEditItems] = useState<MpOrderItem[]>([]);
   const [editErr, setEditErr] = useState('');
   const [savingEdit, setSavingEdit] = useState(false);
+  // ── Hapus per Upload ──
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const [hapusMsg, setHapusMsg] = useState('');
+  const [hapusErr, setHapusErr] = useState('');
   // Filter ringkasan: marketplace, toko, periode
   const [fMp, setFMp] = useState('semua');
   const [fToko, setFToko] = useState('semua');
@@ -1672,6 +1676,35 @@ function UploadHistory() {
     return true;
   });
 
+  /* Grup upload berdasarkan catatan (nama file) untuk hapus per batch */
+  const uploadGroups = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const o of orders) if (o.catatan) map.set(o.catatan, (map.get(o.catatan) || 0) + 1);
+    return Array.from(map.entries()).sort((a, b) => b[1] - a[1]);
+  }, [orders]);
+
+  const hapusUpload = async (catatan: string, n: number) => {
+    if (!confirm(`⚠️ Hapus permanen upload ini?\n\n"${catatan}"\n${n} pesanan akan dihapus dari database & laporan penjualan otomatis direvisi.\n\nTindakan ini tidak bisa dibatalkan.`)) return;
+    setDeleting(catatan); setHapusErr(''); setHapusMsg('');
+    try {
+      const res = await fetch(`/api/marketplace-orders?catatan=${encodeURIComponent(catatan)}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('gagal');
+      // Bersihkan cache dedup browser utk pesanan dari upload ini (biar bisa re-upload nanti)
+      try {
+        const cache = JSON.parse(localStorage.getItem('mma_marketplace_orders') || '[]');
+        const cleaned = (Array.isArray(cache) ? cache : []).filter((o: any) => o.catatan !== catatan);
+        localStorage.setItem('mma_marketplace_orders', JSON.stringify(cleaned.slice(0, 50)));
+      } catch {}
+      setOrders(prev => prev.filter(o => o.catatan !== catatan));
+      try { setSummary(await fetchMpSummary()); } catch {}
+      window.dispatchEvent(new Event('refresh-laporan'));
+      setHapusMsg(`✅ Upload "${catatan}" dihapus (${n} pesanan). Laporan penjualan sudah direvisi otomatis.`);
+    } catch {
+      setHapusErr('Gagal menghapus. Coba lagi.');
+    }
+    setDeleting(null);
+  };
+
   // Kumpulkan semua SKU unik dengan HPP
   const skuSummary = new Map<string, { nama: string; totalQty: number; totalHpp: number; hppUnit: number; muncul: number }>();
   for (const o of orders) {
@@ -1787,6 +1820,29 @@ function UploadHistory() {
           <span className={`rounded-full px-3 py-1 font-semibold ${totalNet >= 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
             📈 Margin: {totalKotor > 0 ? ((totalNet / totalKotor) * 100).toFixed(1) : '0'}%
           </span>
+        </div>
+      </div>
+
+      {/* ── Hapus Data per Upload ── */}
+      <div className="rounded-2xl border border-red-200 bg-white p-4">
+        <p className="text-sm font-bold text-red-600">🧹 Hapus Data per Upload</p>
+        <p className="text-xs text-slate-400">Salah input? Hapus satu batch upload (per file) — semua pesanan dari file itu dihapus permanen & laporan penjualan direvisi otomatis.</p>
+        {hapusMsg && <p className="mt-2 rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-700">{hapusMsg}</p>}
+        {hapusErr && <p className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600">{hapusErr}</p>}
+        <div className="mt-2 max-h-64 space-y-1 overflow-y-auto">
+          {uploadGroups.length === 0 && <p className="py-1 text-xs text-slate-400">Tidak ada grup upload di daftar ini.</p>}
+          {uploadGroups.slice(0, 30).map(([cat, n]) => (
+            <div key={cat} className="flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-1.5 text-xs">
+              <span className="min-w-0 flex-1 truncate text-slate-600" title={cat}>{cat}</span>
+              <span className="shrink-0 rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-500">{n} pesanan</span>
+              <button
+                onClick={() => hapusUpload(cat, n)}
+                disabled={deleting === cat}
+                className="shrink-0 rounded-lg bg-red-100 px-3 py-1 text-[10px] font-semibold text-red-600 transition hover:bg-red-200 disabled:opacity-50">
+                {deleting === cat ? '⏳ Menghapus…' : '🗑️ Hapus'}
+              </button>
+            </div>
+          ))}
         </div>
       </div>
 
