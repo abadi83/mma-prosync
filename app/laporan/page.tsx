@@ -551,16 +551,27 @@ function ArusKas({ periode, customStart, customEnd, mpOrders }: { periode: Perio
     } catch { }
     // Saldo MP belum dicairkan = Σ (Pendapatan Kotor − Fee) semua order − Σ pencairan (semua)
     const saldoMP = mpOrders.reduce((s: number, o: any) => s + ((o.pendapatanKotor || 0) - (o.totalBiaya || 0)), 0) - totalPencairanAll;
+    // Biaya akrual (nonTunai) TIDAK mengurangi arus kas — uangnya sudah keluar saat pembayaran di muka
+    const biayaTunai = f(biaya, 'tanggal').filter((b2: any) => !b2.nonTunai);
+    // Kas Besar Keluar/Masuk manual (Atur Kas Besar) — termasuk bayar sewa di muka (mis. sewa tahunan)
+    let kasBesarKeluar = 0;
+    let kasBesarMasuk = 0;
+    try {
+      kasBesarKeluar = f(JSON.parse(localStorage.getItem('mma_kas_besar_keluar') || '[]'), 'tanggal').reduce((s: number, e: any) => s + (e.jumlah || 0), 0);
+      kasBesarMasuk = f(JSON.parse(localStorage.getItem('mma_kas_besar_masuk') || '[]'), 'tanggal').reduce((s: number, e: any) => s + (e.jumlah || 0), 0);
+    } catch {}
     return {
       saldoAwal: saldoAwal + kasKecil,
       pemasukan: [
         { sumber: 'Penjualan Kasir', jumlah: f(penjualan, 'tanggal').reduce((s: number, t: any) => s + (t.total || 0), 0) },
         { sumber: 'Pencairan Marketplace', jumlah: pencairanPeriode },
+        { sumber: 'Kas Besar Masuk', jumlah: kasBesarMasuk },
       ],
       pengeluaran: [
         { sumber: 'Pembayaran PO', jumlah: f(payments, 'tanggalBayar').reduce((s: number, p2: any) => s + p2.jumlahDibayar, 0) },
-        { sumber: 'Biaya Operasional', jumlah: f(biaya, 'tanggal').reduce((s: number, b2: any) => s + b2.jumlah, 0) },
+        { sumber: 'Biaya Operasional', jumlah: biayaTunai.reduce((s: number, b2: any) => s + b2.jumlah, 0) },
         { sumber: 'OPEX', jumlah: f(opex, 'tanggal').reduce((s: number, o2: any) => s + o2.total, 0) },
+        { sumber: 'Kas Besar Keluar', jumlah: kasBesarKeluar },
       ],
       info: [
         { sumber: 'Saldo Marketplace (Belum Dicairkan)', jumlah: saldoMP },

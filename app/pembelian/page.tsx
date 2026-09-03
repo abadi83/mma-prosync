@@ -108,6 +108,7 @@ interface BiayaOp {
   kategori: string;
   jumlah: number;
   tanggal: string;
+  nonTunai?: boolean; // akrual: masuk Laba Rugi tapi TIDAK mengurangi Arus Kas
 }
 
 const BIAYA_STORAGE = 'mma_biaya_operasional';
@@ -1661,6 +1662,7 @@ function BiayaOpTab() {
   const [kategori, setKategori] = useState(BIAYA_KATEGORI[0]);
   const [kategoriCustom, setKategoriCustom] = useState('');
   const [jumlah, setJumlah] = useState('');
+  const [nonTunai, setNonTunai] = useState(false);
   const [tanggal, setTanggal] = useState(() => new Date().toISOString().slice(0, 10));
   const [ferr, setFerr] = useState('');
   const [editId, setEditId] = useState<string | null>(null);
@@ -1682,6 +1684,7 @@ function BiayaOpTab() {
     if (BIAYA_KATEGORI.includes(b.kategori)) { setKategori(b.kategori); setKategoriCustom(''); }
     else { setKategori('__custom__'); setKategoriCustom(b.kategori); }
     setJumlah(String(b.jumlah));
+    setNonTunai(!!b.nonTunai);
     setTanggal(b.tanggal);
     setEditId(b.id);
     setFerr('');
@@ -1690,6 +1693,7 @@ function BiayaOpTab() {
   const cancelEdit = () => {
     setEditId(null);
     setDeskripsi(''); setJumlah('');
+    setNonTunai(false);
     setTanggal(new Date().toISOString().slice(0, 10));
     setKategori(BIAYA_KATEGORI[0]); setKategoriCustom('');
   };
@@ -1713,6 +1717,7 @@ function BiayaOpTab() {
         deskripsi: deskripsi.trim(),
         kategori: kat,
         jumlah: +jumlah,
+        nonTunai,
         tanggal: tanggal || new Date().toISOString().slice(0, 10),
       } : b));
       recordActivity([{ modul: 'pembelian', aksi: 'biaya', refLabel: `${deskripsi.trim()} (${kat})`, detail: { jumlah: +jumlah, tanggal, edit: true } }]);
@@ -1725,6 +1730,7 @@ function BiayaOpTab() {
       deskripsi: deskripsi.trim(),
       kategori: kat,
       jumlah: +jumlah,
+      nonTunai,
       tanggal: tanggal || new Date().toISOString().slice(0, 10),
     };
 
@@ -1811,6 +1817,10 @@ function BiayaOpTab() {
           </div>
         </div>
         {ferr && <p className="mt-2 text-sm text-red-500">{ferr}</p>}
+        <label className="mt-2 flex w-fit cursor-pointer items-center gap-2 rounded-xl bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700 border border-amber-200">
+          <input type="checkbox" checked={nonTunai} onChange={e => setNonTunai(e.target.checked)} className="h-4 w-4 accent-amber-600" />
+          🧾 Non-Tunai (Akrual) — tetap masuk Laba Rugi, tapi TIDAK mengurangi Arus Kas
+        </label>
         <div className="mt-3 flex flex-wrap gap-2">
           <button onClick={handleSubmit} className={`rounded-xl px-4 py-2.5 text-sm font-bold text-white transition sm:px-8 ${editId ? 'bg-amber-500 hover:bg-amber-700' : 'bg-emerald-500 hover:bg-emerald-700'}`}>
             {editId ? '💾 Simpan Koreksi' : '➕ Catat Biaya'}

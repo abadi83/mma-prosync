@@ -64,6 +64,7 @@ export const DEFAULT_COA: CoaAccount[] = [
   { id: 'coa-1', kodeAkun: '1-1000', namaAkun: 'Kas di Bank', tipeAkun: 'ASET', saldoNormal: 'DEBIT', keterangan: 'Kas dan setara kas' },
   { id: 'coa-2', kodeAkun: '1-1100', namaAkun: 'Piutang Usaha', tipeAkun: 'ASET', saldoNormal: 'DEBIT', keterangan: 'Piutang dari penjualan marketplace' },
   { id: 'coa-3', kodeAkun: '1-1200', namaAkun: 'Persediaan Barang', tipeAkun: 'ASET', saldoNormal: 'DEBIT', keterangan: 'Nilai persediaan SKU' },
+  { id: 'coa-14', kodeAkun: '1-1300', namaAkun: 'Sewa Dibayar di Muka', tipeAkun: 'ASET', saldoNormal: 'DEBIT', keterangan: 'Sewa dibayar di muka (akrual — diamortisasi bulanan)' },
   { id: 'coa-4', kodeAkun: '1-2000', namaAkun: 'Aset Tetap', tipeAkun: 'ASET', saldoNormal: 'DEBIT', keterangan: 'Peralatan, kendaraan, dll' },
   { id: 'coa-5', kodeAkun: '1-2100', namaAkun: 'Akumulasi Depresiasi', tipeAkun: 'ASET', saldoNormal: 'KREDIT', keterangan: 'Akumulasi penyusutan aset tetap' },
   // KEWAJIBAN
@@ -78,6 +79,7 @@ export const DEFAULT_COA: CoaAccount[] = [
   { id: 'coa-11', kodeAkun: '5-1000', namaAkun: 'HPP (Harga Pokok Penjualan)', tipeAkun: 'BEBAN', saldoNormal: 'DEBIT', keterangan: 'Harga pokok barang terjual' },
   { id: 'coa-12', kodeAkun: '5-2000', namaAkun: 'Beban Operasional', tipeAkun: 'BEBAN', saldoNormal: 'DEBIT', keterangan: 'OPEX, packing, ATK, dll' },
   { id: 'coa-13', kodeAkun: '5-3000', namaAkun: 'Beban Depresiasi', tipeAkun: 'BEBAN', saldoNormal: 'DEBIT', keterangan: 'Penyusutan aset tetap' },
+  { id: 'coa-15', kodeAkun: '5-4000', namaAkun: 'Beban Sewa', tipeAkun: 'BEBAN', saldoNormal: 'DEBIT', keterangan: 'Beban sewa tempat/gudang (akrual bulanan)' },
 ];
 
 /* ================================================================ */
@@ -131,7 +133,7 @@ function saveToStorage<T>(key: string, data: T) {
 /* ================================================================ */
 
 export function AkuntansiProvider({ children }: { children: React.ReactNode }) {
-  const [coa] = useState<CoaAccount[]>(DEFAULT_COA);
+  const [coa, setCoa] = useState<CoaAccount[]>(DEFAULT_COA);
   const [jurnal, setJurnal] = useState<JurnalEntry[]>([]);
   const [aset, setAset] = useState<AsetTetap[]>([]);
   const [modal, setModal] = useState<ModalEntry[]>([]);
@@ -142,9 +144,17 @@ export function AkuntansiProvider({ children }: { children: React.ReactNode }) {
     const storedJurnal = loadFromStorage(JURNAL_STORAGE, [] as JurnalEntry[]);
     const storedAset = loadFromStorage(ASET_STORAGE, [] as AsetTetap[]);
     const storedModal = loadFromStorage(MODAL_STORAGE, [] as ModalEntry[]);
+    const storedCoa = loadFromStorage(COA_STORAGE, null as CoaAccount[] | null);
     setJurnal(storedJurnal);
     setAset(storedAset);
     setModal(storedModal);
+    if (Array.isArray(storedCoa) && storedCoa.length > 0) {
+      setCoa(prev => {
+        const map = new Map<string, CoaAccount>();
+        for (const c of [...prev, ...storedCoa]) map.set(c.kodeAkun, c);
+        return Array.from(map.values());
+      });
+    }
     setHydrated(true);
   }, []);
 
