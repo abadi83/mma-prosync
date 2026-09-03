@@ -1676,12 +1676,11 @@ function UploadHistory() {
     return true;
   });
 
-  /* Grup upload berdasarkan catatan (nama file) untuk hapus per batch */
-  const uploadGroups = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const o of orders) if (o.catatan) map.set(o.catatan, (map.get(o.catatan) || 0) + 1);
-    return Array.from(map.entries()).sort((a, b) => b[1] - a[1]);
-  }, [orders]);
+  /* Grup upload berdasarkan catatan (nama file) untuk hapus per batch.
+     ⚠️ Bukan useMemo — ada early return di atas (jangan naruh hook setelahnya). */
+  const uploadGroupsMap = new Map<string, number>();
+  for (const o of orders) if (o.catatan) uploadGroupsMap.set(o.catatan, (uploadGroupsMap.get(o.catatan) || 0) + 1);
+  const uploadGroups = Array.from(uploadGroupsMap.entries()).sort((a, b) => b[1] - a[1]);
 
   const hapusUpload = async (catatan: string, n: number) => {
     if (!confirm(`⚠️ Hapus permanen upload ini?\n\n"${catatan}"\n${n} pesanan akan dihapus dari database & laporan penjualan otomatis direvisi.\n\nTindakan ini tidak bisa dibatalkan.`)) return;
