@@ -1316,7 +1316,7 @@ function InputKeuangan() {
         {/* ── Reset Data ── */}
         <button
           onClick={() => {
-            if (!confirm('⚠️ Hapus SEMUA data Input Keuangan & Riwayat Marketplace?\n\nData yang dihapus: Upload Excel, input manual, riwayat marketplace.\n\nData Master SKU & lainnya TIDAK terpengaruh.')) return;
+            if (!confirm('⚠️ Hapus SEMUA data Input Keuangan & Riwayat Marketplace?\n\nYang DIHAPUS: Upload Excel (pesanan/resi), input manual, riwayat marketplace.\n\nYang TIDAK dihapus: Biaya Operasional, OPEX, Kas, Jurnal, Master SKU — Laba Rugi tetap memakai biaya yang sudah dicatat.')) return;
             // Hapus global: localStorage lokal + server (propagasi ke semua user)
             try { localStorage.removeItem('mma_marketplace_orders'); } catch {}
             try { fetch('/api/marketplace-orders', { method: 'DELETE' }); } catch {}
