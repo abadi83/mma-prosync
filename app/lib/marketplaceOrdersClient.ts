@@ -46,6 +46,26 @@ export async function fetchMarketplaceOrders(limit = 0): Promise<any[]> {
   return [];
 }
 
+/** Daftar order terfilter di SERVER (marketplace/toko/rentang tanggal/no pesanan) — biar filter bulan/tahun bisa tampil walau data lama di luar 300 terbaru. */
+export async function fetchMarketplaceOrdersFiltered(params: { marketplace?: string; toko?: string; dari?: string; sampai?: string; cari?: string; limit?: number }): Promise<any[]> {
+  try {
+    const q = new URLSearchParams();
+    q.set('t', String(Date.now()));
+    if (params.marketplace) q.set('marketplace', params.marketplace);
+    if (params.toko) q.set('toko', params.toko);
+    if (params.dari) q.set('dari', params.dari);
+    if (params.sampai) q.set('sampai', params.sampai);
+    if (params.cari) q.set('cari', params.cari);
+    q.set('limit', String(params.limit || 500));
+    const res = await fetch(`/api/marketplace-orders?${q.toString()}`);
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data)) return data;
+    }
+  } catch {}
+  return [];
+}
+
 /** Ringkasan agregat per (marketplace, toko, tanggal) — jauh lebih kecil dari daftar penuh. */
 export async function fetchMpSummary(): Promise<any[]> {
   try {

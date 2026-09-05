@@ -1,11 +1,11 @@
 'use client';
 
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import * as XLSX from 'xlsx';
 import { useAgregasi, type AgregasiRow } from '@/app/context/AgregasiContext';
 import { useSkus } from '@/app/context/SkuContext';
 import { useUser } from '@/app/hooks/useUser';
-import { fetchMarketplaceOrders, fetchMpSummary } from '@/app/lib/marketplaceOrdersClient';
+import { fetchMarketplaceOrdersFiltered, fetchMpSummary } from '@/app/lib/marketplaceOrdersClient';
 import { recordActivity } from '@/app/lib/recordActivity';
 import { markMasukSaldoByResi, syncSaldoKeOperasional } from '@/app/lib/saldoMarketplace';
 
@@ -1547,28 +1547,46 @@ function UploadHistory() {
   const [fBulanPilih, setFBulanPilih] = useState('');
   const [fTahunPilih, setFTahunPilih] = useState('');
 
+  /* Loader terfilter di SERVER — dipakai saat mount, saat filter berubah, dan saat refresh event */
+  const loadFiltered = useCallback(async () => {
+    const now = new Date();
+    const bulanIni = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const tahunIni = String(now.getFullYear());
+    let dari: string | undefined;
+    let sampai: string | undefined;
+    if (fPeriode === 'bulan') { dari = `${bulanIni}-01`; sampai = `${bulanIni}-31`; }
+    else if (fPeriode === 'tahun') { dari = `${tahunIni}-01-01`; sampai = `${tahunIni}-12-31`; }
+    else if (fPeriode === 'bulanPilih') { if (fBulanPilih) { const [y, m] = fBulanPilih.split('-'); dari = `${y}-${m}-01`; sampai = `${y}-${m}-31`; } }
+    else if (fPeriode === 'tahunPilih') { if (fTahunPilih) { dari = `${fTahunPilih}-01-01`; sampai = `${fTahunPilih}-12-31`; } }
+    else if (fPeriode === 'custom') { dari = fDari || undefined; sampai = fSampai || undefined; }
+    const list = await fetchMarketplaceOrdersFiltered({
+      marketplace: fMp !== 'semua' ? fMp : undefined,
+      toko: fToko !== 'semua' ? fToko : undefined,
+      dari, sampai,
+      cari: fCari.trim() || undefined,
+    });
+    setOrders(list);
+  }, [fMp, fToko, fPeriode, fDari, fSampai, fBulanPilih, fTahunPilih, fCari]);
+  const loadFilteredRef = useRef(loadFiltered);
+  loadFilteredRef.current = loadFiltered;
+
   useEffect(() => {
     let active = true;
-    const loadOrders = async () => {
-      // Cukup 300 order terbaru — daftar penuh (7rb+) terlalu berat untuk tampilan riwayat
-      const list = await fetchMarketplaceOrders(300);
-      if (active) setOrders(list);
-    };
     const loadSummary = async () => {
-      // Ringkasan memakai SEMUA data (bukan 300) biar totalnya akurat
+      // Ringkasan memakai SEMUA data biar totalnya akurat
       const list = await fetchMpSummary();
       if (active) setSummary(list);
     };
-    loadOrders();
+    loadFilteredRef.current();
     loadSummary();
-    window.addEventListener('storage', loadOrders);
-    // Juga listen custom refresh event
-    window.addEventListener('refresh-upload-history', loadOrders);
+    const onRefresh = () => { loadFilteredRef.current(); };
+    window.addEventListener('storage', onRefresh);
+    window.addEventListener('refresh-upload-history', onRefresh);
     window.addEventListener('refresh-upload-history', loadSummary);
     return () => {
       active = false;
-      window.removeEventListener('storage', loadOrders);
-      window.removeEventListener('refresh-upload-history', loadOrders);
+      window.removeEventListener('storage', onRefresh);
+      window.removeEventListener('refresh-upload-history', onRefresh);
       window.removeEventListener('refresh-upload-history', loadSummary);
     };
   }, []);
@@ -1576,6 +1594,13 @@ function UploadHistory() {
   const toggle = (id: string) => {
     setExpanded(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
   };
+
+  /* ── Refetch order di SERVER saat filter toko/periode berubah (debounce 250ms) ──
+     (tabel lama cuma 300 terbaru → filter bulan/tahun sering kosong padahal datanya ada) */
+  useEffect(() => {
+    const t = setTimeout(() => { loadFilteredRef.current(); }, 250);
+    return () => clearTimeout(t);
+  }, [loadFiltered]);
 
   /* ── Edit SKU / HPP per order ── */
   const openEdit = (o: MpOrder) => {

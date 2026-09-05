@@ -60,18 +60,35 @@ function mapRow(r: any): MarketplaceOrder {
   };
 }
 
-export async function listMarketplaceOrders(tokoId?: string, limit = 0): Promise<MarketplaceOrder[]> {
+export interface MarketplaceOrderFilter {
+  marketplace?: string;
+  tokoNama?: string;
+  dari?: string;   // tanggal >= (YYYY-MM-DD)
+  sampai?: string; // tanggal <= (YYYY-MM-DD)
+  noPesanan?: string; // ILIKE
+}
+
+export async function listMarketplaceOrders(tokoId?: string, limit = 0, filter?: MarketplaceOrderFilter): Promise<MarketplaceOrder[]> {
+  const conditions: string[] = ['toko_id = $1'];
+  const params: any[] = [tokoId || DEFAULT_TOKO];
+  let i = 2;
+  if (filter?.marketplace) { conditions.push(`marketplace = $${i++}`); params.push(filter.marketplace); }
+  if (filter?.tokoNama) { conditions.push(`toko_nama = $${i++}`); params.push(filter.tokoNama); }
+  if (filter?.dari) { conditions.push(`tanggal >= $${i++}`); params.push(filter.dari); }
+  if (filter?.sampai) { conditions.push(`tanggal <= $${i++}`); params.push(filter.sampai); }
+  if (filter?.noPesanan) { conditions.push(`no_pesanan ILIKE $${i++}`); params.push(`%${filter.noPesanan}%`); }
   const lim = limit > 0 ? limit : 5000;
+  params.push(lim);
   const { rows } = await query(
     `SELECT id, no_pesanan, no_resi, tanggal, marketplace, toko_nama, pendapatan_kotor, pendapatan_bersih,
             total_biaya, fee_admin, fee_layanan, ongkir_aktual, subsidi_ongkir, biaya_pemrosesan,
             premi_proteksi, biaya_ams, biaya_transaksi, komisi, items, total_hpp, laba_kotor,
             catatan, status_pesanan
      FROM marketplace_order
-     WHERE toko_id = $1
-     ORDER BY created_at DESC, id DESC
-     LIMIT $2`,
-    [tokoId || DEFAULT_TOKO, lim]
+     WHERE ${conditions.join(' AND ')}
+     ORDER BY tanggal DESC, created_at DESC, id DESC
+     LIMIT $${i}`,
+    params
   );
   return rows.map(mapRow);
 }

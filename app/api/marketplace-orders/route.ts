@@ -8,6 +8,7 @@ const json = (data: any, status = 200) => NextResponse.json(data, { status });
  *  view=summary → agregat per (marketplace, toko, tanggal) — kecil & cepat
  *  view=resi     → daftar no_resi + tanggal — untuk pencocokan operasional
  *  limit=N       → batasi daftar penuh (riwayat upload cukup 300 terbaru)
+ *  marketplace= / toko= / dari= / sampai= / cari= (no pesanan) → filter di server
  *  default       → daftar lengkap (legacy, berat — hanya untuk tampilan detail) */
 export async function GET(request: Request) {
   try {
@@ -16,7 +17,14 @@ export async function GET(request: Request) {
     if (view === 'summary') return json(await getMpSummary());
     if (view === 'resi') return json(await listMpResi());
     const limit = parseInt(searchParams.get('limit') || '0', 10) || 0;
-    return json(await listMarketplaceOrders(undefined, limit));
+    const filter = {
+      marketplace: searchParams.get('marketplace') || undefined,
+      tokoNama: searchParams.get('toko') || undefined,
+      dari: searchParams.get('dari') || undefined,
+      sampai: searchParams.get('sampai') || undefined,
+      noPesanan: searchParams.get('cari') || undefined,
+    };
+    return json(await listMarketplaceOrders(undefined, limit, filter));
   }
   catch { return json({ error: 'Gagal memuat order marketplace' }, 500);
 }
