@@ -1541,9 +1541,11 @@ function UploadHistory() {
   // Filter ringkasan: marketplace, toko, periode
   const [fMp, setFMp] = useState('semua');
   const [fToko, setFToko] = useState('semua');
-  const [fPeriode, setFPeriode] = useState<'semua' | 'bulan' | 'tahun' | 'custom'>('semua');
+  const [fPeriode, setFPeriode] = useState<'semua' | 'bulan' | 'tahun' | 'custom' | 'bulanPilih' | 'tahunPilih'>('semua');
   const [fDari, setFDari] = useState('');
   const [fSampai, setFSampai] = useState('');
+  const [fBulanPilih, setFBulanPilih] = useState('');
+  const [fTahunPilih, setFTahunPilih] = useState('');
 
   useEffect(() => {
     let active = true;
@@ -1643,9 +1645,16 @@ function UploadHistory() {
     if (!tanggal) return fPeriode === 'semua';
     if (fPeriode === 'bulan') return tanggal.startsWith(bulanIni);
     if (fPeriode === 'tahun') return tanggal.startsWith(tahunIni);
+    if (fPeriode === 'bulanPilih') return fBulanPilih ? tanggal.startsWith(fBulanPilih) : true;
+    if (fPeriode === 'tahunPilih') return fTahunPilih ? tanggal.startsWith(fTahunPilih) : true;
     if (fPeriode === 'custom') return (!fDari || tanggal >= fDari) && (!fSampai || tanggal <= fSampai);
     return true;
   };
+
+  /* Opsi tahun dari data (untuk filter Pilih Tahun) */
+  const tahunOptions = Array.from(new Set(
+    [...orders.map(o => (o.tanggal || '').slice(0, 4)), ...summary.map(s => (s.tanggal || '').slice(0, 4))].filter(Boolean)
+  )).sort().reverse();
 
   const filteredSummary = summary.filter(s =>
     (fMp === 'semua' || s.marketplace === fMp) &&
@@ -1758,9 +1767,26 @@ function UploadHistory() {
               <option value="semua">📅 Semua Tanggal</option>
               <option value="bulan">📆 Bulan Ini</option>
               <option value="tahun">🗓️ Tahun Ini</option>
-              <option value="custom">🔍 Custom</option>
+              <option value="bulanPilih">📆 Pilih Bulan</option>
+              <option value="tahunPilih">🗓️ Pilih Tahun</option>
+              <option value="custom">🔍 Custom (Dari–Sampai)</option>
             </select>
           </div>
+          {fPeriode === 'bulanPilih' && (
+            <div>
+              <label className="block text-[10px] text-slate-400 mb-0.5">Bulan</label>
+              <input type="month" value={fBulanPilih} onChange={e => setFBulanPilih(e.target.value)} className="rounded-lg border bg-white px-2 py-1.5 text-[11px]" />
+            </div>
+          )}
+          {fPeriode === 'tahunPilih' && (
+            <div>
+              <label className="block text-[10px] text-slate-400 mb-0.5">Tahun</label>
+              <select value={fTahunPilih} onChange={e => setFTahunPilih(e.target.value)} className="rounded-lg border bg-white px-2 py-1.5 text-[11px] font-semibold">
+                <option value="">— Pilih Tahun —</option>
+                {tahunOptions.map(y => <option key={y} value={y}>{y}</option>)}
+              </select>
+            </div>
+          )}
           {fPeriode === 'custom' && (
             <>
               <div>
