@@ -1149,6 +1149,9 @@ function InputKeuangan() {
           }
           // Retur/klaim dengan total biaya NEGATIF (fee dibalikin MP) → jangan dikurangkan
           if (isRetur && biayaFinal < 0) biayaFinal = 0;
+          // SERAGAM (seperti Shopee): biaya negatif pada order NORMAL (mis. kredit TikTok) dianggap fee
+          // positif → laba bersih = kotor − |fee| − biaya proses − HPP
+          if (!isRetur && biayaFinal < 0) biayaFinal = Math.abs(biayaFinal);
           const labaFinal = grossFinal - biayaFinal - effectiveHpp;
 
           newOrders.push({
