@@ -1970,6 +1970,10 @@ function ArsipTab() {
   const [koreksiFoto, setKoreksiFoto] = useState<{ base64: string; nama: string }>({ base64: '', nama: '' });
   const [koreksiLoading, setKoreksiLoading] = useState(false);
   const koreksiFileRef = useRef<HTMLInputElement>(null);
+  // ── Tambah SKU baru ke PO ──
+  const [koreksiSkuBaru, setKoreksiSkuBaru] = useState('');
+  const [koreksiQtyBaru, setKoreksiQtyBaru] = useState('');
+  const [koreksiHargaBaru, setKoreksiHargaBaru] = useState('');
 
   // Bukti bayar dari Keuangan — bisa dilihat di sini tanpa pindah modul
   const [buktiLightbox, setBuktiLightbox] = useState<BuktiBayar | null>(null);
@@ -2006,6 +2010,28 @@ function ArsipTab() {
     setKoreksiItems(g.items.map(x => ({ sku: x.sku, namaSku: x.namaSku, qty: x.qty, hargaBeli: x.hargaBeli })));
     const foto = g.items.find(x => x.namaFileFoto);
     setKoreksiFoto({ base64: g.fotoBase64 || '', nama: foto?.namaFileFoto || '' });
+    setKoreksiSkuBaru(''); setKoreksiQtyBaru(''); setKoreksiHargaBaru('');
+  };
+
+  /* Tambah SKU baru ke daftar koreksi (belum disimpan) */
+  const tambahSkuKoreksi = () => {
+    const skuCode = koreksiSkuBaru.trim();
+    if (!skuCode) { alert('Ketik kode SKU dulu.'); return; }
+    if (koreksiItems.some(x => x.sku.toLowerCase() === skuCode.toLowerCase())) { alert('SKU ini sudah ada di PO.'); return; }
+    const m = skus.find(s => s.sku.toLowerCase() === skuCode.toLowerCase());
+    setKoreksiItems(prev => [...prev, {
+      sku: m?.sku || skuCode,
+      namaSku: m?.nama || skuCode,
+      qty: Math.max(1, parseInt(koreksiQtyBaru) || 1),
+      hargaBeli: Number(koreksiHargaBaru) || (m ? (Number(m.hargaBaru) || Number(m.hargaModalLama) || 0) : 0),
+    }]);
+    setKoreksiSkuBaru(''); setKoreksiQtyBaru(''); setKoreksiHargaBaru('');
+  };
+
+  /* Hapus SKU dari daftar koreksi (belum disimpan) */
+  const hapusItemKoreksi = (i: number) => {
+    if (koreksiItems.length <= 1) { alert('PO minimal harus punya 1 SKU.'); return; }
+    setKoreksiItems(prev => prev.filter((_, xi) => xi !== i));
   };
 
   const handleKoreksiFoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -2023,11 +2049,20 @@ function ArsipTab() {
 
   const saveKoreksi = () => {
     if (!koreksiPo) return;
+    if (koreksiItems.length === 0) { alert('PO minimal harus punya 1 SKU.'); return; }
     const bySku = new Map(koreksiItems.map(it => [it.sku, it]));
-    const updated = purchases.map(p => {
-      if (p.noPO !== koreksiPo.noPO) return p;
+    const existingSkus = new Set(koreksiPo.items.map(x => x.sku));
+    let ditambah = 0; let dihapus = 0;
+    const updated: HppPurchase[] = [];
+    for (const p of purchases) {
+      if (p.noPO !== koreksiPo.noPO) { updated.push(p); continue; }
       const it = bySku.get(p.sku);
-      if (!it) return p;
+      if (!it) {
+        // SKU dihapus dari PO → balikin stok & hapus baris
+        if (p.qty) void updateStok(p.sku, -(p.qty || 0));
+        dihapus++;
+        continue;
+      }
       const newTotal = it.qty * it.hargaBeli;
       const newSisa = Math.max(0, newTotal - (p.dibayar || 0));
       const deltaQty = it.qty - (p.qty || 0);
@@ -2049,7 +2084,7 @@ function ArsipTab() {
           }
         }
       }
-      return {
+      updated.push({
         ...p,
         qty: it.qty,
         hargaBeli: it.hargaBeli,
@@ -2059,12 +2094,40 @@ function ArsipTab() {
         dikoreksi: true,
         koreksiPada: new Date().toISOString(),
         ...(koreksiFoto.base64 ? { fotoBase64: koreksiFoto.base64, namaFileFoto: koreksiFoto.nama || p.namaFileFoto } : {}),
-      };
-    });
+      });
+    }
+    // Tambah baris SKU BARU ke PO
+    const m0 = koreksiPo.items[0];
+    for (const it of koreksiItems) {
+      if (existingSkus.has(it.sku)) continue;
+      const total = it.qty * it.hargaBeli;
+      updated.push({
+        id: `hpp-koreksi-${Date.now()}-${it.sku}`,
+        noPO: koreksiPo.noPO,
+        sku: it.sku,
+        namaSku: it.namaSku || it.sku,
+        supplierId: m0.supplierId,
+        supplierNama: m0.supplierNama,
+        qty: it.qty,
+        hargaBeli: it.hargaBeli,
+        total,
+        metodeBayar: m0.metodeBayar,
+        dibayar: 0,
+        sisaTagihan: total,
+        tanggal: m0.tanggal,
+        jatuhTempo: m0.jatuhTempo || '',
+        lunas: total <= 0,
+        dikoreksi: true,
+        koreksiPada: new Date().toISOString(),
+        ...(koreksiFoto.base64 ? { fotoBase64: koreksiFoto.base64, namaFileFoto: koreksiFoto.nama } : {}),
+      });
+      if (it.qty) void updateStok(it.sku, it.qty);
+      ditambah++;
+    }
     setPurchases(updated);
     try { window.dispatchEvent(new Event('pembelian-updated')); } catch {}
     setKoreksiPo(null);
-    alert(`✅ Koreksi ${koreksiPo.noPO} tersimpan.\nHarga beli, qty & foto nota sudah diperbarui.`);
+    alert(`✅ Koreksi ${koreksiPo.noPO} tersimpan.\nHarga beli, qty & foto nota diperbarui.${ditambah > 0 ? `\n➕ ${ditambah} SKU ditambahkan.` : ''}${dihapus > 0 ? `\n🗑 ${dihapus} SKU dihapus.` : ''}\nTotal & sisa tagihan dihitung ulang otomatis.`);
   };
 
   // Group purchases by noPO
@@ -2298,10 +2361,13 @@ function ArsipTab() {
               <button onClick={() => setKoreksiPo(null)} className="rounded-full bg-slate-100 p-1.5 text-slate-500 hover:bg-slate-200">✕</button>
             </div>
             <div className="p-5 space-y-3">
-              <p className="text-xs text-slate-500">Koreksi dari supplier (biasanya kontrabon): ubah harga beli/qty SKU & ganti foto nota. Total & sisa tagihan dihitung ulang otomatis.</p>
+              <p className="text-xs text-slate-500">Koreksi dari supplier (biasanya kontrabon): ubah harga beli/qty SKU, tambah/hapus SKU & ganti foto nota. Total & sisa tagihan dihitung ulang otomatis.</p>
               {koreksiItems.map((it, i) => (
-                <div key={it.sku} className="rounded-xl border border-slate-200 p-3">
-                  <p className="text-xs font-bold text-slate-700 mb-2">{it.sku} — <span className="font-normal text-slate-500">{it.namaSku}</span></p>
+                <div key={`${it.sku}-${i}`} className="rounded-xl border border-slate-200 p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-xs font-bold text-slate-700">{it.sku} — <span className="font-normal text-slate-500">{it.namaSku}</span></p>
+                    <button onClick={() => hapusItemKoreksi(i)} title="Hapus SKU dari PO" className="rounded-lg bg-red-50 px-2 py-1 text-[10px] font-semibold text-red-600 hover:bg-red-100">🗑️ Hapus</button>
+                  </div>
                   <div className="flex gap-2">
                     <label className="flex-1">
                       <span className="block text-[10px] text-slate-500 mb-0.5">Qty</span>
@@ -2315,6 +2381,28 @@ function ArsipTab() {
                   <p className="mt-1 text-[10px] text-slate-400">Subtotal baru: Rp {(it.qty * it.hargaBeli).toLocaleString('id-ID')}</p>
                 </div>
               ))}
+
+              {/* Tambah SKU baru */}
+              <div className="rounded-xl border border-dashed border-emerald-300 bg-emerald-50/40 p-3">
+                <p className="text-xs font-bold text-emerald-700 mb-2">➕ Tambah SKU ke PO</p>
+                <div className="flex flex-wrap gap-2">
+                  <input list="koreksi-sku-dl" value={koreksiSkuBaru} onChange={e => setKoreksiSkuBaru(e.target.value)}
+                    placeholder="Ketik kode SKU…" className="min-w-[140px] flex-1 rounded-lg border border-emerald-200 bg-white px-2 py-1.5 font-mono text-sm focus:border-emerald-500 focus:outline-none" />
+                  <input type="number" value={koreksiQtyBaru} onChange={e => setKoreksiQtyBaru(e.target.value)} placeholder="Qty" className="w-20 rounded-lg border border-emerald-200 bg-white px-2 py-1.5 text-center text-sm focus:border-emerald-500 focus:outline-none" />
+                  <input type="number" value={koreksiHargaBaru} onChange={e => setKoreksiHargaBaru(e.target.value)} placeholder="Harga Beli" className="w-28 rounded-lg border border-emerald-200 bg-white px-2 py-1.5 text-center text-sm focus:border-emerald-500 focus:outline-none" />
+                  <button onClick={tambahSkuKoreksi} className="rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-emerald-600">➕ Tambah</button>
+                </div>
+                <p className="mt-1 text-[10px] text-slate-400">Harga beli otomatis terisi dari Master SKU kalau kosong.</p>
+                <datalist id="koreksi-sku-dl">
+                  {skus.slice(0, 1500).map(s => <option key={s.id} value={s.sku}>{s.nama}</option>)}
+                </datalist>
+              </div>
+
+              {/* Total baru PO */}
+              <div className="flex items-center justify-between rounded-xl bg-amber-50 px-3 py-2 text-xs border border-amber-200">
+                <span className="text-amber-700">Total PO baru:</span>
+                <span className="text-sm font-bold text-amber-700">Rp {koreksiItems.reduce((s, it) => s + (Number(it.qty) || 0) * (Number(it.hargaBeli) || 0), 0).toLocaleString('id-ID')}</span>
+              </div>
 
               {/* Foto nota */}
               <div className="rounded-xl border border-slate-200 p-3">
