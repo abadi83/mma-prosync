@@ -46,7 +46,8 @@ interface HppPurchase {
   koreksiPada?: string;  // waktu koreksi terakhir
   petugasLogistik?: string;  // Nama petugas yang menjemput PO (cash: yg talangi dulu)
   pickupStatus?: 'belum' | 'sedang' | 'sampai'; // status penjemputan oleh logistik
-  fotoBase64?: string;   // foto nota/invoice (compressed)
+  fotoBase64?: string;   // foto nota/invoice (compressed) — foto PERTAMA (cover)
+  fotoBase64List?: string[]; // SEMUA foto nota PO ini (bisa lebih dari satu)
   namaFileFoto?: string;
 }
 
@@ -1960,14 +1961,15 @@ function ArsipTab() {
   const [filterSupplier, setFilterSupplier] = useState('');
   const [filterStatus, setFilterStatus] = useState<'semua' | 'lunas' | 'belum'>('semua');
   const [searchPO, setSearchPO] = useState('');
-  const [lightbox, setLightbox] = useState<HppPurchase | null>(null);
+  const [lightbox, setLightbox] = useState<PoGroupArchived | null>(null);
+  const [lightboxIdx, setLightboxIdx] = useState(0);
   const [exportPoData, setExportPoData] = useState<InvoicePOData | null>(null);
   const [detailPoData, setDetailPoData] = useState<InvoicePOData | null>(null);
 
   // ── Koreksi PO: ubah harga beli/qty SKU & perbarui foto nota ──
   const [koreksiPo, setKoreksiPo] = useState<PoGroupArchived | null>(null);
   const [koreksiItems, setKoreksiItems] = useState<{ sku: string; namaSku: string; qty: number; hargaBeli: number }[]>([]);
-  const [koreksiFoto, setKoreksiFoto] = useState<{ base64: string; nama: string }>({ base64: '', nama: '' });
+  const [koreksiFotoList, setKoreksiFotoList] = useState<{ base64: string; nama: string }[]>([]);
   const [koreksiLoading, setKoreksiLoading] = useState(false);
   const koreksiFileRef = useRef<HTMLInputElement>(null);
   // ── Tambah SKU baru ke PO ──
@@ -2008,8 +2010,8 @@ function ArsipTab() {
   const openKoreksi = (g: PoGroupArchived) => {
     setKoreksiPo(g);
     setKoreksiItems(g.items.map(x => ({ sku: x.sku, namaSku: x.namaSku, qty: x.qty, hargaBeli: x.hargaBeli })));
-    const foto = g.items.find(x => x.namaFileFoto);
-    setKoreksiFoto({ base64: g.fotoBase64 || '', nama: foto?.namaFileFoto || '' });
+    const namaFoto = g.items.find(x => x.namaFileFoto)?.namaFileFoto;
+    setKoreksiFotoList(g.fotoList.length ? g.fotoList.map(b => ({ base64: b, nama: namaFoto || `nota-${g.noPO}` })) : []);
     setKoreksiSkuBaru(''); setKoreksiQtyBaru(''); setKoreksiHargaBaru('');
   };
 
@@ -2035,13 +2037,15 @@ function ArsipTab() {
   };
 
   const handleKoreksiFoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (!file.type.startsWith('image/')) { alert('Hanya file gambar yang didukung (JPG, PNG).'); return; }
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+    if (files.some(f => !f.type.startsWith('image/'))) { alert('Hanya file gambar yang didukung (JPG, PNG).'); return; }
     setKoreksiLoading(true);
     try {
-      const { base64, nama } = await compressImage(file);
-      setKoreksiFoto({ base64, nama });
+      for (const file of files) {
+        const { base64, nama } = await compressImage(file);
+        setKoreksiFotoList(prev => [...prev, { base64, nama }]);
+      }
     } catch { alert('Gagal mengompresi gambar.'); }
     setKoreksiLoading(false);
     e.target.value = '';
@@ -2052,6 +2056,7 @@ function ArsipTab() {
     if (koreksiItems.length === 0) { alert('PO minimal harus punya 1 SKU.'); return; }
     const bySku = new Map(koreksiItems.map(it => [it.sku, it]));
     const existingSkus = new Set(koreksiPo.items.map(x => x.sku));
+    const fotoList = koreksiFotoList.map(f => f.base64).filter(Boolean);
     let ditambah = 0; let dihapus = 0;
     const updated: HppPurchase[] = [];
     for (const p of purchases) {
@@ -2093,7 +2098,7 @@ function ArsipTab() {
         lunas: newSisa <= 0,
         dikoreksi: true,
         koreksiPada: new Date().toISOString(),
-        ...(koreksiFoto.base64 ? { fotoBase64: koreksiFoto.base64, namaFileFoto: koreksiFoto.nama || p.namaFileFoto } : {}),
+        ...(fotoList.length ? { fotoBase64: fotoList[0], namaFileFoto: koreksiFotoList[0]?.nama || p.namaFileFoto, fotoBase64List: fotoList } : {}),
       });
     }
     // Tambah baris SKU BARU ke PO
@@ -2119,7 +2124,7 @@ function ArsipTab() {
         lunas: total <= 0,
         dikoreksi: true,
         koreksiPada: new Date().toISOString(),
-        ...(koreksiFoto.base64 ? { fotoBase64: koreksiFoto.base64, namaFileFoto: koreksiFoto.nama } : {}),
+        ...(fotoList.length ? { fotoBase64: fotoList[0], namaFileFoto: koreksiFotoList[0]?.nama, fotoBase64List: fotoList } : {}),
       });
       if (it.qty) void updateStok(it.sku, it.qty);
       ditambah++;
@@ -2145,6 +2150,7 @@ function ArsipTab() {
     jatuhTempo: string;
     hasFoto: boolean;
     fotoBase64?: string;
+    fotoList: string[];
   }
 
   const poGroups = useMemo(() => {
@@ -2164,6 +2170,7 @@ function ArsipTab() {
         jatuhTempo: p.jatuhTempo || '',
         hasFoto: false,
         fotoBase64: undefined,
+        fotoList: [],
       };
       g.items.push(p);
       g.total += p.total;
@@ -2171,7 +2178,9 @@ function ArsipTab() {
       g.sisa += p.sisaTagihan;
       if (!p.lunas) g.lunas = false;
       if (p.jatuhTempo && (!g.jatuhTempo || p.jatuhTempo < g.jatuhTempo)) g.jatuhTempo = p.jatuhTempo;
-      if (p.fotoBase64 && !g.hasFoto) { g.hasFoto = true; g.fotoBase64 = p.fotoBase64; }
+      const fl = p.fotoBase64List?.length ? p.fotoBase64List : (p.fotoBase64 ? [p.fotoBase64] : []);
+      for (const f of fl) if (f && !g.fotoList.includes(f)) g.fotoList.push(f);
+      if (g.fotoList.length) { g.hasFoto = true; g.fotoBase64 = g.fotoList[0]; }
       if (p.tanggal < g.tanggal) g.tanggal = p.tanggal;
       map.set(p.noPO, g);
     }
@@ -2253,8 +2262,11 @@ function ArsipTab() {
             <div key={g.noPO} className="group rounded-2xl border border-slate-200 bg-white p-3 shadow-sm hover:shadow-md hover:border-emerald-300 transition">
               {/* Thumbnail foto jika ada */}
               {g.hasFoto && g.fotoBase64 ? (
-                <div className="relative cursor-pointer overflow-hidden rounded-xl bg-slate-100 aspect-[4/3] mb-2" onClick={() => setLightbox(g.items[0])}>
+                <div className="relative cursor-pointer overflow-hidden rounded-xl bg-slate-100 aspect-[4/3] mb-2" onClick={() => { setLightbox(g); setLightboxIdx(0); }}>
                   <img src={g.fotoBase64} alt={"Nota " + g.noPO} className="h-full w-full object-cover group-hover:scale-105 transition duration-300" />
+                  {g.fotoList.length > 1 && (
+                    <span className="absolute bottom-1.5 right-1.5 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-bold text-white">📸 {g.fotoList.length}</span>
+                  )}
                   <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition flex items-center justify-center"><span className="opacity-0 group-hover:opacity-100 text-white text-2xl transition">🔍</span></div>
                 </div>
               ) : (
@@ -2278,7 +2290,7 @@ function ArsipTab() {
                 </div>
                 <div className="flex items-center gap-1 text-[10px] text-slate-400">
                   <span>{g.items.length} SKU</span>
-                  {g.hasFoto && <span>· 📸 Foto</span>}
+                  {g.hasFoto && <span>· 📸 {g.fotoList.length} foto</span>}
                   {g.lunas && <span>· 🗄️ Diarsipkan</span>}
                 </div>
 
@@ -2406,21 +2418,26 @@ function ArsipTab() {
 
               {/* Foto nota */}
               <div className="rounded-xl border border-slate-200 p-3">
-                <p className="text-xs font-bold text-slate-700 mb-2">📸 Foto Bukti Nota</p>
-                {koreksiFoto.base64 ? (
-                  <div className="mb-2 overflow-hidden rounded-lg bg-slate-100 aspect-[4/3]">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={koreksiFoto.base64} alt="Nota" className="h-full w-full object-contain" />
+                <p className="text-xs font-bold text-slate-700 mb-2">📸 Foto Bukti Nota (bisa lebih dari satu)</p>
+                {koreksiFotoList.length > 0 ? (
+                  <div className="mb-2 grid grid-cols-3 gap-1.5">
+                    {koreksiFotoList.map((f, i) => (
+                      <div key={`${i}-${f.nama}`} className="relative aspect-[4/3] overflow-hidden rounded-lg bg-slate-100">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={f.base64} alt={`Nota ${i + 1}`} className="h-full w-full object-cover" />
+                        <button onClick={() => setKoreksiFotoList(prev => prev.filter((_, xi) => xi !== i))} title="Hapus foto ini" className="absolute right-0.5 top-0.5 rounded-full bg-red-500 px-1.5 py-0.5 text-[9px] font-bold text-white hover:bg-red-600">✕</button>
+                      </div>
+                    ))}
                   </div>
                 ) : (
-                  <p className="mb-2 text-[11px] text-slate-400">Belum ada foto. Upload foto nota terbaru.</p>
+                  <p className="mb-2 text-[11px] text-slate-400">Belum ada foto. Upload foto nota (bisa pilih beberapa file sekaligus).</p>
                 )}
                 <div className="flex gap-2">
                   <button onClick={() => koreksiFileRef.current?.click()} className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-bold text-white hover:bg-amber-600" disabled={koreksiLoading}>
-                    {koreksiLoading ? '⏳ Memproses…' : koreksiFoto.base64 ? '🔄 Ganti Foto' : '📤 Upload Foto'}
+                    {koreksiLoading ? '⏳ Memproses…' : koreksiFotoList.length ? '🔄 Tambah Foto' : '📤 Upload Foto'}
                   </button>
-                  {koreksiFoto.base64 && <button onClick={() => setKoreksiFoto({ base64: '', nama: '' })} className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-200">🗑 Hapus</button>}
-                  <input ref={koreksiFileRef} type="file" accept="image/*" className="hidden" onChange={handleKoreksiFoto} />
+                  {koreksiFotoList.length > 0 && <button onClick={() => setKoreksiFotoList([])} className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-200">🗑 Hapus Semua</button>}
+                  <input ref={koreksiFileRef} type="file" accept="image/*" multiple className="hidden" onChange={handleKoreksiFoto} />
                 </div>
               </div>
 
@@ -2430,21 +2447,45 @@ function ArsipTab() {
         </div>
       )}
 
-      {/* Lightbox Foto */}
+      {/* Lightbox Foto (galeri multi-foto) */}
       {lightbox && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={() => setLightbox(null)}>
-          <div className="relative max-h-[90vh] max-w-[90vw] overflow-auto rounded-2xl bg-white shadow-2xl" onClick={e => e.stopPropagation()}>
+          <div className="relative max-h-[90vh] w-full max-w-3xl overflow-auto rounded-2xl bg-white shadow-2xl" onClick={e => e.stopPropagation()}>
             <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-5 py-3">
               <div><p className="font-mono text-sm font-bold text-emerald-700">{lightbox.noPO}</p><p className="text-xs text-slate-500">{lightbox.supplierNama} · {lightbox.tanggal}</p></div>
               <button onClick={() => setLightbox(null)} className="rounded-xl bg-slate-100 px-3 py-1.5 text-sm font-semibold text-slate-600 hover:bg-slate-200 transition">✕ Tutup</button>
             </div>
-            <div className="p-2"><img src={lightbox.fotoBase64} alt={"Nota " + lightbox.noPO} className="max-h-[70vh] rounded-xl object-contain" /></div>
+            {lightbox.fotoList.length > 0 ? (
+              <div className="relative flex items-center justify-center bg-slate-900 p-3">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={lightbox.fotoList[lightboxIdx]} alt={`Nota ${lightboxIdx + 1}`} className="max-h-[58vh] rounded-xl object-contain" />
+                {lightbox.fotoList.length > 1 && (
+                  <>
+                    <button onClick={() => setLightboxIdx(i => Math.max(0, i - 1))} disabled={lightboxIdx === 0} className="absolute left-2 top-1/2 -translate-y-1/2 rounded-full bg-black/50 px-3 py-2 text-xl font-bold text-white hover:bg-black/70 disabled:opacity-30">‹</button>
+                    <button onClick={() => setLightboxIdx(i => Math.min(lightbox.fotoList.length - 1, i + 1))} disabled={lightboxIdx >= lightbox.fotoList.length - 1} className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-black/50 px-3 py-2 text-xl font-bold text-white hover:bg-black/70 disabled:opacity-30">›</button>
+                    <span className="absolute bottom-2 right-3 rounded-full bg-black/60 px-2.5 py-0.5 text-xs font-bold text-white">{lightboxIdx + 1} / {lightbox.fotoList.length}</span>
+                  </>
+                )}
+              </div>
+            ) : (
+              <p className="py-10 text-center text-sm text-slate-400">Belum ada foto untuk PO ini.</p>
+            )}
+            {lightbox.fotoList.length > 1 && (
+              <div className="flex gap-1.5 overflow-x-auto bg-slate-50 px-4 py-2">
+                {lightbox.fotoList.map((f, i) => (
+                  <button key={i} onClick={() => setLightboxIdx(i)} className={`h-12 w-16 shrink-0 overflow-hidden rounded-lg border-2 transition ${i === lightboxIdx ? 'border-brand-500' : 'border-transparent opacity-60 hover:opacity-100'}`}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={f} alt={`Thumb ${i + 1}`} className="h-full w-full object-cover" />
+                  </button>
+                ))}
+              </div>
+            )}
             <div className="border-t border-slate-200 bg-slate-50 px-5 py-3">
               <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm sm:grid-cols-4">
                 <div><span className="text-xs text-slate-400">Total</span><p className="font-bold text-slate-800">Rp {lightbox.total.toLocaleString('id-ID')}</p></div>
                 <div><span className="text-xs text-slate-400">Dibayar</span><p className="font-semibold text-emerald-600">Rp {lightbox.dibayar.toLocaleString('id-ID')}</p></div>
-                <div><span className="text-xs text-slate-400">Sisa</span><p className={"font-semibold " + (lightbox.sisaTagihan > 0 ? 'text-red-600' : 'text-emerald-600')}>Rp {lightbox.sisaTagihan.toLocaleString('id-ID')}</p></div>
-                <div><span className="text-xs text-slate-400">Metode</span><p className="font-semibold text-slate-700">{METODE_OPTIONS.find(m => m.value === lightbox.metodeBayar)?.label ?? lightbox.metodeBayar}</p></div>
+                <div><span className="text-xs text-slate-400">Sisa</span><p className={"font-semibold " + (lightbox.sisa > 0 ? 'text-red-600' : 'text-emerald-600')}>Rp {lightbox.sisa.toLocaleString('id-ID')}</p></div>
+                <div><span className="text-xs text-slate-400">Metode</span><p className="font-semibold text-slate-700">{lightbox.metodeBayar}</p></div>
               </div>
             </div>
           </div>
