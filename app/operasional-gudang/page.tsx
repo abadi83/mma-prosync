@@ -346,6 +346,21 @@ function HarusBelanjaTab() {
 }
 
 /* ── QC List: data dari context dengan status DiQC ── */
+const QC_CHECKS = [
+  ['checklist', 'Checklist (sesuai daftar pesanan)'],
+  ['spesifikasi', 'Spesifikasi (sesuai produk)'],
+  ['jumlah', 'Jumlah (qty sesuai)'],
+  ['kualitas', 'Kualitas (kondisi baik)'],
+  ['fungsi', 'Fungsi (berfungsi normal)'],
+] as const;
+
+function getCookieUser(): string {
+  try {
+    const m = document.cookie.match(/(?:^|;\s*)user_name=([^;]*)/);
+    return m ? decodeURIComponent(m[1]) : '';
+  } catch { return ''; }
+}
+
 function QCList() {
   const { allRows, setAllRows } = useAgregasi();
   const qcItems = allRows.filter(r => r.statusProses === 'DiQC');
@@ -360,8 +375,29 @@ function QCList() {
   // State untuk jenis paket per pesanan
   const [paketTypes, setPaketTypes] = useState<Record<string, 'Reguler' | 'Besar'>>({});
 
+  /* Toggle checklist QC — tersimpan ke row agregasi (sync antar perangkat) */
+  const setQcCheck = (noPesanan: string, noResi: string, field: string, value: boolean) => {
+    const petugas = getCookieUser();
+    setAllRows((prev: AgregasiRow[]) => prev.map(r => {
+      if (r.noPesanan !== noPesanan || r.noResi !== noResi) return r;
+      const cur = r.qcChecklist || { checklist: false, spesifikasi: false, jumlah: false, kualitas: false, fungsi: false };
+      return {
+        ...r,
+        qcChecklist: { ...cur, [field]: value, petugas: petugas || cur.petugas, pada: new Date().toISOString() },
+      };
+    }));
+  };
+
+  const qcDoneCount = (row?: AgregasiRow) => {
+    const chk = row?.qcChecklist || {} as any;
+    return QC_CHECKS.filter(([k]) => !!chk[k]).length;
+  };
+
   const handleQCComplete = (noPesanan: string, noResi: string) => {
     const jenis = paketTypes[`${noPesanan}||${noResi}`] || 'Reguler';
+    const row = allRows.find(r => r.noPesanan === noPesanan && r.noResi === noResi);
+    const chk = row?.qcChecklist || {} as any;
+    const ringkas = QC_CHECKS.map(([k, label]) => `${label.split(' ')[0]} ${chk[k] ? '✓' : '✗'}`).join(' • ');
     // Advance single order to Dipacking + set jenisPaket
     setAllRows((prev: AgregasiRow[]) => prev.map((r: AgregasiRow) => {
       if (r.noPesanan === noPesanan && r.noResi === noResi && r.statusProses === 'DiQC') {
@@ -369,8 +405,8 @@ function QCList() {
       }
       return r;
     }));
-    recordOpLog([{ noPesanan, noResi, jenis: 'proses', aksi: 'QC Lulus', statusProses: 'Dipacking', keterangan: `Jenis paket: ${jenis}` }]);
-    recordActivity([{ modul: 'operasional', aksi: 'qc', refLabel: noPesanan, detail: { noResi, jenisPaket: jenis } }]);
+    recordOpLog([{ noPesanan, noResi, jenis: 'proses', aksi: 'QC Lulus', statusProses: 'Dipacking', keterangan: `Jenis paket: ${jenis} • ${ringkas} • QC: ${chk.petugas || '-'}` }]);
+    recordActivity([{ modul: 'operasional', aksi: 'qc', refLabel: noPesanan, detail: { noResi, jenisPaket: jenis, qc: chk } }]);
   };
 
   if (qcItems.length === 0) {
@@ -401,7 +437,7 @@ function QCList() {
       <div className="mt-4 overflow-x-auto rounded-xl border border-slate-100">
         <table className="w-full text-left text-sm">
           <thead><tr className="bg-brand-50 text-xs uppercase text-brand-500">
-            {['No. Pesanan','No. Resi','MP','Toko','SKU','Nama Produk','Qty','Kondisi','Jenis Paket','Aksi'].map(c => <th key={c} className="px-2 py-3 font-semibold whitespace-nowrap">{c}</th>)}
+            {['No. Pesanan','No. Resi','MP','Toko','✅ Checklist QC','SKU','Nama Produk','Qty','Kondisi','Jenis Paket','Aksi'].map(c => <th key={c} className="px-2 py-3 font-semibold whitespace-nowrap">{c}</th>)}
           </tr></thead>
           <tbody className="divide-y divide-slate-50 bg-white">
             {Array.from(grouped.values()).map((g, gi) => {
@@ -417,6 +453,30 @@ function QCList() {
                         <td className="px-2 py-2.5 font-mono text-[10px] text-slate-500" rowSpan={g.items.length}>{g.noResi}</td>
                         <td className="px-2 py-2.5" rowSpan={g.items.length}><span className="rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">{g.marketplace}</span></td>
                         <td className="px-2 py-2.5 text-xs text-slate-600 max-w-[80px] truncate" rowSpan={g.items.length} title={g.namaToko}>{g.namaToko || '-'}</td>
+                        <td className="px-2 py-2.5 align-top" rowSpan={g.items.length}>
+                          <div className="min-w-[170px] space-y-1">
+                            {QC_CHECKS.map(([k, label]) => {
+                              const chk = item.qcChecklist || {} as any;
+                              return (
+                                <label key={k} className="flex cursor-pointer items-center gap-1.5 text-[11px] text-slate-600 hover:text-emerald-700">
+                                  <input type="checkbox" className="h-3.5 w-3.5 accent-emerald-600"
+                                    checked={!!chk[k]}
+                                    onChange={e => setQcCheck(g.noPesanan, g.noResi, k, e.target.checked)} />
+                                  {label}
+                                </label>
+                              );
+                            })}
+                            {(() => {
+                              const done = qcDoneCount(item);
+                              const chk = item.qcChecklist || {} as any;
+                              return (
+                                <p className={`text-[10px] font-semibold ${done === 5 ? 'text-emerald-600' : 'text-amber-600'}`}>
+                                  {done}/5 tercentang{chk.petugas ? ` • oleh ${chk.petugas}` : ''}
+                                </p>
+                              );
+                            })()}
+                          </div>
+                        </td>
                       </>
                     )}
                     <td className="px-2 py-2.5 font-mono text-xs text-brand-600">{item.sku || '-'}</td>
@@ -443,9 +503,19 @@ function QCList() {
                     )}
                     {ii === 0 && (
                       <td className="px-2 py-2.5" rowSpan={g.items.length}>
-                        <button onClick={() => handleQCComplete(g.noPesanan, g.noResi)} className="rounded-lg bg-emerald-500 px-2 py-1 text-xs font-semibold text-white hover:bg-emerald-600 whitespace-nowrap">
-                          ✅ Lulus QC → {selectedPaket === 'Besar' ? '🚛 Packing Besar' : '📦 Packing'}
-                        </button>
+                        {(() => {
+                          const done = qcDoneCount(g.items[0]);
+                          return (
+                            <button
+                              onClick={() => handleQCComplete(g.noPesanan, g.noResi)}
+                              disabled={done < 5}
+                              className={`rounded-lg px-2 py-1 text-xs font-semibold whitespace-nowrap ${done < 5 ? 'cursor-not-allowed bg-slate-200 text-slate-400' : 'bg-emerald-500 text-white hover:bg-emerald-600'}`}
+                              title={done < 5 ? 'Centang 5 checklist QC dulu' : ''}
+                            >
+                              ✅ Lulus QC {done < 5 ? `(${done}/5)` : `→ ${selectedPaket === 'Besar' ? '🚛 Packing Besar' : '📦 Packing'}`}
+                            </button>
+                          );
+                        })()}
                       </td>
                     )}
                   </tr>

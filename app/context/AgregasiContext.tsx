@@ -24,6 +24,15 @@ export interface AgregasiRow {
   handoverAt?: string;                        // timestamp serah terima
   statusKeuangan?: 'Masuk Saldo';             // ditandai otomatis saat resi yang sama terupload di Input Keuangan
   tanggalSaldo?: string;                      // tanggal masuk saldo (dari laporan keuangan)
+  qcChecklist?: {                             // checklist QC per pesanan (pertanggungjawaban QC)
+    checklist: boolean;
+    spesifikasi: boolean;
+    jumlah: boolean;
+    kualitas: boolean;
+    fungsi: boolean;
+    petugas?: string;
+    pada?: string;
+  };
 }
 
 interface AgregasiContextType {
