@@ -2057,6 +2057,19 @@ function ArsipTab() {
     const bySku = new Map(koreksiItems.map(it => [it.sku, it]));
     const existingSkus = new Set(koreksiPo.items.map(x => x.sku));
     const fotoList = koreksiFotoList.map(f => f.base64).filter(Boolean);
+    // Foto disimpan SEKALI per PO (hanya di baris pertama) — kalau diduplikasi ke semua item,
+    // localStorage cepat penuh (PO 20 SKU × 4 foto) dan foto gagal tersimpan diam-diam.
+    let fotoAttached = false;
+    const fotoPatch = (fallbackNama?: string) => {
+      if (fotoList.length === 0) {
+        return { fotoBase64: undefined as string | undefined, fotoBase64List: undefined as string[] | undefined, namaFileFoto: undefined as string | undefined };
+      }
+      if (fotoAttached) {
+        return { fotoBase64: undefined as string | undefined, fotoBase64List: undefined as string[] | undefined, namaFileFoto: undefined as string | undefined };
+      }
+      fotoAttached = true;
+      return { fotoBase64: fotoList[0], namaFileFoto: koreksiFotoList[0]?.nama || fallbackNama, fotoBase64List: fotoList };
+    };
     let ditambah = 0; let dihapus = 0;
     const updated: HppPurchase[] = [];
     for (const p of purchases) {
@@ -2098,7 +2111,7 @@ function ArsipTab() {
         lunas: newSisa <= 0,
         dikoreksi: true,
         koreksiPada: new Date().toISOString(),
-        ...(fotoList.length ? { fotoBase64: fotoList[0], namaFileFoto: koreksiFotoList[0]?.nama || p.namaFileFoto, fotoBase64List: fotoList } : {}),
+        ...fotoPatch(p.namaFileFoto),
       });
     }
     // Tambah baris SKU BARU ke PO
@@ -2124,12 +2137,19 @@ function ArsipTab() {
         lunas: total <= 0,
         dikoreksi: true,
         koreksiPada: new Date().toISOString(),
-        ...(fotoList.length ? { fotoBase64: fotoList[0], namaFileFoto: koreksiFotoList[0]?.nama, fotoBase64List: fotoList } : {}),
+        ...fotoPatch(undefined),
       });
       if (it.qty) void updateStok(it.sku, it.qty);
       ditambah++;
     }
     setPurchases(updated);
+    // Cek kuota penyimpanan browser — kalau penuh, foto/pembaruan tidak akan ke-save
+    try {
+      localStorage.setItem(HPP_STORAGE, JSON.stringify(updated));
+    } catch {
+      alert('⚠️ Penyimpanan browser PENUH — foto/PO tidak bisa disimpan!\nKurangi jumlah foto, atau hapus PO lama di Arsip Invoice.');
+      return;
+    }
     try { window.dispatchEvent(new Event('pembelian-updated')); } catch {}
     setKoreksiPo(null);
     alert(`✅ Koreksi ${koreksiPo.noPO} tersimpan.\nHarga beli, qty & foto nota diperbarui.${ditambah > 0 ? `\n➕ ${ditambah} SKU ditambahkan.` : ''}${dihapus > 0 ? `\n🗑 ${dihapus} SKU dihapus.` : ''}\nTotal & sisa tagihan dihitung ulang otomatis.`);
