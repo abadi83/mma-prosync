@@ -2076,8 +2076,9 @@ function ArsipTab() {
       if (p.noPO !== koreksiPo.noPO) { updated.push(p); continue; }
       const it = bySku.get(p.sku);
       if (!it) {
-        // SKU dihapus dari PO → balikin stok & hapus baris
+        // SKU dihapus dari PO → balikin stok & hapus baris + tombstone (jangan dihidupkan lagi oleh sync server)
         if (p.qty) void updateStok(p.sku, -(p.qty || 0));
+        addTombstones([{ id: p.id, kind: 'hpp' }]);
         dihapus++;
         continue;
       }

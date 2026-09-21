@@ -9,7 +9,7 @@
 
 export const TOMBSTONE_KEY = 'mma_tombstones';
 
-export type TombstoneKind = 'payment' | 'po' | 'kaskecil' | 'kasbesar' | 'kasbesarkeluar' | 'biaya' | 'opex';
+export type TombstoneKind = 'payment' | 'po' | 'kaskecil' | 'kasbesar' | 'kasbesarkeluar' | 'biaya' | 'opex' | 'hpp';
 
 export interface Tombstone {
   id: string;          // payment id ATAU noPO ATAU entry id kas kecil/kas besar masuk/keluar/biaya/opex
@@ -65,9 +65,10 @@ export function applyTombstones(key: string, data: any, tombs: Tombstone[]): any
   const kasBesarKeluarIds = new Set(tombs.filter(t => t.kind === 'kasbesarkeluar').map(t => t.id));
   const biayaIds = new Set(tombs.filter(t => t.kind === 'biaya').map(t => t.id));
   const opexIds = new Set(tombs.filter(t => t.kind === 'opex').map(t => t.id));
+  const hppIds = new Set(tombs.filter(t => t.kind === 'hpp').map(t => t.id));
 
   if (key === 'mma_hpp_purchases') {
-    return data.filter((i: any) => !poIds.has(i?.noPO));
+    return data.filter((i: any) => !poIds.has(i?.noPO) && !hppIds.has(i?.id));
   }
   if (key === 'mma_payment_history') {
     return data.filter((i: any) => !payIds.has(i?.id) && !poIds.has(i?.noPO));
