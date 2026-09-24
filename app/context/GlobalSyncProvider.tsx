@@ -71,7 +71,7 @@ const SYNC_KEYS = [
   'mma_logo_toko',
 ];
 
-const SYNC_INTERVAL = 5000; // 5 detik
+const SYNC_INTERVAL = 2000; // 2 detik — realtime antar komputer (sebelumnya 5 detik)
 
 function mergeUnion<T>(key: string, a: T[], b: T[], excluded?: Set<string>): T[] {
   const map = new Map<string, T>();
@@ -127,6 +127,25 @@ async function pullFromServer(key: string): Promise<{ data: any; deletedAt: numb
     const data = Array.isArray(d) && d.length === 0 ? null : (d ?? null);
     return { data, deletedAt };
   } catch { return null; }
+}
+
+/** BATCH: tarik SEMUA key dalam satu request — hemat round-trip biar realtime antar komputer. */
+async function pullAllFromServer(keys: string[]): Promise<Record<string, { data: any; deletedAt: number | null } | null>> {
+  const out: Record<string, { data: any; deletedAt: number | null } | null> = {};
+  try {
+    const res = await fetch(`/api/data?keys=${encodeURIComponent(keys.join(','))}&t=${Date.now()}`);
+    if (!res.ok) return out;
+    const json = await res.json();
+    const raw = json.keys || {};
+    for (const k of keys) {
+      const entry = raw[k];
+      if (!entry) { out[k] = null; continue; }
+      const d = entry.data;
+      const data = Array.isArray(d) && d.length === 0 ? null : (d ?? null);
+      out[k] = { data, deletedAt: typeof entry.deletedAt === 'number' ? entry.deletedAt : null };
+    }
+  } catch {}
+  return out;
 }
 
 async function pushToServer(key: string, data: any): Promise<boolean> {
@@ -191,10 +210,10 @@ export function GlobalSyncProvider({ children }: { children: React.ReactNode }) 
   // Key yang pernah kita lihat tombstone-nya (buat bedain data baru vs data lama)
   const tombstoneSeen = useRef<Set<string>>(new Set());
 
-  const syncKey = async (key: string) => {
+  const syncKey = async (key: string, remoteOverride?: { data: any; deletedAt: number | null } | null) => {
     try {
       let local = readLocal(key);
-      const remote = await pullFromServer(key);
+      const remote = remoteOverride !== undefined ? remoteOverride : await pullFromServer(key);
       let server = remote ? remote.data : null;
       const deletedAt = remote ? remote.deletedAt : null;
       // Snapshot server ASLI (sebelum difilter tombstone) — untuk deteksi perubahan yang perlu dipush balik
@@ -316,12 +335,31 @@ export function GlobalSyncProvider({ children }: { children: React.ReactNode }) 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Polling 5 detik: tarik perubahan user lain + dorong perubahan lokal
+  // Polling 2 detik: tarik perubahan user lain + dorong perubahan lokal (SATU request batch)
   useEffect(() => {
-    const timer = setInterval(async () => {
-      for (const key of SYNC_KEYS) await syncKey(key);
-    }, SYNC_INTERVAL);
-    return () => clearInterval(timer);
+    let busy = false;
+    const run = async () => {
+      if (busy) return;
+      if (typeof document !== 'undefined' && document.hidden) return; // hemat saat tab tersembunyi
+      busy = true;
+      try {
+        const all = await pullAllFromServer(SYNC_KEYS);
+        for (const key of SYNC_KEYS) await syncKey(key, all[key]);
+        notifyListeners('poll');
+      } catch {}
+      busy = false;
+    };
+    const timer = setInterval(run, SYNC_INTERVAL);
+    // Langsung sync saat user pindah/buka tab → update seketika tanpa nunggu 2 detik
+    const onFocus = () => run();
+    const onVisible = () => { if (typeof document !== 'undefined' && !document.hidden) run(); };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

@@ -71,6 +71,16 @@ function clearTombstone(key: string): void {
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
+    // ── BATCH: /api/data?keys=a,b,c → semua key sekaligus (realtime sync hemat request) ──
+    const keysParam = searchParams.get('keys');
+    if (keysParam) {
+      const keys = keysParam.split(',').map(k => k.trim()).filter(Boolean).slice(0, 60);
+      const out: Record<string, any> = {};
+      for (const k of keys) {
+        out[k] = { data: readData(k) || [], deletedAt: readTombstone(k) || undefined };
+      }
+      return NextResponse.json({ batch: true, keys: out });
+    }
     const key = searchParams.get('key');
     if (!key) {
       return NextResponse.json({ error: 'Parameter key wajib.' }, { status: 400 });
