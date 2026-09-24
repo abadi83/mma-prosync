@@ -93,6 +93,19 @@ function generateNoPO(existing: HppPurchase[]): string {
   return `PO-${yymmdd}-${String(todayCount).padStart(3,'0')}`;
 }
 
+/* Cek PO benar-benar tersimpan di localStorage — kuota penuh = hilang diam-diam tanpa peringatan */
+function cekSimpanHpp(poNumber: string) {
+  setTimeout(() => {
+    try {
+      const raw = localStorage.getItem(HPP_STORAGE) || '[]';
+      const list = JSON.parse(raw);
+      if (!Array.isArray(list) || !list.some((p: any) => p.noPO === poNumber)) {
+        alert(`⚠️ PO ${poNumber} TIDAK tersimpan — penyimpanan browser penuh!\n\nPO ini tidak muncul di Arsip Invoice & tidak masuk server.\nSolusi: hapus PO/foto lama di Arsip Invoice, lalu buat ulang PO ini.`);
+      }
+    } catch {}
+  }, 800);
+}
+
 /* ── OPEX Purchase Record ── */
 interface OpexPurchase {
   id: string;
@@ -340,6 +353,7 @@ function BelanjaPickingTab({ onGoHpp }: { onGoHpp?: () => void }) {
       const cashBayar = metodeBayar === 'cash' || metodeBayar === 'transfer' ? groupTotal : dp;
       if (cashBayar > 0) addJurnal({ tanggal, akunDebitId: '1-1200', akunKreditId: '1-1000', nominal: cashBayar, keterangan: `Pembelian ${poNumber} - ${sup?.nama || ''} (dibayar)`, referensi: poNumber });
       if (groupTotal - cashBayar > 0) addJurnal({ tanggal, akunDebitId: '1-1200', akunKreditId: '2-1000', nominal: groupTotal - cashBayar, keterangan: `Pembelian ${poNumber} - ${sup?.nama || ''} (utang)`, referensi: poNumber });
+      cekSimpanHpp(poNumber);
     }
 
     const poCount = groups.size;
@@ -1024,7 +1038,9 @@ function HppSkuTab() {
     const poNumber = noPO || generateNoPO(purchases);
     const now = new Date().toISOString();
 
-    for (const item of cart) {
+    for (let ci = 0; ci < cart.length; ci++) {
+      const item = cart[ci];
+      const isFirst = ci === 0;
       const purchase: HppPurchase = {
         id: `hpp-${Date.now()}-${item.sku}`,
         noPO: poNumber,
@@ -1042,7 +1058,7 @@ function HppSkuTab() {
         jatuhTempo: metodeBayar === 'kontrabon' ? jatuhTempo : '',
         lunas: false,
         pickupStatus: 'belum',  // menunggu penjemputan oleh logistik
-        ...(fotoBase64 ? { fotoBase64, namaFileFoto: fotoNama } : {}),
+        ...(isFirst && fotoBase64 ? { fotoBase64, namaFileFoto: fotoNama } : {}),
       };
       setPurchases(prev => [purchase, ...prev]);
       // Stok TIDAK naik di sini — naik saat barang berhasil di-checklist di Stok Barang → PO Checklist
@@ -1057,6 +1073,8 @@ function HppSkuTab() {
         setSkus((prev: SkuItem[]) => prev.map(s => s.sku === item.sku ? { ...s, hargaModalLama: oldHarga, hargaBaru: item.hargaBeli, perubahanHargaBeli: perubahan } : s));
       }
     }
+
+    cekSimpanHpp(poNumber);
 
     // Auto-jurnal
     const totalHpp = cart.reduce((s,i) => s + i.subtotal, 0);
