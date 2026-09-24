@@ -1,4 +1,5 @@
 'use client';
+import { todayLocal } from '@/app/lib/dateLocal';
 
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import * as XLSX from 'xlsx';
@@ -2316,7 +2317,7 @@ function LogistikPengantaran({ fleet }: { fleet: any[] }) {
   const save = () => {
     if (!form.noNota.trim() || !form.penerima.trim()) { setErr('No Nota & Penerima wajib.'); return; }
     const k = fleet.find((f: any) => f.id === form.kendaraanId);
-    setEntries((prev: any[]) => [{ id: `del-${Date.now()}`, ...form, kendaraan: k?.nama || '-', platNomor: k?.platNomor || '-', tanggal: new Date().toISOString().slice(0, 10), jam: new Date().toLocaleTimeString('id-ID'), status: 'Diantar' }, ...prev]);
+    setEntries((prev: any[]) => [{ id: `del-${Date.now()}`, ...form, kendaraan: k?.nama || '-', platNomor: k?.platNomor || '-', tanggal: todayLocal(), jam: new Date().toLocaleTimeString('id-ID'), status: 'Diantar' }, ...prev]);
     setForm({ noNota: '', penerima: '', alamat: '', noHp: '', kendaraanId: '', catatan: '' });
     setErr(''); setSuccess(true); setTimeout(() => setSuccess(false), 3000);
   };

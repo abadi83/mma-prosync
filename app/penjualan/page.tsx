@@ -4,6 +4,7 @@ import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { useSkus, type SkuItem } from '@/app/context/SkuContext';
 import { recordActivity } from '@/app/lib/recordActivity';
 import { addTombstones } from '@/app/lib/tombstones';
+import { todayLocal } from '@/app/lib/dateLocal';
 
 type Tab = 'kasir' | 'daftar' | 'ringkasan' | 'perbaikan';
 
@@ -115,7 +116,7 @@ function KasirTab({ onCheckout }: { onCheckout: (items: CartItem[], pelanggan: s
   const [search, setSearch] = useState('');
   const [gambarMap, setGambarMap] = useState<Record<string, string>>({});
   // 📅 Tanggal transaksi — bisa di-backdate untuk input data offline (mis. Juli)
-  const [tanggalTx, setTanggalTx] = useState(() => new Date().toISOString().slice(0, 10));
+  const [tanggalTx, setTanggalTx] = useState(() => todayLocal());
   // 🎁 Diskon (Rp) — otomatis mengurangi total
   const [diskonStr, setDiskonStr] = useState('');
 
@@ -1071,7 +1072,7 @@ function RingkasanHarian({ data }: { data: TransaksiEntry[] }) {
   const fmtRp = (n: number) => `Rp ${n.toLocaleString('id-ID')}`;
 
   /* ── Hari Ini (flow existing, tidak diubah) ── */
-  const hariIni = new Date().toISOString().slice(0, 10);
+  const hariIni = todayLocal();
   const todayTx = data.filter(t => t.tanggal === hariIni);
   const totalPenjualan = todayTx.reduce((s, t) => s + t.total, 0);
   const jumlahTransaksi = todayTx.length;

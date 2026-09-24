@@ -1,4 +1,5 @@
 'use client';
+import { todayLocal } from '@/app/lib/dateLocal';
 
 import React, { useState } from 'react';
 import { useSkus } from '@/app/context/SkuContext';
@@ -76,7 +77,7 @@ export default function KoreksiPOTab() {
             sku: item.sku,
             namaSku: item.namaSku,
             qty: item.qty,
-            tanggal: new Date().toISOString().slice(0, 10),
+            tanggal: todayLocal(),
             status: 'menunggu_refund',
           });
           localStorage.setItem('mma_koreksi_refund', JSON.stringify(refunds));

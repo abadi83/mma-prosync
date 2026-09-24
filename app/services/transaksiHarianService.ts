@@ -1,4 +1,5 @@
 import { query } from '@/lib/db';
+import { todayLocal } from '@/app/lib/dateLocal';
 import type { TransaksiItem } from '@/app/services/transaksiService';
 
 export interface TransaksiHarianResponse {
@@ -14,7 +15,7 @@ export async function getTransaksiHarian(
   tokoId?: string,
   tanggal?: string,
 ): Promise<TransaksiHarianResponse> {
-  const hariIni = tanggal ?? new Date().toISOString().slice(0, 10);
+  const hariIni = tanggal ?? todayLocal();
 
   const { rows } = await query(
     `SELECT dt.id, p.nama AS produk, dt.jumlah, dt.harga_satuan AS "hargaSatuan",

@@ -1,4 +1,5 @@
 'use client';
+import { todayLocal } from '@/app/lib/dateLocal';
 
 import React, { useState, useMemo } from 'react';
 import { useAkuntansi, type CoaAccount } from '@/app/context/AkuntansiContext';
@@ -75,7 +76,7 @@ function JurnalUmumTab() {
 
   /* Form tambah manual */
   const [showForm, setShowForm] = useState(false);
-  const [f, setF] = useState({ tanggal: new Date().toISOString().slice(0, 10), akunDebit: '', akunKredit: '', nominal: '', keterangan: '', referensi: '' });
+  const [f, setF] = useState({ tanggal: todayLocal(), akunDebit: '', akunKredit: '', nominal: '', keterangan: '', referensi: '' });
   const [ferr, setFerr] = useState('');
 
   const filtered = useMemo(() => {
@@ -108,7 +109,7 @@ function JurnalUmumTab() {
       keterangan: f.keterangan.trim() || 'Jurnal manual',
       referensi: f.referensi.trim() || '-',
     });
-    setF({ tanggal: new Date().toISOString().slice(0, 10), akunDebit: '', akunKredit: '', nominal: '', keterangan: '', referensi: '' });
+    setF({ tanggal: todayLocal(), akunDebit: '', akunKredit: '', nominal: '', keterangan: '', referensi: '' });
     setShowForm(false);
   };
 
@@ -245,7 +246,7 @@ function AsetModalTab() {
 
   /* ── Form Aset ── */
   const [showAset, setShowAset] = useState(false);
-  const [a, setA] = useState({ namaAset: '', kategori: '', tanggalPerolehan: new Date().toISOString().slice(0, 10), hargaPerolehan: '', masaManfaat: '4', nilaiSisa: '', metodeBayar: 'kas' as 'kas' | 'utang' });
+  const [a, setA] = useState({ namaAset: '', kategori: '', tanggalPerolehan: todayLocal(), hargaPerolehan: '', masaManfaat: '4', nilaiSisa: '', metodeBayar: 'kas' as 'kas' | 'utang' });
   const [aErr, setAErr] = useState('');
 
   const handleAddAset = () => {
@@ -267,7 +268,7 @@ function AsetModalTab() {
       referensi: '-',
     });
 
-    setA({ namaAset: '', kategori: '', tanggalPerolehan: new Date().toISOString().slice(0, 10), hargaPerolehan: '', masaManfaat: '4', nilaiSisa: '', metodeBayar: 'kas' });
+    setA({ namaAset: '', kategori: '', tanggalPerolehan: todayLocal(), hargaPerolehan: '', masaManfaat: '4', nilaiSisa: '', metodeBayar: 'kas' });
     setShowAset(false);
   };
 
@@ -275,7 +276,7 @@ function AsetModalTab() {
   const handleDepresiasi = (ast: typeof aset[0]) => {
     const depresiasiPerBulan = (ast.hargaPerolehan - ast.nilaiSisa) / (ast.masaManfaat * 12);
     if (depresiasiPerBulan <= 0) return;
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayLocal();
 
     addJurnal({
       tanggal: today,
@@ -290,7 +291,7 @@ function AsetModalTab() {
 
   /* ── Form Modal ── */
   const [showModal, setShowModal] = useState(false);
-  const [m, setM] = useState({ jenis: 'AWAL' as 'AWAL' | 'TAMBAHAN', tanggal: new Date().toISOString().slice(0, 10), jumlah: '', keterangan: '' });
+  const [m, setM] = useState({ jenis: 'AWAL' as 'AWAL' | 'TAMBAHAN', tanggal: todayLocal(), jumlah: '', keterangan: '' });
   const [mErr, setMErr] = useState('');
 
   const handleAddModal = () => {
@@ -310,7 +311,7 @@ function AsetModalTab() {
       referensi: '-',
     });
 
-    setM({ jenis: 'AWAL', tanggal: new Date().toISOString().slice(0, 10), jumlah: '', keterangan: '' });
+    setM({ jenis: 'AWAL', tanggal: todayLocal(), jumlah: '', keterangan: '' });
     setShowModal(false);
   };
 

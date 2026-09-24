@@ -1,4 +1,5 @@
 'use client';
+import { todayLocal } from '@/app/lib/dateLocal';
 
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import * as XLSX from 'xlsx';
@@ -264,7 +265,7 @@ export function SkuTab() {
       setPurchaseHistory(prev => [{
         id: `ph-${Date.now()}`, sku: f.sku, supplier: f.supplier,
         hargaLama: oldItem?.hargaBaru || hargaModalFinal, hargaBaru: hargaBaruFinal,
-        persentase: pct, tanggal: new Date().toISOString().slice(0, 10),
+        persentase: pct, tanggal: todayLocal(),
       }, ...prev]);
     }
 

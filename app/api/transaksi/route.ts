@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { todayLocal } from '@/app/lib/dateLocal';
 import { getTransaksi, createTransaksi, deleteTransaksiByMatch } from '@/app/services/transaksiService';
 import { apiSuccess, apiCreated, apiBadRequest, apiServerError } from '@/app/lib/apiResponse';
 import { validateRequired, validatePositiveNumber, validateDate, runValidations } from '@/app/lib/validation';
@@ -51,7 +52,7 @@ export async function POST(request: Request) {
       jumlah,
       hargaSatuan,
       pelanggan: body.pelanggan ?? 'Umum',
-      tanggal: tanggal ?? new Date().toISOString().slice(0, 10),
+      tanggal: tanggal ?? todayLocal(),
       diskon: diskon != null ? Number(diskon) : undefined,
     });
 

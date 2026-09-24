@@ -1,4 +1,5 @@
 'use client';
+import { todayLocal } from '@/app/lib/dateLocal';
 
 import React, { useState, useMemo, useEffect } from 'react';
 import FaceAttendance from '@/app/components/FaceAttendance';
@@ -419,7 +420,7 @@ function DaftarPegawai({ pegawai, setPegawai }: { pegawai: Pegawai[]; setPegawai
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [editPegawaiId, setEditPegawaiId] = useState<string | null>(null);
-  const [pegawaiForm, setPegawaiForm] = useState({ nama: '', nik: '', username: '', jabatan: '', departemen: 'Warehouse', noHp: '', email: '', status: 'Aktif' as Pegawai['status'], roles: ['pegawai'] as string[], tanggalMasuk: new Date().toISOString().slice(0, 10) });
+  const [pegawaiForm, setPegawaiForm] = useState({ nama: '', nik: '', username: '', jabatan: '', departemen: 'Warehouse', noHp: '', email: '', status: 'Aktif' as Pegawai['status'], roles: ['pegawai'] as string[], tanggalMasuk: todayLocal() });
   const [formErr, setFormErr] = useState('');
 
   // All available roles
@@ -483,7 +484,7 @@ function DaftarPegawai({ pegawai, setPegawai }: { pegawai: Pegawai[]; setPegawai
   const totalCuti = pegawai.filter(p => p.status === 'Cuti').length;
 
   const openAddPegawai = () => {
-    setPegawaiForm({ nama: '', nik: `MMA-${String(pegawai.length + 1).padStart(3, '0')}`, username: '', jabatan: '', departemen: 'Warehouse', noHp: '', email: '', status: 'Aktif', roles: ['pegawai'], tanggalMasuk: new Date().toISOString().slice(0, 10) });
+    setPegawaiForm({ nama: '', nik: `MMA-${String(pegawai.length + 1).padStart(3, '0')}`, username: '', jabatan: '', departemen: 'Warehouse', noHp: '', email: '', status: 'Aktif', roles: ['pegawai'], tanggalMasuk: todayLocal() });
     setFormErr(''); setShowAddForm(true); setEditPegawaiId(null);
   };
   const openEditPegawai = (p: Pegawai) => {
@@ -888,7 +889,7 @@ function DaftarPegawai({ pegawai, setPegawai }: { pegawai: Pegawai[]; setPegawai
 /* ABSENSI HARIAN                                                    */
 /* ═══════════════════════════════════════════════════════════════════ */
 function AbsensiHarian({ pegawai, absensi, isAdmin = true }: { pegawai: Pegawai[]; absensi: AbsensiRecord[]; isAdmin?: boolean }) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayLocal();
   const [tgl, setTgl] = useState(today);
   const [form, setForm] = useState({ pegawaiId: pegawai[0]?.id || '', status: 'Hadir' as AbsensiRecord['status'], jamMasuk: '08:00', jamKeluar: '17:00', keterangan: '' });
   const [localAbsen, setLocalAbsen] = useState<AbsensiRecord[]>([]);
@@ -1274,8 +1275,8 @@ function KpiPegawai({ pegawai, kpi }: { pegawai: Pegawai[]; kpi: KpiRecord[] }) 
 /* ═══════════════════════════════════════════════════════════════════ */
 function FormIzin({ pegawai, izinList, setIzinList }: { pegawai: Pegawai | undefined; izinList: IzinRecord[]; setIzinList: React.Dispatch<React.SetStateAction<IzinRecord[]>> }) {
   const [jenis, setJenis] = useState<IzinRecord['jenis']>('izin');
-  const [tanggalMulai, setTanggalMulai] = useState(new Date().toISOString().slice(0, 10));
-  const [tanggalSelesai, setTanggalSelesai] = useState(new Date().toISOString().slice(0, 10));
+  const [tanggalMulai, setTanggalMulai] = useState(todayLocal());
+  const [tanggalSelesai, setTanggalSelesai] = useState(todayLocal());
   const [alasan, setAlasan] = useState('');
   const [success, setSuccess] = useState(false);
   const [ferr, setFerr] = useState('');
@@ -1554,7 +1555,7 @@ function GajiTab({ pegawai }: { pegawai: Pegawai[] }) {
   };
 
   const bayarGaji = (id: string) => {
-    setGajiList(prev => prev.map(g => g.id === id ? { ...g, status: 'dibayar' as const, tanggalBayar: new Date().toISOString().slice(0, 10) } : g));
+    setGajiList(prev => prev.map(g => g.id === id ? { ...g, status: 'dibayar' as const, tanggalBayar: todayLocal() } : g));
   };
 
   const hapusGaji = (id: string) => {

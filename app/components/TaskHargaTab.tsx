@@ -1,4 +1,5 @@
 'use client';
+import { todayLocal } from '@/app/lib/dateLocal';
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useSkus, type SkuItem } from '@/app/context/SkuContext';
@@ -55,7 +56,7 @@ function generateId(prefix: string): string {
 }
 
 function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
+  return todayLocal();
 }
 
 function nowISO(): string {

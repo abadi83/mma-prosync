@@ -1,4 +1,5 @@
 'use client';
+import { todayLocal } from '@/app/lib/dateLocal';
 
 import React, { useState, useMemo } from 'react';
 import { useSkus } from '@/app/context/SkuContext';
@@ -22,7 +23,7 @@ export function BarangMasukForm({ onAdd }: Props) {
   const [sku, setSku] = useState('');
   const [jumlah, setJumlah] = useState('');
   const [supplier, setSupplier] = useState('');
-  const [tanggal, setTanggal] = useState(new Date().toISOString().slice(0, 10));
+  const [tanggal, setTanggal] = useState(todayLocal());
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
 
@@ -33,7 +34,7 @@ export function BarangMasukForm({ onAdd }: Props) {
     setSku('');
     setJumlah('');
     setSupplier('');
-    setTanggal(new Date().toISOString().slice(0, 10));
+    setTanggal(todayLocal());
     setError('');
   };
 

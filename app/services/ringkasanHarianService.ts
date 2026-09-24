@@ -1,4 +1,5 @@
 import { query } from '@/lib/db';
+import { todayLocal } from '@/app/lib/dateLocal';
 
 export interface RingkasanHarianData {
   tanggal: string;
@@ -13,7 +14,7 @@ export async function getRingkasanHarian(
   tokoId?: string,
   tanggal?: string,
 ): Promise<RingkasanHarianData> {
-  const hariIni = tanggal ?? new Date().toISOString().slice(0, 10);
+  const hariIni = tanggal ?? todayLocal();
 
   const { rows } = await query(
     `SELECT COALESCE(SUM(total), 0)::int AS total_penjualan, COUNT(*)::int AS jumlah_transaksi

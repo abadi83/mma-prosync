@@ -4,6 +4,7 @@ import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import * as XLSX from 'xlsx';
 import { useAgregasi, type AgregasiRow } from '@/app/context/AgregasiContext';
 import { useSkus } from '@/app/context/SkuContext';
+import { todayLocal } from '@/app/lib/dateLocal';
 import { useUser } from '@/app/hooks/useUser';
 import { fetchMarketplaceOrdersFiltered, fetchMpSummary } from '@/app/lib/marketplaceOrdersClient';
 import { recordActivity } from '@/app/lib/recordActivity';
@@ -548,7 +549,7 @@ function InputOperasional() {
     if (typeof window === 'undefined') return [];
     try { const raw = localStorage.getItem('mma_ops_entries'); return raw ? JSON.parse(raw) : []; } catch { return []; }
   });
-  const [form, setForm] = useState({ tanggal: new Date().toISOString().slice(0, 10), jamBuka: '08:00', jamTutup: '17:00', jumlahKaryawan: '', catatan: '' });
+  const [form, setForm] = useState({ tanggal: todayLocal(), jamBuka: '08:00', jamTutup: '17:00', jumlahKaryawan: '', catatan: '' });
   const [err, setErr] = useState('');
   const [success, setSuccess] = useState(false);
 
@@ -560,7 +561,7 @@ function InputOperasional() {
   const save = () => {
     if (!form.jumlahKaryawan || +form.jumlahKaryawan <= 0) { setErr('Jumlah karyawan wajib diisi.'); return; }
     setEntries(p => [{ id: `ops-${Date.now()}`, ...form, jumlahKaryawan: +form.jumlahKaryawan }, ...p]);
-    setForm({ tanggal: new Date().toISOString().slice(0, 10), jamBuka: '08:00', jamTutup: '17:00', jumlahKaryawan: '', catatan: '' });
+    setForm({ tanggal: todayLocal(), jamBuka: '08:00', jamTutup: '17:00', jumlahKaryawan: '', catatan: '' });
 
     // Log ke Riwayat Entry
     appendRiwayat({
@@ -624,7 +625,7 @@ function InputKeuangan() {
     } catch { return []; }
   });
   const [selectedMp, setSelectedMp] = useState(MARKETPLACE_TOKO[0].id);
-  const [form, setForm] = useState({ tanggal: new Date().toISOString().slice(0, 10), pendapatanKotor: '', biayaIklan: '', biayaPengemasan: '', biayaPengiriman: '', catatan: '' });
+  const [form, setForm] = useState({ tanggal: todayLocal(), pendapatanKotor: '', biayaIklan: '', biayaPengemasan: '', biayaPengiriman: '', catatan: '' });
   const [err, setErr] = useState('');
   const [success, setSuccess] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -899,7 +900,7 @@ function InputKeuangan() {
             newOrders.push({
               id: `mp-${Date.now()}-${orderId.slice(-6)}`, noPesanan: orderId,
               noResi: o.noResi || '',
-              tanggal: o.tanggal || new Date().toISOString().slice(0, 10),
+              tanggal: o.tanggal || todayLocal(),
               marketplaceId: mpObj.id, marketplace: marketplaceLabel, tokoNama,
               pendapatanKotor: gross,
               pendapatanBersih: labaFinal,
@@ -1158,7 +1159,7 @@ function InputKeuangan() {
             id: `mp-${Date.now()}-${orderId.slice(-6)}`,
             noPesanan: orderId,
             noResi: o.noResi || '',
-            tanggal: o.tanggal || new Date().toISOString().slice(0, 10),
+            tanggal: o.tanggal || todayLocal(),
             marketplaceId: mpObj.id,
             marketplace: marketplaceLabel,
             tokoNama,
@@ -1288,7 +1289,7 @@ function InputKeuangan() {
   const save = () => {
     if (pk <= 0) { setErr('Pendapatan kotor wajib diisi.'); return; }
     setEntries(p => [{ id: `keu-${Date.now()}`, tanggal: form.tanggal, marketplaceId: mp.id, marketplaceNama: mp.nama, pendapatanKotor: pk, feeMarketplace: fee, biayaIklan: +form.biayaIklan || 0, biayaPengemasan: +form.biayaPengemasan || 0, biayaPengiriman: +form.biayaPengiriman || 0, pendapatanBersih: bersih, catatan: form.catatan }, ...p]);
-    setForm({ tanggal: new Date().toISOString().slice(0, 10), pendapatanKotor: '', biayaIklan: '', biayaPengemasan: '', biayaPengiriman: '', catatan: '' });
+    setForm({ tanggal: todayLocal(), pendapatanKotor: '', biayaIklan: '', biayaPengemasan: '', biayaPengiriman: '', catatan: '' });
 
     // Log ke Riwayat Entry
     appendRiwayat({

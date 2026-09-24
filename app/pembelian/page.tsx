@@ -78,6 +78,13 @@ function compressImage(file: File): Promise<{ base64: string; nama: string }> {
   });
 }
 
+/* ── Tanggal LOKAL (WIB dll) — JANGAN pakai toISOString (UTC): input pagi sebelum jam 7 bisa mundur 1 hari ── */
+function fmtLocalDate(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+function todayLocal(): string { return fmtLocalDate(new Date()); }
+function addDaysLocal(days: number): string { const d = new Date(); d.setDate(d.getDate() + days); return fmtLocalDate(d); }
+
 /* Auto-generate No PO */
 function generateNoPO(existing: HppPurchase[]): string {
   const now = new Date();
@@ -223,9 +230,9 @@ function BelanjaPickingTab({ onGoHpp }: { onGoHpp?: () => void }) {
   const [qtyBySku, setQtyBySku] = useState<Record<string, number>>({});
   const [hargaBySku, setHargaBySku] = useState<Record<string, string>>({});
   const [metodeBayar, setMetodeBayar] = useState<MetodeBayar>('cash');
-  const [tanggal, setTanggal] = useState(() => new Date().toISOString().slice(0, 10));
+  const [tanggal, setTanggal] = useState(() => todayLocal());
   const [dpAmount, setDpAmount] = useState('');
-  const [jatuhTempo, setJatuhTempo] = useState(() => { const d = new Date(); d.setDate(d.getDate() + 30); return d.toISOString().slice(0, 10); });
+  const [jatuhTempo, setJatuhTempo] = useState(() => addDaysLocal(30));
   const [ferr, setFerr] = useState('');
 
   /* SKU yang sudah punya PO terbuka (belum lunas) → hindari dobel beli */
@@ -530,8 +537,8 @@ function DashboardTab() {
 
   const rangeStart = useMemo(() => {
     const now = new Date(); now.setHours(23, 59, 59, 999);
-    if (periode === '7hari') { const d = new Date(now); d.setDate(d.getDate() - 6); d.setHours(0, 0, 0, 0); return d.toISOString().slice(0, 10); }
-    if (periode === '30hari') { const d = new Date(now); d.setDate(d.getDate() - 29); d.setHours(0, 0, 0, 0); return d.toISOString().slice(0, 10); }
+    if (periode === '7hari') { const d = new Date(now); d.setDate(d.getDate() - 6); d.setHours(0, 0, 0, 0); return fmtLocalDate(d); }
+    if (periode === '30hari') { const d = new Date(now); d.setDate(d.getDate() - 29); d.setHours(0, 0, 0, 0); return fmtLocalDate(d); }
     if (periode === 'bulanini') return `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`;
     return '2000-01-01';
   }, [periode]);
@@ -585,7 +592,7 @@ function DashboardTab() {
     const count = periode === '7hari' ? 7 : periode === 'semua' ? 30 : 30;
     for (let i = count - 1; i >= 0; i--) {
       const d = new Date(); d.setDate(d.getDate() - i);
-      const tgl = d.toISOString().slice(0, 10);
+      const tgl = fmtLocalDate(d);
       days.push({
         tgl: tgl.slice(5),
         hpp: hppData.filter(p => p.tanggal === tgl).reduce((s, p) => s + p.total, 0),
@@ -920,10 +927,10 @@ function HppSkuTab() {
   const [selectedSupplier, setSelectedSupplier] = useState('');
   const [qty, setQty] = useState('');
   const [hargaBeli, setHargaBeli] = useState('');
-  const [tanggal, setTanggal] = useState(() => new Date().toISOString().slice(0, 10));
+  const [tanggal, setTanggal] = useState(() => todayLocal());
   const [metodeBayar, setMetodeBayar] = useState<MetodeBayar>('cash');
   const [dpAmount, setDpAmount] = useState('');
-  const [jatuhTempo, setJatuhTempo] = useState(() => { const d = new Date(); d.setDate(d.getDate() + 30); return d.toISOString().slice(0, 10); });
+  const [jatuhTempo, setJatuhTempo] = useState(() => addDaysLocal(30));
   const [ferr, setFerr] = useState('');
   const [searchSku, setSearchSku] = useState('');
   const [showSkuDropdown, setShowSkuDropdown] = useState(false);
@@ -1031,7 +1038,7 @@ function HppSkuTab() {
         metodeBayar,
         dibayar: 0,
         sisaTagihan: item.subtotal,
-        tanggal: tanggal || new Date().toISOString().slice(0, 10),
+        tanggal: tanggal || todayLocal(),
         jatuhTempo: metodeBayar === 'kontrabon' ? jatuhTempo : '',
         lunas: false,
         pickupStatus: 'belum',  // menunggu penjemputan oleh logistik
@@ -1064,9 +1071,9 @@ function HppSkuTab() {
 
     // Reset
     setCart([]); setSelectedSupplier(''); setNoPO('');
-    setTanggal(new Date().toISOString().slice(0, 10));
+    setTanggal(todayLocal());
     setMetodeBayar('cash'); setDpAmount(''); setFotoBase64(''); setFotoNama('');
-    const d = new Date(); d.setDate(d.getDate() + 30); setJatuhTempo(d.toISOString().slice(0, 10));
+    setJatuhTempo(addDaysLocal(30));
 
     // ── Rekam aktivitas (KPI) ──
     recordActivity([{ modul: 'pembelian', aksi: 'po', refLabel: poNumber, detail: { skuCount: cart.length, total: totalHpp, supplier: selectedSupplierData?.nama || '', metodeBayar } }]);
@@ -1364,7 +1371,7 @@ function OpexTab() {
   const [satuan, setSatuan] = useState('pcs');
   const [hargaSatuan, setHargaSatuan] = useState('');
   const [supplierNama, setSupplierNama] = useState('');
-  const [tanggal, setTanggal] = useState(() => new Date().toISOString().slice(0, 10));
+  const [tanggal, setTanggal] = useState(() => todayLocal());
   const [ferr, setFerr] = useState('');
   const [editId, setEditId] = useState<string | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -1408,7 +1415,7 @@ function OpexTab() {
   const cancelEdit = () => {
     setEditId(null);
     setNamaItem(''); setQty(''); setHargaSatuan(''); setSupplierNama('');
-    setTanggal(new Date().toISOString().slice(0, 10));
+    setTanggal(todayLocal());
     setKategori(OPEX_KATEGORI[0]); setSatuan('pcs');
   };
 
@@ -1441,7 +1448,7 @@ function OpexTab() {
         hargaSatuan: +hargaSatuan,
         total: +qty * +hargaSatuan,
         supplierNama: supplierNama.trim() || '-',
-        tanggal: tanggal || new Date().toISOString().slice(0, 10),
+        tanggal: tanggal || todayLocal(),
       } : p));
       recordActivity([{ modul: 'pembelian', aksi: 'opex', refLabel: `${namaItem.trim()} (${kat})`, detail: { total: +qty * +hargaSatuan, tanggal, edit: true } }]);
       cancelEdit();
@@ -1458,13 +1465,13 @@ function OpexTab() {
       hargaSatuan: +hargaSatuan,
       total: +qty * +hargaSatuan,
       supplierNama: supplierNama.trim() || '-',
-      tanggal: tanggal || new Date().toISOString().slice(0, 10),
+      tanggal: tanggal || todayLocal(),
     };
 
     setPurchases(prev => [purchase, ...prev]);
     recordActivity([{ modul: 'pembelian', aksi: 'opex', refLabel: `${purchase.namaItem} (${purchase.kategori})`, detail: { total: purchase.total, tanggal: purchase.tanggal } }]);
     setNamaItem(''); setQty(''); setHargaSatuan(''); setSupplierNama('');
-    setTanggal(new Date().toISOString().slice(0, 10));
+    setTanggal(todayLocal());
     setKategori(OPEX_KATEGORI[0]); setSubKategori(''); setKategoriCustom(''); setSubKategoriCustom(''); setKategoriCustom(''); setSubKategoriCustom(''); setSatuan('pcs');
   };
 
@@ -1664,7 +1671,7 @@ function BiayaOpTab() {
   const [kategoriCustom, setKategoriCustom] = useState('');
   const [jumlah, setJumlah] = useState('');
   const [nonTunai, setNonTunai] = useState(false);
-  const [tanggal, setTanggal] = useState(() => new Date().toISOString().slice(0, 10));
+  const [tanggal, setTanggal] = useState(() => todayLocal());
   const [ferr, setFerr] = useState('');
   const [editId, setEditId] = useState<string | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -1695,7 +1702,7 @@ function BiayaOpTab() {
     setEditId(null);
     setDeskripsi(''); setJumlah('');
     setNonTunai(false);
-    setTanggal(new Date().toISOString().slice(0, 10));
+    setTanggal(todayLocal());
     setKategori(BIAYA_KATEGORI[0]); setKategoriCustom('');
   };
 
@@ -1719,7 +1726,7 @@ function BiayaOpTab() {
         kategori: kat,
         jumlah: +jumlah,
         nonTunai,
-        tanggal: tanggal || new Date().toISOString().slice(0, 10),
+        tanggal: tanggal || todayLocal(),
       } : b));
       recordActivity([{ modul: 'pembelian', aksi: 'biaya', refLabel: `${deskripsi.trim()} (${kat})`, detail: { jumlah: +jumlah, tanggal, edit: true } }]);
       cancelEdit();
@@ -1732,13 +1739,13 @@ function BiayaOpTab() {
       kategori: kat,
       jumlah: +jumlah,
       nonTunai,
-      tanggal: tanggal || new Date().toISOString().slice(0, 10),
+      tanggal: tanggal || todayLocal(),
     };
 
     setBiayaList(prev => [biaya, ...prev]);
     recordActivity([{ modul: 'pembelian', aksi: 'biaya', refLabel: `${biaya.deskripsi} (${biaya.kategori})`, detail: { jumlah: biaya.jumlah, tanggal: biaya.tanggal } }]);
     setDeskripsi(''); setJumlah('');
-    setTanggal(new Date().toISOString().slice(0, 10));
+    setTanggal(todayLocal());
     setKategori(BIAYA_KATEGORI[0]); setKategoriCustom('');
   };
 
@@ -1749,7 +1756,7 @@ function BiayaOpTab() {
   }, [biayaList]);
 
   const totalHariIni = useMemo(() => {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayLocal();
     return biayaList.filter(b => b.tanggal === today).reduce((s, b) => s + b.jumlah, 0);
   }, [biayaList]);
 
@@ -1777,7 +1784,7 @@ function BiayaOpTab() {
     const days: { tgl: string; total: number }[] = [];
     for (let i = 6; i >= 0; i--) {
       const d = new Date(); d.setDate(d.getDate() - i);
-      const tgl = d.toISOString().slice(0, 10);
+      const tgl = fmtLocalDate(d);
       const total = biayaList.filter(b => b.tanggal === tgl).reduce((s, b) => s + b.jumlah, 0);
       days.push({ tgl: tgl.slice(5), total });
     }
@@ -2096,7 +2103,7 @@ function ArsipTab() {
             const perubahan = `${persen.startsWith('-') ? '' : '+'}${persen}%`;
             try {
               const hist = JSON.parse(localStorage.getItem('mma_harga_modal_history') || '[]');
-              const entry = { id: `hist-koreksi-${Date.now()}-${p.sku}`, sku: p.sku, nama: p.namaSku, hargaLama: oldHarga, hargaBaru: it.hargaBeli, persen, supplier: p.supplierNama, noPO: p.noPO, tanggal: new Date().toISOString().slice(0, 10), keterangan: 'Koreksi PO' };
+              const entry = { id: `hist-koreksi-${Date.now()}-${p.sku}`, sku: p.sku, nama: p.namaSku, hargaLama: oldHarga, hargaBaru: it.hargaBeli, persen, supplier: p.supplierNama, noPO: p.noPO, tanggal: todayLocal(), keterangan: 'Koreksi PO' };
               localStorage.setItem('mma_harga_modal_history', JSON.stringify([entry, ...hist].slice(0, 100)));
             } catch {}
             setSkus((prev: SkuItem[]) => prev.map(s => s.sku.toLowerCase() === p.sku.toLowerCase() ? { ...s, hargaModalLama: oldHarga, hargaBaru: it.hargaBeli, perubahanHargaBeli: perubahan } : s));

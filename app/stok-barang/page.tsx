@@ -1,4 +1,5 @@
 'use client';
+import { todayLocal } from '@/app/lib/dateLocal';
 
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { Html5Qrcode } from 'html5-qrcode';
@@ -1062,7 +1063,7 @@ function PoChecklist() {
           produk: item.nama,
           jumlah: item.qty,
           supplier: item.supplier || '-',
-          tanggal: new Date().toISOString().slice(0, 10),
+          tanggal: todayLocal(),
         }),
       });
       if (res.ok) {

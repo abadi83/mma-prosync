@@ -1,4 +1,5 @@
 import { query } from '@/lib/db';
+import { todayLocal } from '@/app/lib/dateLocal';
 
 export interface TransaksiItem {
   id: string;
@@ -64,7 +65,7 @@ export async function createTransaksi(
   }
 
   // Buat transaksi (tanggal mendukung input backdate, default hari ini)
-  const tanggal = entry.tanggal || new Date().toISOString().slice(0, 10);
+  const tanggal = entry.tanggal || todayLocal();
   const { rows: tRows } = await query(
     'INSERT INTO transaksi (toko_id, pelanggan_id, total, tanggal) VALUES ($1, $2, $3, $4::date) RETURNING id',
     [tid, pelangganId, total, tanggal]

@@ -1,4 +1,5 @@
 import { query } from '@/lib/db';
+import { todayLocal } from '@/app/lib/dateLocal';
 
 export interface BarangKeluarItem {
   id: string;
@@ -44,7 +45,7 @@ export async function addBarangKeluar(
     `INSERT INTO mutasi_stok (produk_id, toko_id, tipe, jumlah, keterangan, tanggal)
      VALUES ($1, $2, 'keluar', $3, $4, $5::date)
      RETURNING id`,
-    [produkId, tid, entry.jumlah, entry.keperluan || 'Barang keluar', entry.tanggal || new Date().toISOString().slice(0, 10)]
+    [produkId, tid, entry.jumlah, entry.keperluan || 'Barang keluar', entry.tanggal || todayLocal()]
   );
 
   return {
@@ -52,6 +53,6 @@ export async function addBarangKeluar(
     produk: entry.produk,
     jumlah: entry.jumlah,
     keperluan: entry.keperluan,
-    tanggal: entry.tanggal || new Date().toISOString().slice(0, 10),
+    tanggal: entry.tanggal || todayLocal(),
   };
 }

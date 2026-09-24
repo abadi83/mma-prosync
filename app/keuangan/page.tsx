@@ -1,4 +1,5 @@
 'use client';
+import { todayLocal } from '@/app/lib/dateLocal';
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { useAkuntansi } from '@/app/context/AkuntansiContext';
@@ -272,11 +273,11 @@ function SaldoKas() {
     try {
       if (formKB.jenis === 'masuk') {
         const kb = JSON.parse(localStorage.getItem('mma_kas_besar_masuk') || '[]');
-        kb.unshift({ id: `kb-manual-${Date.now()}`, tanggal: new Date().toISOString().slice(0, 10), jumlah: jml, sumber: 'manual', keterangan: ket ? `Setoran: ${ket}` : 'Setoran modal / top-up Kas Besar' });
+        kb.unshift({ id: `kb-manual-${Date.now()}`, tanggal: todayLocal(), jumlah: jml, sumber: 'manual', keterangan: ket ? `Setoran: ${ket}` : 'Setoran modal / top-up Kas Besar' });
         localStorage.setItem('mma_kas_besar_masuk', JSON.stringify(kb));
       } else {
         const kbk = JSON.parse(localStorage.getItem('mma_kas_besar_keluar') || '[]');
-        kbk.unshift({ id: `kbk-manual-${Date.now()}`, tanggal: new Date().toISOString().slice(0, 10), jumlah: jml, keterangan: ket || 'Pengambilan manual Kas Besar' });
+        kbk.unshift({ id: `kbk-manual-${Date.now()}`, tanggal: todayLocal(), jumlah: jml, keterangan: ket || 'Pengambilan manual Kas Besar' });
         localStorage.setItem('mma_kas_besar_keluar', JSON.stringify(kbk));
       }
     } catch {}
@@ -348,7 +349,7 @@ function SaldoKas() {
     if (jml <= 0) return;
     const entry: KasKecilEntry = {
       id: `kk-${Date.now()}`,
-      tanggal: new Date().toISOString().slice(0, 10),
+      tanggal: todayLocal(),
       jumlah: jml,
       jenis: formKK.jenis,
       keterangan: formKK.keterangan.trim() || (formKK.jenis === 'masuk' ? 'Tambah Kas Kecil' : 'Ambil Kas Kecil'),
@@ -549,7 +550,7 @@ function SaldoKas() {
 function PencairanTab() {
   const [pencairan, setPencairan] = useState<PencairanEntry[]>([]);
   const [mpOrders, setMpOrders] = useState<any[]>([]);
-  const [form, setForm] = useState({ tokoKey: '', jumlah: '', tanggal: new Date().toISOString().slice(0, 10), keterangan: '' });
+  const [form, setForm] = useState({ tokoKey: '', jumlah: '', tanggal: todayLocal(), keterangan: '' });
 
   const reload = () => { setPencairan(loadPencairan()); };
   useEffect(() => {
@@ -822,7 +823,7 @@ function PembayaranTab() {
 
   // Modal bayar — per PO, bukan per SKU
   const [bayarPoGroup, setBayarPoGroup] = useState<PoGroup|null>(null);
-  const [formBayar, setFormBayar] = useState({ jumlah: '', metode: 'transfer', nomorRef: '', catatan: '', tanggalBayar: new Date().toISOString().slice(0, 10), dibayarOleh: '' });
+  const [formBayar, setFormBayar] = useState({ jumlah: '', metode: 'transfer', nomorRef: '', catatan: '', tanggalBayar: todayLocal(), dibayarOleh: '' });
   const [ferr, setFerr] = useState('');
   const [buktiImage, setBuktiImage] = useState<string>('');
   const [ocrResult, setOcrResult] = useState<OcrResult | null>(null);
@@ -1217,7 +1218,7 @@ const KATEGORI_LAIN = ['📦 Kardus Bekas', '🔁 Barang Retur/Afkir', '🛢️ 
 function PenjualanLainTab() {
   const [list, setList] = useState<PenjualanLainEntry[]>([]);
   const [mounted, setMounted] = useState(false);
-  const [f, setF] = useState({ tanggal: new Date().toISOString().slice(0, 10), kategori: KATEGORI_LAIN[0], keterangan: '', jumlah: '', kas: 'kecil' as 'besar' | 'kecil' });
+  const [f, setF] = useState({ tanggal: todayLocal(), kategori: KATEGORI_LAIN[0], keterangan: '', jumlah: '', kas: 'kecil' as 'besar' | 'kecil' });
   const [ferr, setFerr] = useState('');
 
   useEffect(() => {
@@ -1260,7 +1261,7 @@ function PenjualanLainTab() {
 
     recordActivity([{ modul: 'keuangan', aksi: 'penjualan-lain', refLabel: entry.kategori, detail: { jumlah: jml, kas: f.kas, keterangan: entry.keterangan, tanggal: f.tanggal } }]);
 
-    setF({ tanggal: new Date().toISOString().slice(0, 10), kategori: KATEGORI_LAIN[0], keterangan: '', jumlah: '', kas: 'kecil' });
+    setF({ tanggal: todayLocal(), kategori: KATEGORI_LAIN[0], keterangan: '', jumlah: '', kas: 'kecil' });
   };
 
   const hapus = (entry: PenjualanLainEntry) => {
@@ -1802,7 +1803,7 @@ function RefundTab() {
           const kk = JSON.parse(localStorage.getItem(KAS_KECIL_STORAGE) || '[]');
           kk.unshift({
             id: `kk-refund-${Date.now()}`,
-            tanggal: new Date().toISOString().slice(0, 10),
+            tanggal: todayLocal(),
             jumlah: nilai,
             jenis: 'masuk',
             keterangan: `Refund ${item.noPO} - ${item.namaSku} (${item.supplierNama})`,

@@ -1,4 +1,5 @@
 'use client';
+import { todayLocal } from '@/app/lib/dateLocal';
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { ArusKasReport } from '@/app/laporan/components/ArusKasReport';
@@ -75,8 +76,8 @@ export default function LaporanPage() {
   const [periode, setPeriode] = useState<Periode>('bulan');
   const [mounted, setMounted] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
-  const [customStart, setCustomStart] = useState(new Date().toISOString().slice(0, 10));
-  const [customEnd, setCustomEnd] = useState(new Date().toISOString().slice(0, 10));
+  const [customStart, setCustomStart] = useState(todayLocal());
+  const [customEnd, setCustomEnd] = useState(todayLocal());
 
   useEffect(() => { setMounted(true); }, []);
 

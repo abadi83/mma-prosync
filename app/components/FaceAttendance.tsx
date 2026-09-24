@@ -1,4 +1,5 @@
 'use client';
+import { todayLocal } from '@/app/lib/dateLocal';
 
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 
@@ -412,7 +413,7 @@ function FaceAbsensi({ pegawai, selectedPegawai, onSelectPegawai, onBack }: {
 
   // Cek apakah sudah absen masuk hari ini
   const todayRecords = useMemo(() => {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayLocal();
     return loadAbsensiFace().filter(r => r.tanggal === today);
   }, []);
 
@@ -526,7 +527,7 @@ function FaceAbsensi({ pegawai, selectedPegawai, onSelectPegawai, onBack }: {
             pegawaiId: matchedFace.pegawaiId,
             nama: matchedFace.nama,
             nik: matchedFace.nik,
-            tanggal: new Date().toISOString().slice(0, 10),
+            tanggal: todayLocal(),
             jam,
             jenis,
             lokasi: geoPos!,
