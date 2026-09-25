@@ -1990,6 +1990,7 @@ function ArsipTab() {
   const [lightboxIdx, setLightboxIdx] = useState(0);
   const [exportPoData, setExportPoData] = useState<InvoicePOData | null>(null);
   const [detailPoData, setDetailPoData] = useState<InvoicePOData | null>(null);
+  const [hapusPo, setHapusPo] = useState<PoGroupArchived | null>(null);
 
   // ── Koreksi PO: ubah harga beli/qty SKU & perbarui foto nota ──
   const [koreksiPo, setKoreksiPo] = useState<PoGroupArchived | null>(null);
@@ -2181,6 +2182,26 @@ function ArsipTab() {
     alert(`✅ Koreksi ${koreksiPo.noPO} tersimpan.\nHarga beli, qty & foto nota diperbarui.${ditambah > 0 ? `\n➕ ${ditambah} SKU ditambahkan.` : ''}${dihapus > 0 ? `\n🗑 ${dihapus} SKU dihapus.` : ''}\nTotal & sisa tagihan dihitung ulang otomatis.`);
   };
 
+  /* Hapus PO permanen dari Arsip Invoice (mis. invoice dobel) */
+  const handleHapusPo = () => {
+    if (!hapusPo) return;
+    const noPO = hapusPo.noPO;
+    const sisaList = purchases.filter(p => p.noPO !== noPO);
+    setPurchases(sisaList);
+    // Tombstone kind 'po' → PO ini disembunyikan dari Arsip, Pembayaran & Bukti Bayar
+    // di SEMUA perangkat (tidak dihidupkan lagi oleh sync server).
+    addTombstones([{ id: noPO, kind: 'po' }]);
+    try {
+      localStorage.setItem(HPP_STORAGE, JSON.stringify(sisaList));
+    } catch {
+      alert('⚠️ Penyimpanan browser PENUH — penghapusan PO gagal tersimpan!\nHapus dulu PO/foto lama lainnya di Arsip Invoice.');
+      return;
+    }
+    try { window.dispatchEvent(new Event('pembelian-updated')); } catch {}
+    setHapusPo(null);
+    alert(`🗑️ PO ${noPO} dihapus permanen.\nTidak akan muncul lagi di Arsip Invoice, Keuangan & semua perangkat.`);
+  };
+
   // Group purchases by noPO
   interface PoGroupArchived {
     noPO: string;
@@ -2361,6 +2382,13 @@ function ArsipTab() {
                   >
                     ✏️ Koreksi
                   </button>
+                  <button
+                    onClick={() => setHapusPo(g)}
+                    className="rounded-lg bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-500 hover:bg-red-100"
+                    title="Hapus PO permanen dari Arsip Invoice"
+                  >
+                    🗑️
+                  </button>
                 </div>
 
                 {/* Bukti bayar dari Keuangan */}
@@ -2488,6 +2516,31 @@ function ArsipTab() {
               </div>
 
               <button onClick={saveKoreksi} className="w-full rounded-xl bg-amber-500 py-2.5 text-sm font-bold text-white hover:bg-amber-600 transition">💾 Simpan Koreksi</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Konfirmasi Hapus PO (Arsip Invoice) */}
+      {hapusPo && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setHapusPo(null)}>
+          <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="border-b border-red-100 px-5 py-3">
+              <p className="text-sm font-bold text-red-600">🗑️ Hapus PO Permanen?</p>
+              <p className="mt-0.5 text-xs text-slate-500 font-mono">{hapusPo.noPO} — {hapusPo.supplierNama}</p>
+            </div>
+            <div className="p-5 space-y-3">
+              <p className="text-sm text-slate-600">
+                Semua {hapusPo.items.length} SKU dari PO ini akan dihapus dari Arsip Invoice
+                <span className="font-semibold"> (total Rp {hapusPo.total.toLocaleString('id-ID')})</span>.
+              </p>
+              <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700 border border-amber-200">
+                ⚠️ Pembayaran & bukti bayar terkait PO ini ikut dihapus, dan PO tidak akan muncul lagi di semua komputer.
+              </p>
+              <div className="flex gap-2">
+                <button onClick={() => setHapusPo(null)} className="flex-1 rounded-xl bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-200">Batal</button>
+                <button onClick={handleHapusPo} className="flex-1 rounded-xl bg-red-500 px-4 py-2 text-sm font-semibold text-white hover:bg-red-600">🗑️ Hapus</button>
+              </div>
             </div>
           </div>
         </div>
