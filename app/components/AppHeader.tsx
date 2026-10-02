@@ -21,7 +21,7 @@ export function AppHeader() {
         setSyncStatus(raw ? JSON.parse(raw) : null);
         if (typeof navigator !== 'undefined' && navigator.storage && navigator.storage.estimate) {
           const est = await navigator.storage.estimate();
-          if (est && est.quota) setStoragePct(Math.round((est.usage / est.quota) * 100));
+          if (est && est.quota) setStoragePct(Math.round(((est.usage || 0) / est.quota) * 100));
         }
       } catch {}
     };
