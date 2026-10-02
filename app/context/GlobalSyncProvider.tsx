@@ -112,8 +112,14 @@ function readLocal(key: string): any | null {
   } catch { return null; }
 }
 
-function writeLocal(key: string, value: any) {
-  try { localStorage.setItem(key, JSON.stringify(value)); } catch {}
+function writeLocal(key: string, value: any): boolean {
+  try { localStorage.setItem(key, JSON.stringify(value)); return true; } catch {
+    // Kuota localStorage penuh → kasih sinyal ke UI (badge "Penyimpanan Penuh" di header)
+    try {
+      if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('sync-storage-error', { detail: { key } }));
+    } catch {}
+    return false;
+  }
 }
 
 async function pullFromServer(key: string): Promise<{ data: any; deletedAt: number | null } | null> {
@@ -228,6 +234,41 @@ export function GlobalSyncProvider({ children }: { children: React.ReactNode }) 
   const sigsRef = useRef<Record<string, string>>(readSigs());
   // Cache data server terakhir per key — saat server "same", merge/push lokal tetap jalan pakai cache ini
   const serverCache = useRef<Record<string, { data: any; deletedAt: number | null } | null>>({});
+
+  /* Satu siklus sinkron: tarik batch + merge/push semua key. forceFull=true → kirim data semua key (dipakai saat awal buka halaman). */
+  const syncOnce = async (forceFull: boolean): Promise<boolean> => {
+    const sigs = forceFull ? {} : sigsRef.current;
+    const all = await pullAllFromServer(SYNC_KEYS, sigs);
+    if (Object.keys(all).length === 0) return false; // server tidak terjangkau / gagal
+    let sigChanged = false;
+    for (const key of SYNC_KEYS) {
+      const entry = all[key];
+      if (entry && entry.same) {
+        // Server TIDAK berubah → pakai cache data server terakhir,
+        // tetap jalankan merge/push biar input lokal ikut terkirim.
+        await syncKey(key, serverCache.current[key] ?? null);
+        continue;
+      }
+      await syncKey(key, entry);
+      if (entry) {
+        serverCache.current[key] = (entry.data !== null || entry.deletedAt !== null) ? { data: entry.data, deletedAt: entry.deletedAt } : null;
+        if (entry.sig && sigsRef.current[key] !== entry.sig) {
+          sigsRef.current[key] = entry.sig;
+          sigChanged = true;
+        }
+      }
+    }
+    if (sigChanged) { try { localStorage.setItem(SIGS_KEY, JSON.stringify(sigsRef.current)); } catch {} }
+    return true;
+  };
+
+  /* Status sinkron untuk badge di header: kapan terakhir berhasil & apakah server terjangkau */
+  const markSyncStatus = (ok: boolean) => {
+    try {
+      localStorage.setItem('mma_sync_status', JSON.stringify({ at: Date.now(), ok }));
+      window.dispatchEvent(new CustomEvent('sync-status-updated'));
+    } catch {}
+  };
 
   const syncKey = async (key: string, remoteOverride?: { data: any; deletedAt: number | null } | null) => {
     try {
@@ -348,7 +389,9 @@ export function GlobalSyncProvider({ children }: { children: React.ReactNode }) 
     initialized.current = true;
     (async () => {
       await compressOldBuktiOnce();
-      for (const key of SYNC_KEYS) await syncKey(key);
+      // SATU request batch (forceFull) — sebelumnya 40 request satu-satu (lambat di HP)
+      const ok = await syncOnce(true);
+      markSyncStatus(ok);
       notifyListeners('init');
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -362,29 +405,9 @@ export function GlobalSyncProvider({ children }: { children: React.ReactNode }) 
       if (typeof document !== 'undefined' && document.hidden) return; // hemat saat tab tersembunyi
       busy = true;
       try {
-        const all = await pullAllFromServer(SYNC_KEYS, sigsRef.current);
-        if (Object.keys(all).length > 0) {
-          let sigChanged = false;
-          for (const key of SYNC_KEYS) {
-            const entry = all[key];
-            if (entry && entry.same) {
-              // Server TIDAK berubah → pakai cache data server terakhir,
-              // tetap jalankan merge/push biar input lokal ikut terkirim.
-              await syncKey(key, serverCache.current[key] ?? null);
-              continue;
-            }
-            await syncKey(key, entry);
-            if (entry) {
-              serverCache.current[key] = (entry.data !== null || entry.deletedAt !== null) ? { data: entry.data, deletedAt: entry.deletedAt } : null;
-              if (entry.sig && sigsRef.current[key] !== entry.sig) {
-                sigsRef.current[key] = entry.sig;
-                sigChanged = true;
-              }
-            }
-          }
-          if (sigChanged) { try { localStorage.setItem(SIGS_KEY, JSON.stringify(sigsRef.current)); } catch {} }
-          notifyListeners('poll');
-        }
+        const ok = await syncOnce(false);
+        markSyncStatus(ok);
+        if (ok) notifyListeners('poll');
       } catch {}
       busy = false;
     };
