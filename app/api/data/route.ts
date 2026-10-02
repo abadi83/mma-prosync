@@ -38,6 +38,23 @@ function writeData(key: string, data: any): void {
   fs.renameSync(tmpPath, filePath);
   // Data baru masuk → hapus tombstone kalau ada
   clearTombstone(key);
+  bumpVersion(key);
+}
+
+/* ── Deteksi perubahan ringan: versi per key + mtime + size + tombstone ──
+   Dipakai batch GET biar klien hanya menerima data yang BENAR-BENAR berubah
+   (sebelumnya ±5MB ditarik tiap 2 detik per komputer — lambat di internet kantor). */
+const keyVersions = new Map<string, number>();
+function bumpVersion(key: string): void {
+  keyVersions.set(key, (keyVersions.get(key) || 0) + 1);
+}
+
+function getFileSig(key: string): string {
+  let m = 0, s = 0;
+  try { const st = fs.statSync(getFilePath(key)); m = st.mtimeMs; s = st.size; } catch {}
+  let t = 0;
+  try { const tp = getTombstonePath(key); if (fs.existsSync(tp)) t = fs.statSync(tp).mtimeMs; } catch {}
+  return `${keyVersions.get(key) || 0}|${m}|${s}|${t}`;
 }
 
 function getTombstonePath(key: string): string {
@@ -56,11 +73,12 @@ function readTombstone(key: string): number | null {
 
 function writeTombstone(key: string): void {
   fs.writeFileSync(getTombstonePath(key), JSON.stringify({ deletedAt: Date.now() }), 'utf-8');
+  bumpVersion(key);
 }
 
 function clearTombstone(key: string): void {
   const p = getTombstonePath(key);
-  if (fs.existsSync(p)) fs.unlinkSync(p);
+  if (fs.existsSync(p)) { fs.unlinkSync(p); bumpVersion(key); }
 }
 
 /**
@@ -75,9 +93,19 @@ export async function GET(request: Request) {
     const keysParam = searchParams.get('keys');
     if (keysParam) {
       const keys = keysParam.split(',').map(k => k.trim()).filter(Boolean).slice(0, 60);
+      // sigs: signature terakhir yang dimiliki klien per key (urutan sama dengan keys)
+      const sigsParam = searchParams.get('sigs');
+      const sigs = sigsParam ? sigsParam.split(',').map(s => s.trim()).slice(0, 60) : null;
       const out: Record<string, any> = {};
-      for (const k of keys) {
-        out[k] = { data: readData(k) || [], deletedAt: readTombstone(k) || undefined };
+      for (let i = 0; i < keys.length; i++) {
+        const k = keys[i];
+        const sig = getFileSig(k);
+        if (sigs && sigs[i] && sigs[i] === sig) {
+          // Tidak berubah → kirim penanda ringan saja, HEMAT bandwidth
+          out[k] = { same: true, sig };
+          continue;
+        }
+        out[k] = { data: readData(k) || [], sig, deletedAt: readTombstone(k) || undefined };
       }
       return NextResponse.json({ batch: true, keys: out });
     }

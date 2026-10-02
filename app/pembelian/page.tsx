@@ -922,6 +922,29 @@ function useLocalStorage<T>(key: string, fallback: T): [T, React.Dispatch<React.
     if (!hydrated) return;
     try { localStorage.setItem(key, JSON.stringify(val)); } catch {}
   }, [val, key, hydrated]);
+  // LIVE UPDATE: saat komputer lain nge-sync data baru (provider nulis localStorage + event),
+  // re-baca localStorage → Arsip/Pembelian langsung terupdate TANPA refresh halaman.
+  useEffect(() => {
+    const refresh = () => {
+      try {
+        const raw = localStorage.getItem(key);
+        setVal(raw ? JSON.parse(raw) : fallback);
+      } catch {}
+    };
+    const onShared = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { key?: string } | undefined;
+      if (detail && detail.key && detail.key !== key) return; // perubahan key lain → skip
+      refresh();
+    };
+    const onStorage = (e: StorageEvent) => { if (e.key === key) refresh(); };
+    window.addEventListener('shared-data-updated', onShared);
+    window.addEventListener('storage', onStorage);
+    return () => {
+      window.removeEventListener('shared-data-updated', onShared);
+      window.removeEventListener('storage', onStorage);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
   return [val, setVal];
 }
 

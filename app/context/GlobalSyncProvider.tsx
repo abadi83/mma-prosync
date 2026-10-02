@@ -129,20 +129,35 @@ async function pullFromServer(key: string): Promise<{ data: any; deletedAt: numb
   } catch { return null; }
 }
 
-/** BATCH: tarik SEMUA key dalam satu request — hemat round-trip biar realtime antar komputer. */
-async function pullAllFromServer(keys: string[]): Promise<Record<string, { data: any; deletedAt: number | null } | null>> {
-  const out: Record<string, { data: any; deletedAt: number | null } | null> = {};
+/** BATCH: tarik SEMUA key dalam satu request — hemat round-trip biar realtime antar komputer.
+ *  Dengan sig: server hanya kirim data yang berubah (respon ringan ±2KB kalau tidak ada perubahan). */
+type PullEntry = { data: any; deletedAt: number | null; same?: boolean; sig?: string } | null;
+
+const SIGS_KEY = 'mma_sync_sigs_v1';
+
+function readSigs(): Record<string, string> {
   try {
-    const res = await fetch(`/api/data?keys=${encodeURIComponent(keys.join(','))}&t=${Date.now()}`);
+    const raw = localStorage.getItem(SIGS_KEY);
+    if (raw) { const p = JSON.parse(raw); return p && typeof p === 'object' ? p : {}; }
+  } catch {}
+  return {};
+}
+
+async function pullAllFromServer(keys: string[], sigs: Record<string, string>): Promise<Record<string, PullEntry>> {
+  const out: Record<string, PullEntry> = {};
+  try {
+    const sigArr = keys.map(k => sigs[k] || '');
+    const res = await fetch(`/api/data?keys=${encodeURIComponent(keys.join(','))}&sigs=${encodeURIComponent(sigArr.join(','))}&t=${Date.now()}`);
     if (!res.ok) return out;
     const json = await res.json();
     const raw = json.keys || {};
     for (const k of keys) {
       const entry = raw[k];
       if (!entry) { out[k] = null; continue; }
+      if (entry.same) { out[k] = { data: null, deletedAt: null, same: true, sig: entry.sig }; continue; }
       const d = entry.data;
       const data = Array.isArray(d) && d.length === 0 ? null : (d ?? null);
-      out[k] = { data, deletedAt: typeof entry.deletedAt === 'number' ? entry.deletedAt : null };
+      out[k] = { data, deletedAt: typeof entry.deletedAt === 'number' ? entry.deletedAt : null, sig: typeof entry.sig === 'string' ? entry.sig : undefined };
     }
   } catch {}
   return out;
@@ -209,6 +224,10 @@ export function GlobalSyncProvider({ children }: { children: React.ReactNode }) 
   const localSnapshots = useRef<Record<string, string>>({});
   // Key yang pernah kita lihat tombstone-nya (buat bedain data baru vs data lama)
   const tombstoneSeen = useRef<Set<string>>(new Set());
+  // Signature data server terakhir per key → polling ringan (server kirim data HANYA saat berubah)
+  const sigsRef = useRef<Record<string, string>>(readSigs());
+  // Cache data server terakhir per key — saat server "same", merge/push lokal tetap jalan pakai cache ini
+  const serverCache = useRef<Record<string, { data: any; deletedAt: number | null } | null>>({});
 
   const syncKey = async (key: string, remoteOverride?: { data: any; deletedAt: number | null } | null) => {
     try {
@@ -343,9 +362,29 @@ export function GlobalSyncProvider({ children }: { children: React.ReactNode }) 
       if (typeof document !== 'undefined' && document.hidden) return; // hemat saat tab tersembunyi
       busy = true;
       try {
-        const all = await pullAllFromServer(SYNC_KEYS);
-        for (const key of SYNC_KEYS) await syncKey(key, all[key]);
-        notifyListeners('poll');
+        const all = await pullAllFromServer(SYNC_KEYS, sigsRef.current);
+        if (Object.keys(all).length > 0) {
+          let sigChanged = false;
+          for (const key of SYNC_KEYS) {
+            const entry = all[key];
+            if (entry && entry.same) {
+              // Server TIDAK berubah → pakai cache data server terakhir,
+              // tetap jalankan merge/push biar input lokal ikut terkirim.
+              await syncKey(key, serverCache.current[key] ?? null);
+              continue;
+            }
+            await syncKey(key, entry);
+            if (entry) {
+              serverCache.current[key] = (entry.data !== null || entry.deletedAt !== null) ? { data: entry.data, deletedAt: entry.deletedAt } : null;
+              if (entry.sig && sigsRef.current[key] !== entry.sig) {
+                sigsRef.current[key] = entry.sig;
+                sigChanged = true;
+              }
+            }
+          }
+          if (sigChanged) { try { localStorage.setItem(SIGS_KEY, JSON.stringify(sigsRef.current)); } catch {} }
+          notifyListeners('poll');
+        }
       } catch {}
       busy = false;
     };
