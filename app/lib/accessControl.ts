@@ -16,7 +16,9 @@ export const PAGE_ROLE_MAP: PageRoleRule[] = [
   { prefix: '/operasional-gudang', roles: ['warehouse', 'logistik', 'inventory'], label: 'Operasional Gudang' },
   { prefix: '/stok-barang', roles: ['warehouse', 'inventory'], label: 'Stok Barang' },
   { prefix: '/penjualan', roles: ['sales'], label: 'Penjualan' },
-  { prefix: '/data-master', roles: ['inventory', 'purchasing', 'sales'], label: 'Data Master' },
+  // Data Master: KHUSUS akun ber-role 'masterdata' (atau admin).
+  // Role ini diberikan per-akun di menu Kepegawaian → edit pegawai.
+  { prefix: '/data-master', roles: ['masterdata'], label: 'Data Master' },
   { prefix: '/data-entry', roles: ['warehouse', 'logistik', 'inventory', 'sales', 'finance', 'purchasing'], label: 'Data Entry' },
   { prefix: '/kepegawaian', roles: ['hr'], label: 'Kepegawaian' },
 ];
