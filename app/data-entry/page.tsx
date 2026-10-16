@@ -8,6 +8,7 @@ import { todayLocal } from '@/app/lib/dateLocal';
 import { useUser } from '@/app/hooks/useUser';
 import { fetchMarketplaceOrdersFiltered, fetchMpSummary } from '@/app/lib/marketplaceOrdersClient';
 import { recordActivity } from '@/app/lib/recordActivity';
+import { getDeviceId, getDeviceName } from '@/app/lib/deviceIdentity';
 import { markMasukSaldoByResi, syncSaldoKeOperasional } from '@/app/lib/saldoMarketplace';
 
 type Tab = 'shopee' | 'operasional' | 'keuangan' | 'riwayat';
@@ -105,7 +106,7 @@ async function saveSynced(key: string, data: unknown): Promise<boolean> {
     await fetch('/api/data', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ key, data }),
+      body: JSON.stringify({ key, data, device: getDeviceId(), name: getDeviceName() }),
     });
   } catch {}
   return ok;

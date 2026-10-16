@@ -14,6 +14,97 @@ if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
+/* ── Registri perangkat (siapa update terakhir & siapa sudah sinkron) ──
+   Setiap perangkat "titip" identitasnya di request sync (batch GET / POST / DELETE):
+   - sync   → catat kapan terakhir menarik data (lastSyncAt)
+   - push/delete → catat siapa & kapan terakhir mengubah data (lastPushAt, lastKey)
+   Dengan itu klien bisa menampilkan "Update terakhir oleh X, perangkat Y belum sinkron". */
+type DeviceAction = 'push' | 'delete';
+type SyncDevice = {
+  id: string;
+  name: string;
+  lastSyncAt: number;
+  lastPushAt: number;
+  lastKey: string | null;
+  lastAction: DeviceAction | null;
+};
+const devices = new Map<string, SyncDevice>();
+const DEVICES_FILE = path.join(DATA_DIR, 'mma_sync_devices.json');
+const DEVICE_TTL_MS = 24 * 60 * 60 * 1000; // lupakan perangkat yang >24 jam tidak muncul
+const MAX_DEVICES = 20;
+const DEVICES_FLUSH_MS = 5000; // simpan ke disk paling cepat tiap 5 detik
+let devicesLoaded = false;
+let devicesDirty = false;
+let lastDevicesFlush = 0;
+
+function loadDevicesOnce(): void {
+  if (devicesLoaded) return;
+  devicesLoaded = true;
+  try {
+    if (!fs.existsSync(DEVICES_FILE)) return;
+    const raw = JSON.parse(fs.readFileSync(DEVICES_FILE, 'utf-8'));
+    if (Array.isArray(raw)) {
+      for (const d of raw) {
+        if (d && typeof d.id === 'string') devices.set(d.id, d as SyncDevice);
+      }
+    }
+  } catch {}
+}
+
+function getDevicesSnapshot(): SyncDevice[] {
+  const now = Date.now();
+  const list = Array.from(devices.values())
+    .filter(d => now - Math.max(d.lastSyncAt || 0, d.lastPushAt || 0) < DEVICE_TTL_MS)
+    .sort((a, b) => (b.lastSyncAt || 0) - (a.lastSyncAt || 0))
+    .slice(0, MAX_DEVICES);
+  // Bersihkan dari memori juga biar tidak numpuk
+  for (const d of Array.from(devices.values())) {
+    if (now - Math.max(d.lastSyncAt || 0, d.lastPushAt || 0) >= DEVICE_TTL_MS) devices.delete(d.id);
+  }
+  return list;
+}
+
+function flushDevicesIfNeeded(): void {
+  if (!devicesDirty) return;
+  const now = Date.now();
+  if (now - lastDevicesFlush < DEVICES_FLUSH_MS) return;
+  lastDevicesFlush = now;
+  devicesDirty = false;
+  try {
+    const tmp = DEVICES_FILE + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(getDevicesSnapshot()), 'utf-8');
+    fs.renameSync(tmp, DEVICES_FILE);
+  } catch {}
+}
+
+function touchDevice(id: string, name: string, action: 'sync' | DeviceAction, key?: string | null): void {
+  loadDevicesOnce();
+  if (!id) return;
+  const now = Date.now();
+  let entry = devices.get(id);
+  if (!entry) {
+    entry = { id, name: name || `Perangkat ${id.slice(-6)}`, lastSyncAt: 0, lastPushAt: 0, lastKey: null, lastAction: null };
+    devices.set(id, entry);
+    devicesDirty = true;
+  }
+  if (name && name !== entry.name) {
+    entry.name = name;
+    devicesDirty = true;
+  }
+  if (action === 'sync') {
+    entry.lastSyncAt = now;
+    devicesDirty = true;
+  } else {
+    // Yang baru push otomatis dianggap sudah punya data terbaru
+    entry.lastPushAt = now;
+    entry.lastSyncAt = now;
+    entry.lastKey = key || null;
+    entry.lastAction = action;
+    devicesDirty = true;
+  }
+  flushDevicesIfNeeded();
+}
+
 function getFilePath(key: string): string {
   const safeKey = key.replace(/[^a-zA-Z0-9_-]/g, '_');
   return path.join(DATA_DIR, `${safeKey}.json`);
@@ -89,6 +180,10 @@ function clearTombstone(key: string): void {
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
+    // Identitas perangkat (siapa yang lagi sync) — dipakai untuk panel "update terakhir & sudah sinkron"
+    const device = searchParams.get('device') || '';
+    const name = searchParams.get('name') || '';
+    if (device) touchDevice(device, name, 'sync');
     // ── BATCH: /api/data?keys=a,b,c → semua key sekaligus (realtime sync hemat request) ──
     const keysParam = searchParams.get('keys');
     if (keysParam) {
@@ -107,7 +202,7 @@ export async function GET(request: Request) {
         }
         out[k] = { data: readData(k) || [], sig, deletedAt: readTombstone(k) || undefined };
       }
-      return NextResponse.json({ batch: true, keys: out });
+      return NextResponse.json({ batch: true, keys: out, devices: getDevicesSnapshot() });
     }
     const key = searchParams.get('key');
     if (!key) {
@@ -124,7 +219,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { key, data } = body;
+    const { key, data, device, name } = body;
     if (!key) {
       return NextResponse.json({ error: 'Field key wajib.' }, { status: 400 });
     }
@@ -132,7 +227,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Field data wajib.' }, { status: 400 });
     }
     writeData(key, data);
-    return NextResponse.json({ success: true, key, count: Array.isArray(data) ? data.length : 1 });
+    if (typeof device === 'string' && device) touchDevice(device, typeof name === 'string' ? name : '', 'push', key);
+    // Sertakan sig terbaru → klien yang baru push tidak perlu menarik ulang data itu
+    return NextResponse.json({ success: true, key, count: Array.isArray(data) ? data.length : 1, sig: getFileSig(key) });
   } catch (err: any) {
     console.error('POST /api/data error:', err?.message);
     return NextResponse.json({ error: 'Gagal menyimpan data.' }, { status: 500 });
@@ -155,7 +252,9 @@ export async function DELETE(request: Request) {
     }
     // Tulis tombstone agar device lain tahu data ini dihapus global
     writeTombstone(key);
-    return NextResponse.json({ success: true, key, deleted: true });
+    const device = searchParams.get('device') || '';
+    if (device) touchDevice(device, searchParams.get('name') || '', 'delete', key);
+    return NextResponse.json({ success: true, key, deleted: true, sig: getFileSig(key) });
   } catch {
     return NextResponse.json({ error: 'Gagal menghapus data.' }, { status: 500 });
   }

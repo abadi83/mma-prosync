@@ -4,6 +4,7 @@ import { todayLocal } from '@/app/lib/dateLocal';
 import React, { useState, useMemo, useEffect } from 'react';
 import FaceAttendance from '@/app/components/FaceAttendance';
 import { useUser, hasRole } from '@/app/hooks/useUser';
+import { getDeviceId, getDeviceName } from '@/app/lib/deviceIdentity';
 
 /* ── Types ── */
 interface Pegawai {
@@ -869,7 +870,7 @@ function DaftarPegawai({ pegawai, setPegawai }: { pegawai: Pegawai[]; setPegawai
                   fetch('/api/data', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ key: 'mma_pegawai_data', data: next }),
+                    body: JSON.stringify({ key: 'mma_pegawai_data', data: next, device: getDeviceId(), name: getDeviceName() }),
                   }).catch(() => {});
                 } catch {}
                 // Hapus juga dari PostgreSQL (login membaca dari DB)
