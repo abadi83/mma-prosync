@@ -219,4 +219,31 @@ describe('GlobalSyncProvider — kecepatan sinkron antar komputer', () => {
     expect(deviceEvents).toHaveLength(1);
     expect(deviceEvents[0].devices).toEqual(mockDevices);
   });
+
+  it('reset global tidak dihidupkan kembali oleh flush/poll yang berjalan bersamaan', async () => {
+    localStorage.setItem('mma_kas_kecil', JSON.stringify([{ id: 'a' }]));
+    server['mma_kas_kecil'] = [{ id: 'a' }];
+    renderProvider();
+    await tick(0); // initial sync selesai
+    calls = [];
+
+    // DELETE dibuat lambat (500ms) → flush 300ms & poll 1s sempat jalan duluan
+    const prevFetch = global.fetch as any;
+    global.fetch = vi.fn(async (input: any, init?: any) => {
+      if ((init?.method || 'GET') === 'DELETE') {
+        await new Promise((r) => setTimeout(r, 500));
+      }
+      return prevFetch(input, init);
+    }) as any;
+
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent('global-data-reset', { detail: { key: 'mma_kas_kecil' } }));
+      await vi.advanceTimersByTimeAsync(2500); // lewati debounce + beberapa siklus poll
+    });
+
+    // Data harus tetap terhapus — lokal & server tidak boleh dihidupkan kembali
+    expect(localStorage.getItem('mma_kas_kecil')).toBeNull();
+    expect(server['mma_kas_kecil']).toBeUndefined();
+    expect(posts().filter((c) => c.body?.key === 'mma_kas_kecil')).toHaveLength(0);
+  });
 });

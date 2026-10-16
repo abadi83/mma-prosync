@@ -111,6 +111,8 @@ function cacheDevices(list: unknown): void {
    berubah, jadi siklus hanya mengerjakan key yang benar-benar berubah. ── */
 const SYNC_KEY_SET = new Set(SYNC_KEYS);
 const dirtyKeys = new Set<string>();
+// Key yang sedang di-reset global (DELETE /api/data) — sync/push ditahan sampai selesai
+const resettingKeys = new Set<string>();
 let onLocalChange: (() => void) | null = null;
 let dirtyTrackerInstalled = false;
 let suppressDirty = false;
@@ -384,6 +386,7 @@ export function GlobalSyncProvider({ children }: { children: React.ReactNode }) 
     if (Object.keys(all).length === 0) return false; // server tidak terjangkau / gagal
     let sigChanged = false;
     for (const key of SYNC_KEYS) {
+      if (resettingKeys.has(key)) continue; // sedang di-reset global → jangan diproses
       const entry = all[key];
       const same = !!(entry && entry.same);
       const dirty = dirtyKeys.has(key);
@@ -620,15 +623,19 @@ export function GlobalSyncProvider({ children }: { children: React.ReactNode }) 
     let timer: ReturnType<typeof setTimeout> | null = null;
     const flush = async () => {
       timer = null;
-      const keys = Array.from(dirtyKeys);
+      const keys = Array.from(dirtyKeys).filter(k => !resettingKeys.has(k));
       if (keys.length === 0) return;
       keys.forEach(k => dirtyKeys.delete(k));
       let ok = true;
       for (const key of keys) {
+        // Cek lagi: reset global bisa mulai di tengah flush → skip (state post-reset
+        // sudah dikunci lewat sigsRef & serverCache oleh handler reset).
+        if (resettingKeys.has(key)) continue;
         // Tarik dulu isi server: kalau lokal langsung dikirim mentah, item yang baru
         // ditambah komputer lain bisa ikut hilang.
         const remote = await pullFromServer(key);
         if (remote === null) { ok = false; dirtyKeys.add(key); continue; }
+        if (resettingKeys.has(key)) continue; // DELETE reset sudah selesai? pakai state baru
         await syncKey(key, remote);
       }
       if (ok) markSyncStatus(true);
@@ -656,16 +663,32 @@ export function GlobalSyncProvider({ children }: { children: React.ReactNode }) 
       const detail = (e as CustomEvent).detail as { key?: string } | undefined;
       const keys = detail?.key ? [detail.key] : SYNC_KEYS;
       for (const key of keys) {
+        // Tahan semua proses sync key ini selama reset: flush/poll yang berjalan
+        // bersamaan bisa menarik data LAMA dari server (sebelum DELETE selesai)
+        // lalu menulisnya balik ke lokal & server → data "hidup lagi" setelah refresh.
+        resettingKeys.add(key);
+        try {
+          await removeLocal(key);
+          delete localSnapshots.current[key];
+          dirtyKeys.delete(key);
+          const res = await deleteOnServer(key);
+          // Tandai key sudah melihat tombstone → data BARU yang muncul berikutnya
+          // dianggap aktivitas baru user (dipush balik), bukan dihapus.
+          if (res.ok) {
+            tombstoneSeen.current.add(key);
+            serverCache.current[key] = { data: null, deletedAt: null };
+            if (res.sig) { sigsRef.current[key] = res.sig; persistSigs(); }
+          } else {
+            // Gagal hapus di server → tandai kotor supaya dicoba lagi siklus berikutnya
+            dirtyKeys.add(key);
+          }
+        } finally {
+          resettingKeys.delete(key);
+        }
+        // Bersihkan lagi lokal & snapshot — kalau ada flush yang lolos di tengah reset
+        // dan sempat mengembalikan data lama, jangan biarkan ikut terbaca / dipush balik.
         await removeLocal(key);
         delete localSnapshots.current[key];
-        dirtyKeys.delete(key);
-        const res = await deleteOnServer(key);
-        // Tandai key sudah melihat tombstone → data BARU yang muncul berikutnya
-        // dianggap aktivitas baru user (dipush balik), bukan dihapus.
-        if (res.ok) tombstoneSeen.current.add(key);
-        serverCache.current[key] = { data: null, deletedAt: null };
-        // Catat sig versi terhapus → siklus berikutnya tidak menarik ulang key ini
-        if (res.ok && res.sig) { sigsRef.current[key] = res.sig; persistSigs(); }
         notifyListeners(key);
       }
     };
