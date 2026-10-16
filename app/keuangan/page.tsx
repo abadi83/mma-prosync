@@ -9,6 +9,8 @@ import { fetchMpSummary } from '@/app/lib/marketplaceOrdersClient';
 import { loadPencairan, savePencairan, totalPencairan, PENCAIRAN_STORAGE, type PencairanEntry } from '@/app/lib/pencairan';
 import { recordActivity } from '@/app/lib/recordActivity';
 import { readTombstones, applyTombstones, addTombstones, type Tombstone } from '@/app/lib/tombstones';
+import { useSyncedStorage } from '@/app/hooks/useSyncedStorage';
+import { storageGetRaw } from '@/app/lib/idbStorage';
 import HapusDataTab from './HapusDataTab';
 
 /* ================================================================ */
@@ -62,26 +64,7 @@ const BUKTI_STORAGE = 'mma_bukti_bayar';
 /* Helpers                                                           */
 /* ================================================================ */
 function useLocalStorage<T>(key: string, fallback: T): [T, React.Dispatch<React.SetStateAction<T>>] {
-  // Selalu mulai dengan fallback agar server & client render sama (anti hydration error)
-  const [val, setVal] = useState<T>(fallback);
-  const [hydrated, setHydrated] = useState(false);
-
-  // Load data dari localStorage setelah mount (client-only)
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(key);
-      if (raw) setVal(JSON.parse(raw));
-    } catch {}
-    setHydrated(true);
-  }, [key]);
-
-  // Simpan ke localStorage setiap kali val berubah (setelah hydrated)
-  useEffect(() => {
-    if (!hydrated) return;
-    try { localStorage.setItem(key, JSON.stringify(val)); } catch {}
-  }, [val, key, hydrated]);
-
-  return [val, setVal];
+  return useSyncedStorage(key, fallback);
 }
 
 const METODE_OPTIONS = [
@@ -742,10 +725,12 @@ function PembayaranTab() {
   // Live sync: PO yang dikoreksi di Pembelian (tab/page lain) langsung terlihat di sini
   useEffect(() => {
     const reload = () => {
-      try {
-        const raw = localStorage.getItem(HPP_STORAGE);
-        if (raw) setHppData(JSON.parse(raw));
-      } catch {}
+      void (async () => {
+        try {
+          const raw = await storageGetRaw(HPP_STORAGE);
+          if (raw) setHppData(JSON.parse(raw));
+        } catch {}
+      })();
     };
     window.addEventListener('storage', reload);
     window.addEventListener('shared-data-updated', reload);
@@ -1747,6 +1732,26 @@ const REFUND_STORAGE = 'mma_koreksi_refund';
 function RefundTab() {
   const [refundList, setRefundList] = useState<RefundItem[]>([]);
   const [mounted, setMounted] = useState(false);
+  // Cache harga beli dari mma_hpp_purchases (IndexedDB) — dibaca async sekali + live update
+  const [hppCache, setHppCache] = useState<HppPurchase[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    const loadHpp = async () => {
+      try {
+        const raw = await storageGetRaw(HPP_STORAGE);
+        if (!cancelled && raw) setHppCache(JSON.parse(raw));
+      } catch {}
+    };
+    void loadHpp();
+    const reload = () => void loadHpp();
+    window.addEventListener('shared-data-updated', reload);
+    window.addEventListener('storage', reload);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('shared-data-updated', reload);
+      window.removeEventListener('storage', reload);
+    };
+  }, []);
 
   useEffect(() => {
     try { const r = localStorage.getItem(REFUND_STORAGE); if (r) setRefundList(JSON.parse(r)); } catch {}
@@ -1758,13 +1763,8 @@ function RefundTab() {
   }, [refundList, mounted]);
 
   const getHargaBeli = (noPO: string, sku: string): number => {
-    try {
-      const raw = localStorage.getItem('mma_hpp_purchases');
-      if (!raw) return 0;
-      const hpp: any[] = JSON.parse(raw);
-      const found = hpp.find((p: any) => p.noPO === noPO && p.sku === sku);
-      return found?.hargaBeli || 0;
-    } catch { return 0; }
+    const found = hppCache.find((p: any) => p.noPO === noPO && p.sku === sku);
+    return found?.hargaBeli || 0;
   };
 
   const updateStatus = (id: string, status: RefundItem['status']) => {

@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useUser, hasRole } from '@/app/hooks/useUser';
+import { storageRemove } from '@/app/lib/idbStorage';
 
 type Tab = 'profil' | 'password' | 'toko' | 'akun' | 'data';
 
@@ -497,10 +498,10 @@ function DataTab() {
       try { await fetch('/api/marketplace-orders', { method: 'DELETE' }); } catch {}
     }
     // 2. Hapus lokal + beri tahu provider & tab lain
-    keys.forEach(k => {
-      try { localStorage.removeItem(k); } catch {}
+    for (const k of keys) {
+      try { void storageRemove(k); } catch {}
       try { window.dispatchEvent(new CustomEvent('global-data-reset', { detail: { key: k } })); } catch {}
-    });
+    }
   };
 
   const handleReset = async (group: typeof DATA_GROUPS[0]) => {

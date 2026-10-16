@@ -10,6 +10,8 @@ import KoreksiPOTab from '@/app/pembelian/components/KoreksiPOTab';
 import { useSuppliers } from '@/app/hooks/useSuppliers';
 import { recordActivity } from '@/app/lib/recordActivity';
 import { addTombstones } from '@/app/lib/tombstones';
+import { useSyncedStorage } from '@/app/hooks/useSyncedStorage';
+import { storageGetRaw, setJSON } from '@/app/lib/idbStorage';
 import type { BuktiBayar } from '@/app/types';
 
 /* ================================================================ */
@@ -93,16 +95,18 @@ function generateNoPO(existing: HppPurchase[]): string {
   return `PO-${yymmdd}-${String(todayCount).padStart(3,'0')}`;
 }
 
-/* Cek PO benar-benar tersimpan di localStorage — kuota penuh = hilang diam-diam tanpa peringatan */
+/* Cek PO benar-benar tersimpan — kuota penuh = hilang diam-diam tanpa peringatan */
 function cekSimpanHpp(poNumber: string) {
   setTimeout(() => {
-    try {
-      const raw = localStorage.getItem(HPP_STORAGE) || '[]';
-      const list = JSON.parse(raw);
-      if (!Array.isArray(list) || !list.some((p: any) => p.noPO === poNumber)) {
-        alert(`⚠️ PO ${poNumber} TIDAK tersimpan — penyimpanan browser penuh!\n\nPO ini tidak muncul di Arsip Invoice & tidak masuk server.\nSolusi: hapus PO/foto lama di Arsip Invoice, lalu buat ulang PO ini.`);
-      }
-    } catch {}
+    void (async () => {
+      try {
+        const raw = (await storageGetRaw(HPP_STORAGE)) ?? '[]';
+        const list = JSON.parse(raw);
+        if (!Array.isArray(list) || !list.some((p: any) => p.noPO === poNumber)) {
+          alert(`⚠️ PO ${poNumber} TIDAK tersimpan — penyimpanan browser penuh!\n\nPO ini tidak muncul di Arsip Invoice & tidak masuk server.\nSolusi: hapus PO/foto lama di Arsip Invoice, lalu buat ulang PO ini.`);
+        }
+      } catch {}
+    })();
   }, 800);
 }
 
@@ -912,40 +916,7 @@ function DashboardTab() {
 /* ================================================================ */
 
 function useLocalStorage<T>(key: string, fallback: T): [T, React.Dispatch<React.SetStateAction<T>>] {
-  const [val, setVal] = useState<T>(fallback);
-  const [hydrated, setHydrated] = useState(false);
-  useEffect(() => {
-    try { const raw = localStorage.getItem(key); if (raw) setVal(JSON.parse(raw)); } catch {}
-    setHydrated(true);
-  }, [key]);
-  useEffect(() => {
-    if (!hydrated) return;
-    try { localStorage.setItem(key, JSON.stringify(val)); } catch {}
-  }, [val, key, hydrated]);
-  // LIVE UPDATE: saat komputer lain nge-sync data baru (provider nulis localStorage + event),
-  // re-baca localStorage → Arsip/Pembelian langsung terupdate TANPA refresh halaman.
-  useEffect(() => {
-    const refresh = () => {
-      try {
-        const raw = localStorage.getItem(key);
-        setVal(raw ? JSON.parse(raw) : fallback);
-      } catch {}
-    };
-    const onShared = (e: Event) => {
-      const detail = (e as CustomEvent).detail as { key?: string } | undefined;
-      if (detail && detail.key && detail.key !== key) return; // perubahan key lain → skip
-      refresh();
-    };
-    const onStorage = (e: StorageEvent) => { if (e.key === key) refresh(); };
-    window.addEventListener('shared-data-updated', onShared);
-    window.addEventListener('storage', onStorage);
-    return () => {
-      window.removeEventListener('shared-data-updated', onShared);
-      window.removeEventListener('storage', onStorage);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
-  return [val, setVal];
+  return useSyncedStorage(key, fallback);
 }
 
 /* ================================================================ */
@@ -2100,7 +2071,7 @@ function ArsipTab() {
     e.target.value = '';
   };
 
-  const saveKoreksi = () => {
+  const saveKoreksi = async () => {
     if (!koreksiPo) return;
     if (koreksiItems.length === 0) { alert('PO minimal harus punya 1 SKU.'); return; }
     const bySku = new Map(koreksiItems.map(it => [it.sku, it]));
@@ -2193,10 +2164,9 @@ function ArsipTab() {
       ditambah++;
     }
     setPurchases(updated);
-    // Cek kuota penyimpanan browser — kalau penuh, foto/pembaruan tidak akan ke-save
-    try {
-      localStorage.setItem(HPP_STORAGE, JSON.stringify(updated));
-    } catch {
+    // Simpan lewat lapisan penyimpanan (IndexedDB untuk key besar) — kalau gagal, peringatkan
+    const ok = await setJSON(HPP_STORAGE, updated);
+    if (!ok) {
       alert('⚠️ Penyimpanan browser PENUH — foto/PO tidak bisa disimpan!\nKurangi jumlah foto, atau hapus PO lama di Arsip Invoice.');
       return;
     }
@@ -2206,7 +2176,7 @@ function ArsipTab() {
   };
 
   /* Hapus PO permanen dari Arsip Invoice (mis. invoice dobel) */
-  const handleHapusPo = () => {
+  const handleHapusPo = async () => {
     if (!hapusPo) return;
     const noPO = hapusPo.noPO;
     const sisaList = purchases.filter(p => p.noPO !== noPO);
@@ -2214,9 +2184,8 @@ function ArsipTab() {
     // Tombstone kind 'po' → PO ini disembunyikan dari Arsip, Pembayaran & Bukti Bayar
     // di SEMUA perangkat (tidak dihidupkan lagi oleh sync server).
     addTombstones([{ id: noPO, kind: 'po' }]);
-    try {
-      localStorage.setItem(HPP_STORAGE, JSON.stringify(sisaList));
-    } catch {
+    const ok = await setJSON(HPP_STORAGE, sisaList);
+    if (!ok) {
       alert('⚠️ Penyimpanan browser PENUH — penghapusan PO gagal tersimpan!\nHapus dulu PO/foto lama lainnya di Arsip Invoice.');
       return;
     }

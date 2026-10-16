@@ -5,6 +5,8 @@ import { useAkuntansi } from '@/app/context/AkuntansiContext';
 import { recordActivity } from '@/app/lib/recordActivity';
 import { addTombstones, readTombstones, type Tombstone } from '@/app/lib/tombstones';
 import { getDeviceId, getDeviceName } from '@/app/lib/deviceIdentity';
+import { useSyncedStorage } from '@/app/hooks/useSyncedStorage';
+import { storageGetRaw } from '@/app/lib/idbStorage';
 
 /* ═══════════════════════════════════════════════════════════════════ */
 /* HAPUS DATA (per tanggal & supplier) — Pembelian SKU + Pembayaran PO */
@@ -30,17 +32,7 @@ interface BuktiBayar {
 }
 
 function useLocalStorage<T>(key: string, fallback: T): [T, React.Dispatch<React.SetStateAction<T>>] {
-  const [val, setVal] = useState<T>(fallback);
-  const [hydrated, setHydrated] = useState(false);
-  useEffect(() => {
-    try { const raw = localStorage.getItem(key); if (raw) setVal(JSON.parse(raw)); } catch {}
-    setHydrated(true);
-  }, [key]);
-  useEffect(() => {
-    if (!hydrated) return;
-    try { localStorage.setItem(key, JSON.stringify(val)); } catch {}
-  }, [val, key, hydrated]);
-  return [val, setVal];
+  return useSyncedStorage(key, fallback);
 }
 
 const fmtRp = (n: number) => 'Rp ' + (n || 0).toLocaleString('id-ID');
@@ -67,7 +59,12 @@ export default function HapusDataTab() {
   // Live reload kalau Pembelian update PO
   useEffect(() => {
     const reload = () => {
-      try { const raw = localStorage.getItem(HPP_STORAGE); if (raw) setHppData(JSON.parse(raw)); } catch {}
+      void (async () => {
+        try {
+          const raw = await storageGetRaw(HPP_STORAGE);
+          if (raw) setHppData(JSON.parse(raw));
+        } catch {}
+      })();
     };
     window.addEventListener('storage', reload);
     window.addEventListener('pembelian-updated', reload);

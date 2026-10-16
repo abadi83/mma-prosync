@@ -1,7 +1,7 @@
 'use client';
 import { todayLocal } from '@/app/lib/dateLocal';
 
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import * as XLSX from 'xlsx';
 import { useAgregasi, type AgregasiRow } from '@/app/context/AgregasiContext';
 import { useSkus } from '@/app/context/SkuContext';
@@ -10,6 +10,7 @@ import { useSuppliers } from '@/app/hooks/useSuppliers';
 import { recordOpLog } from '@/app/lib/recordOpLog';
 import { recordActivity } from '@/app/lib/recordActivity';
 import { syncSaldoKeOperasional } from '@/app/lib/saldoMarketplace';
+import { storageGetRaw, setJSON } from '@/app/lib/idbStorage';
 
 type Tab = 'agregasi' | 'picking' | 'qc' | 'packing' | 'runner' | 'logistik' | 'belanja';
 
@@ -2353,49 +2354,44 @@ function LogistikPengantaran({ fleet }: { fleet: any[] }) {
 function LogistikPO({ fleet }: { fleet: any[] }) {
   const suppliers = useSuppliers();
 
-  /* ── Tarik PO dari data HPP Purchasing (group by noPO) ── */
-  const [poGroups, setPoGroups] = useState<any[]>(() => {
-    if (typeof window === 'undefined') return [];
-    try {
-      const hppRaw = localStorage.getItem('mma_hpp_purchases');
-      if (!hppRaw) return [];
-      const hppData = JSON.parse(hppRaw);
-      // Group by noPO
-      const map = new Map<string, any>();
-      for (const p of hppData) {
-        const g = map.get(p.noPO) || {
-          id: p.noPO,
-          noPO: p.noPO,
-          supplierNama: p.supplierNama,
-          supplierId: p.supplierId,
-          tanggal: p.tanggal,
-          items: [] as any[],
-          totalQty: 0,
-          total: 0,
-          pickupStatus: (p.pickupStatus || 'belum') as string,
-          petugasLogistik: p.petugasLogistik || '',
-          kendaraanId: p.kendaraanId || '',
-          kendaraanNama: p.kendaraanNama || '',
-          platNomor: p.platNomor || '',
-          metodeBayar: p.metodeBayar,
-          lunas: true,
-        };
-        g.items.push({ sku: p.sku, namaSku: p.namaSku, qty: p.qty, hargaBeli: p.hargaBeli, subtotal: p.total });
-        g.totalQty += p.qty;
-        g.total += p.total;
-        if (!p.lunas) g.lunas = false;
-        // Gunakan status pickup tertinggi
-        const statusOrder = ['belum', 'sedang', 'sampai'];
-        const currentIdx = statusOrder.indexOf(g.pickupStatus);
-        const newIdx = statusOrder.indexOf(p.pickupStatus || 'belum');
-        if (newIdx > currentIdx) g.pickupStatus = p.pickupStatus || 'belum';
-        if (p.petugasLogistik && !g.petugasLogistik) g.petugasLogistik = p.petugasLogistik;
-        if ((p as any).kendaraanId && !g.kendaraanId) { g.kendaraanId = (p as any).kendaraanId; g.kendaraanNama = (p as any).kendaraanNama; g.platNomor = (p as any).platNomor; }
-        map.set(p.noPO, g);
-      }
-      return Array.from(map.values()).sort((a: any, b: any) => b.noPO.localeCompare(a.noPO));
-    } catch { return []; }
-  });
+  /* ── Group data HPP (IndexedDB) by noPO ── */
+  const groupHpp = (hppData: any[]) => {
+    const map = new Map<string, any>();
+    for (const p of hppData) {
+      const g = map.get(p.noPO) || {
+        id: p.noPO,
+        noPO: p.noPO,
+        supplierNama: p.supplierNama,
+        supplierId: p.supplierId,
+        tanggal: p.tanggal,
+        items: [] as any[],
+        totalQty: 0,
+        total: 0,
+        pickupStatus: (p.pickupStatus || 'belum') as string,
+        petugasLogistik: p.petugasLogistik || '',
+        kendaraanId: p.kendaraanId || '',
+        kendaraanNama: p.kendaraanNama || '',
+        platNomor: p.platNomor || '',
+        metodeBayar: p.metodeBayar,
+        lunas: true,
+      };
+      g.items.push({ sku: p.sku, namaSku: p.namaSku, qty: p.qty, hargaBeli: p.hargaBeli, subtotal: p.total });
+      g.totalQty += p.qty;
+      g.total += p.total;
+      if (!p.lunas) g.lunas = false;
+      // Gunakan status pickup tertinggi
+      const statusOrder = ['belum', 'sedang', 'sampai'];
+      const currentIdx = statusOrder.indexOf(g.pickupStatus);
+      const newIdx = statusOrder.indexOf(p.pickupStatus || 'belum');
+      if (newIdx > currentIdx) g.pickupStatus = p.pickupStatus || 'belum';
+      if (p.petugasLogistik && !g.petugasLogistik) g.petugasLogistik = p.petugasLogistik;
+      if ((p as any).kendaraanId && !g.kendaraanId) { g.kendaraanId = (p as any).kendaraanId; g.kendaraanNama = (p as any).kendaraanNama; g.platNomor = (p as any).platNomor; }
+      map.set(p.noPO, g);
+    }
+    return Array.from(map.values()).sort((a: any, b: any) => b.noPO.localeCompare(a.noPO));
+  };
+
+  const [poGroups, setPoGroups] = useState<any[]>([]);
 
   /* ── Supplier address lookup (satu sumber data via useSuppliers) ── */
   const getSupplierAlamat = (supplierId: string, supplierNama: string): string => {
@@ -2403,50 +2399,44 @@ function LogistikPO({ fleet }: { fleet: any[] }) {
     return found?.alamat || supplierNama;
   };
 
-  /* ── Update HPP data di localStorage ── */
-  const updateHppData = (noPO: string, updates: Record<string, any>) => {
+  /* ── Reload dari IndexedDB (mma_hpp_purchases) ── */
+  const reloadFromStorage = useCallback(async () => {
     try {
-      const raw = localStorage.getItem('mma_hpp_purchases');
+      const hppRaw = await storageGetRaw('mma_hpp_purchases');
+      if (!hppRaw) { setPoGroups([]); return; }
+      const hppData = JSON.parse(hppRaw);
+      setPoGroups(groupHpp(hppData));
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    void reloadFromStorage();
+    const onShared = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { key?: string } | undefined;
+      if (detail && detail.key && detail.key !== 'mma_hpp_purchases') return;
+      void reloadFromStorage();
+    };
+    window.addEventListener('shared-data-updated', onShared);
+    window.addEventListener('storage', reloadFromStorage);
+    return () => {
+      window.removeEventListener('shared-data-updated', onShared);
+      window.removeEventListener('storage', reloadFromStorage);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reloadFromStorage]);
+
+  /* ── Update HPP data (IndexedDB) + reload ── */
+  const updateHppData = async (noPO: string, updates: Record<string, any>) => {
+    try {
+      const raw = await storageGetRaw('mma_hpp_purchases');
       if (!raw) return;
       const hppData = JSON.parse(raw);
       const updated = hppData.map((p: any) =>
         p.noPO === noPO ? { ...p, ...updates } : p
       );
-      localStorage.setItem('mma_hpp_purchases', JSON.stringify(updated));
-    } catch {}
-  };
-
-  /* ── Reload dari localStorage ── */
-  const reloadFromStorage = () => {
-    try {
-      const hppRaw = localStorage.getItem('mma_hpp_purchases');
-      if (!hppRaw) { setPoGroups([]); return; }
-      const hppData = JSON.parse(hppRaw);
-      const map = new Map<string, any>();
-      for (const p of hppData) {
-        const g = map.get(p.noPO) || {
-          id: p.noPO, noPO: p.noPO,
-          supplierNama: p.supplierNama, supplierId: p.supplierId,
-          tanggal: p.tanggal,
-          items: [] as any[],
-          totalQty: 0, total: 0,
-          pickupStatus: 'belum',
-          petugasLogistik: '', kendaraanId: '', kendaraanNama: '', platNomor: '',
-          metodeBayar: p.metodeBayar, lunas: true,
-        };
-        g.items.push({ sku: p.sku, namaSku: p.namaSku, qty: p.qty, hargaBeli: p.hargaBeli, subtotal: p.total });
-        g.totalQty += p.qty;
-        g.total += p.total;
-        if (!p.lunas) g.lunas = false;
-        const statusOrder = ['belum', 'sedang', 'sampai'];
-        const cur = statusOrder.indexOf(g.pickupStatus);
-        const nxt = statusOrder.indexOf(p.pickupStatus || 'belum');
-        if (nxt > cur) g.pickupStatus = p.pickupStatus || 'belum';
-        if (p.petugasLogistik && !g.petugasLogistik) g.petugasLogistik = p.petugasLogistik;
-        if ((p as any).kendaraanId && !g.kendaraanId) { g.kendaraanId = (p as any).kendaraanId; g.kendaraanNama = (p as any).kendaraanNama; g.platNomor = (p as any).platNomor; }
-        map.set(p.noPO, g);
-      }
-      setPoGroups(Array.from(map.values()).sort((a: any, b: any) => b.noPO.localeCompare(a.noPO)));
+      await setJSON('mma_hpp_purchases', updated);
+      await reloadFromStorage();
     } catch {}
   };
 
@@ -2454,14 +2444,13 @@ function LogistikPO({ fleet }: { fleet: any[] }) {
   const mulaiPickup = (noPO: string, kendaraanId: string, petugas: string) => {
     if (!petugas.trim()) return;
     const k = fleet.find((f: any) => f.id === kendaraanId);
-    updateHppData(noPO, {
+    void updateHppData(noPO, {
       pickupStatus: 'sedang',
       petugasLogistik: petugas.trim(),
       kendaraanId: kendaraanId,
       kendaraanNama: k?.nama || '',
       platNomor: k?.platNomor || '',
     });
-    reloadFromStorage();
   };
 
   /* ── Konfirmasi Sampai → pickupStatus: 'sampai' + inventory check ── */
@@ -2470,7 +2459,7 @@ function LogistikPO({ fleet }: { fleet: any[] }) {
     if (!po) return;
 
     // Update HPP data
-    updateHppData(noPO, { pickupStatus: 'sampai' });
+    void updateHppData(noPO, { pickupStatus: 'sampai' });
 
     // Push ke inventory checklist
     try {
@@ -2491,7 +2480,7 @@ function LogistikPO({ fleet }: { fleet: any[] }) {
       localStorage.setItem('mma_po_inventory_check', JSON.stringify([...filtered, ...items]));
     } catch {}
 
-    reloadFromStorage();
+    void reloadFromStorage();
   };
 
   /* ── Stats ── */

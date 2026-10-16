@@ -7,6 +7,7 @@ import {
   getDeviceId, getDeviceName, deviceQuery, DEVICES_CACHE_KEY,
   type SyncDevice,
 } from '@/app/lib/deviceIdentity';
+import { storageGetRaw, storageSetRaw, storageRemove, DIRTY_PREFIX } from '@/app/lib/idbStorage';
 
 /**
  * GlobalSyncProvider — sync dua arah untuk SEMUA data yang masih di localStorage.
@@ -128,7 +129,11 @@ function installDirtyTracker(): void {
     const setItem = proto.setItem;
     const removeItem = proto.removeItem;
     const clear = proto.clear;
-    proto.setItem = function (k: string, v: string) { setItem.call(this, k, v); markDirty(k); };
+    proto.setItem = function (k: string, v: string) {
+      setItem.call(this, k, v);
+      // Penanda "__dirty_<key>" dari lapisan IndexedDB → tandai key aslinya
+      markDirty(k.startsWith(DIRTY_PREFIX) ? k.slice(DIRTY_PREFIX.length) : k);
+    };
     proto.removeItem = function (k: string) { removeItem.call(this, k); markDirty(k); };
     proto.clear = function () { clear.call(this); SYNC_KEYS.forEach(k => markDirty(k)); };
     dirtyTrackerInstalled = true;
@@ -196,33 +201,27 @@ function contentEqual(key: string, a: any, b: any): boolean {
   return stableStringify(a) === stableStringify(b);
 }
 
-function readLocal(key: string): any | null {
+async function readLocal(key: string): Promise<any | null> {
   try {
-    const raw = localStorage.getItem(key);
+    const raw = await storageGetRaw(key);
     if (raw === null) return null;
     return JSON.parse(raw);
   } catch { return null; }
 }
 
-function writeLocal(key: string, value: any): boolean {
+async function writeLocal(key: string, value: any): Promise<boolean> {
   // Penulisan internal (hasil merge dari server) — bukan perubahan user,
   // jadi jangan ditandai "kotor" (bisa memicu push balik yang tidak perlu).
   suppressDirty = true;
   try {
-    try { localStorage.setItem(key, JSON.stringify(value)); return true; } catch {
-      // Kuota localStorage penuh → kasih sinyal ke UI (badge "Penyimpanan Penuh" di header)
-      try {
-        if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('sync-storage-error', { detail: { key } }));
-      } catch {}
-      return false;
-    }
-  } finally { suppressDirty = false; }
+    return await storageSetRaw(key, JSON.stringify(value));
+  } catch { return false; } finally { suppressDirty = false; }
 }
 
 /** Hapus local TANPA menandai "kotor" (dipakai saat server bilang data dihapus global). */
-function removeLocal(key: string): void {
+async function removeLocal(key: string): Promise<void> {
   suppressDirty = true;
-  try { localStorage.removeItem(key); } catch {} finally { suppressDirty = false; }
+  try { await storageRemove(key); } catch {} finally { suppressDirty = false; }
 }
 
 async function pullFromServer(key: string): Promise<{ data: any; deletedAt: number | null; sig?: string } | null> {
@@ -430,7 +429,7 @@ export function GlobalSyncProvider({ children }: { children: React.ReactNode }) 
      diperbarui). Perubahan data lokalnya sendiri sudah diberitahukan ke UI lewat notifyListeners. */
   const syncKey = async (key: string, remoteOverride?: { data: any; deletedAt: number | null; sig?: string | null } | null): Promise<boolean> => {
     try {
-      let local = readLocal(key);
+      let local = await readLocal(key);
       let remote: { data: any; deletedAt: number | null; sig?: string | null } | null;
       if (remoteOverride !== undefined) {
         remote = remoteOverride ?? null;
@@ -458,7 +457,7 @@ export function GlobalSyncProvider({ children }: { children: React.ReactNode }) 
           const serverF = applyTombstones(key, server, tombs);
           if (JSON.stringify(localF) !== JSON.stringify(local)) {
             local = localF;
-            if (local !== null) { writeLocal(key, local); notifyListeners(key); }
+            if (local !== null) { await writeLocal(key, local); notifyListeners(key); }
           }
           if (JSON.stringify(serverF) !== JSON.stringify(server)) server = serverF;
         }
@@ -487,7 +486,7 @@ export function GlobalSyncProvider({ children }: { children: React.ReactNode }) 
         }
         tombstoneSeen.current.add(key);
         if (local !== null) {
-          removeLocal(key);
+          await removeLocal(key);
           delete localSnapshots.current[key];
           notifyListeners(key);
         }
@@ -501,7 +500,7 @@ export function GlobalSyncProvider({ children }: { children: React.ReactNode }) 
 
       if (local === null) {
         // Hanya server punya data → terapkan ke lokal
-        writeLocal(key, server);
+        await writeLocal(key, server);
         localSnapshots.current[key] = JSON.stringify(server);
         let pushed = false;
         // Kalau tombstone memfilter data server, bersihkan juga copy server-nya
@@ -552,7 +551,7 @@ export function GlobalSyncProvider({ children }: { children: React.ReactNode }) 
       // Tulis ke lokal HANYA kalau isinya beda. Beda urutan item saja tidak dihitung beda —
       // dulu inilah yang membuat data besar ditulis ulang tiap siklus tanpa alasan.
       if (!contentEqual(key, local, merged)) {
-        writeLocal(key, merged);
+        await writeLocal(key, merged);
         localSnapshots.current[key] = JSON.stringify(merged);
         notifyListeners(key);
       } else {
@@ -657,7 +656,7 @@ export function GlobalSyncProvider({ children }: { children: React.ReactNode }) 
       const detail = (e as CustomEvent).detail as { key?: string } | undefined;
       const keys = detail?.key ? [detail.key] : SYNC_KEYS;
       for (const key of keys) {
-        removeLocal(key);
+        await removeLocal(key);
         delete localSnapshots.current[key];
         dirtyKeys.delete(key);
         const res = await deleteOnServer(key);

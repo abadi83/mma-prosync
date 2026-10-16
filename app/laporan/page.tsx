@@ -9,6 +9,7 @@ import { useAgregasi } from '@/app/context/AgregasiContext';
 import { ExportButton } from '@/app/components/ExportButton';
 import { fetchMpSummary } from '@/app/lib/marketplaceOrdersClient';
 import { readTombstones, applyTombstones } from '@/app/lib/tombstones';
+import { useSkuDataCache } from '@/app/hooks/useSkuDataCache';
 
 type JenisLaporan = 'laba-rugi' | 'arus-kas' | 'stok' | 'omset';
 type Periode = 'minggu' | 'bulan' | 'bulanLalu' | 'tahun' | 'custom';
@@ -95,6 +96,9 @@ export default function LaporanPage() {
 
   const realData = useMemo(() => (mounted ? getRealData() : { penjualan: [], penjualanLain: [], payments: [], biaya: [], opex: [], modal: [], keuanganManual: [], mpIncome: [] }), [mounted, refreshKey]);
 
+  // Master SKU (IndexedDB) — untuk hitung HPP kasir di ekspor
+  const skuCache = useSkuDataCache();
+
   // ── Order marketplace dari PostgreSQL (API ringkasan) — fallback ke localStorage ──
   const [mpOrdersApi, setMpOrdersApi] = useState<any[]>([]);
   useEffect(() => {
@@ -161,9 +165,8 @@ export default function LaporanPage() {
     // HPP Kasir dari Master SKU (harga modal × qty) — sama dengan tampilan
     let hppKasir = 0;
     try {
-      const skuData = JSON.parse(localStorage.getItem('mma_sku_data') || '[]');
       const hargaMap = new Map<string, number>();
-      for (const s of skuData) { if (s.sku && s.hargaBaru > 0) hargaMap.set(s.sku, s.hargaBaru); }
+      for (const s of skuCache) { if (s.sku && s.hargaBaru > 0) hargaMap.set(s.sku, s.hargaBaru); }
       for (const t of penjualanFiltered) { hppKasir += (hargaMap.get(t.sku) || 0) * (t.qty || 1); }
     } catch { }
     const biayaOps = biayaFiltered.reduce((s: number, b: any) => s + (b.jumlah || 0), 0);
@@ -175,7 +178,7 @@ export default function LaporanPage() {
     const labaKotor = totalPendapatan - totalHPP - mpFee;
     const labaBersih = labaKotor - biayaOps - opexTotal + pendapatanLain;
     return { pendapatan: totalPendapatan, hargaPokok: totalHPP, biayaOperasional: biayaOps, biayaLain: opexTotal + mpFee, pendapatanLain, labaKotor, labaBersih };
-  }, [penjualanFiltered, biayaFiltered, opexFiltered, periode, realData, mpOrdersApi, customStart, customEnd]);
+  }, [penjualanFiltered, biayaFiltered, opexFiltered, periode, realData, mpOrdersApi, customStart, customEnd, skuCache]);
 
   // Arus Kas real
   const arusKasData = useMemo(() => {
@@ -298,6 +301,7 @@ function LabaRugi({ periode, customStart, customEnd, orders }: { periode: Period
   const [mounted, setMounted] = useState(false);
   const [filterToko, setFilterToko] = useState<string>('semua');
   const [localRefresh, setLocalRefresh] = useState(0);
+  const skuCache = useSkuDataCache();
   useEffect(() => { setMounted(true); }, []);
 
   // ── Auto-refresh saat ada perubahan data ──
@@ -411,9 +415,8 @@ function LabaRugi({ periode, customStart, customEnd, orders }: { periode: Period
     // HPP: dari Master SKU untuk Kasir + HPP Marketplace
     let hppKasir = 0;
     try {
-      const skuData = JSON.parse(localStorage.getItem('mma_sku_data') || '[]');
       const hargaMap = new Map<string, number>();
-      for (const s of skuData) { if (s.sku && s.hargaBaru > 0) hargaMap.set(s.sku, s.hargaBaru); }
+      for (const s of skuCache) { if (s.sku && s.hargaBaru > 0) hargaMap.set(s.sku, s.hargaBaru); }
       for (const t of filteredPenjualan) { hppKasir += (hargaMap.get(t.sku) || 0) * (t.qty || 1); }
     } catch {}
     const totalHppAll = hppKasir + marketplaceHpp;
@@ -481,7 +484,7 @@ function LabaRugi({ periode, customStart, customEnd, orders }: { periode: Period
       biayaBreakdown,
       opexBreakdown,
     };
-  }, [mounted, periode, filterToko, localRefresh, customStart, customEnd, orders]);
+  }, [mounted, periode, filterToko, localRefresh, customStart, customEnd, orders, skuCache]);
 
   return (
     <div>
@@ -584,11 +587,12 @@ function ArusKas({ periode, customStart, customEnd, mpOrders }: { periode: Perio
 
 function LaporanStok({ periode }: { periode: Periode }) {
   const [mounted, setMounted] = useState(false);
+  const skuCache = useSkuDataCache();
   useEffect(() => { setMounted(true); }, []);
   const data = useMemo(() => {
     if (!mounted) return { totalItem: 0, totalNilai: 0, items: [] };
     try {
-      const skus = JSON.parse(localStorage.getItem('mma_sku_data') || '[]');
+      const skus = skuCache;
       const items = skus
         .filter((s: any) => s.aktif === 1)
         .map((s: any) => ({
@@ -603,7 +607,7 @@ function LaporanStok({ periode }: { periode: Periode }) {
         items,
       };
     } catch { return { totalItem: 0, totalNilai: 0, items: [] }; }
-  }, [mounted]);
+  }, [mounted, skuCache]);
   return <LaporanStokReport data={data} periode={PERIODE_LABELS[periode]} />;
 }
 

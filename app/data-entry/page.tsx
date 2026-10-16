@@ -10,6 +10,7 @@ import { fetchMarketplaceOrdersFiltered, fetchMpSummary } from '@/app/lib/market
 import { recordActivity } from '@/app/lib/recordActivity';
 import { getDeviceId, getDeviceName } from '@/app/lib/deviceIdentity';
 import { markMasukSaldoByResi, syncSaldoKeOperasional } from '@/app/lib/saldoMarketplace';
+import { getJSON } from '@/app/lib/idbStorage';
 
 type Tab = 'shopee' | 'operasional' | 'keuangan' | 'riwayat';
 
@@ -871,7 +872,7 @@ function InputKeuangan() {
           const skuHppMap = new Map<string, number>();
           let skuMapSize = 0;
           try {
-            const skuData = JSON.parse(localStorage.getItem('mma_sku_data') || '[]');
+            const skuData = (await getJSON<any[]>('mma_sku_data')) ?? [];
             for (const s of skuData) { if (s.sku && s.hargaBaru > 0) { skuHppMap.set(String(s.sku).trim(), s.hargaBaru); skuMapSize++; } }
           } catch { }
 
@@ -1097,7 +1098,7 @@ function InputKeuangan() {
         const skuHppMap = new Map<string, number>();
         let skuMapSize = 0;
         try {
-          const skuData = JSON.parse(localStorage.getItem('mma_sku_data') || '[]');
+          const skuData = (await getJSON<any[]>('mma_sku_data')) ?? [];
           for (const s of skuData) { if (s.sku && s.hargaBaru > 0) { skuHppMap.set(String(s.sku).trim(), s.hargaBaru); skuMapSize++; } }
         } catch { }
 
