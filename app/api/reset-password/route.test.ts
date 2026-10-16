@@ -8,13 +8,19 @@ function r(body: unknown) {
 }
 
 describe('POST /api/reset-password', () => {
-  it('resets with valid data', async () => {
+  it('rejects invalid token format', async () => {
     const res = await POST(r({ token: 'abc', password: 'newpass', konfirmasi: 'newpass' }));
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(400);
   });
 
   it('rejects mismatch', async () => {
-    const res = await POST(r({ token: 'abc', password: 'a', konfirmasi: 'b' }));
+    const token = 'a'.repeat(64);
+    const res = await POST(r({ token, password: 'newpass', konfirmasi: 'beda' }));
+    expect(res.status).toBe(400);
+  });
+
+  it('rejects missing fields', async () => {
+    const res = await POST(r({}));
     expect(res.status).toBe(400);
   });
 });

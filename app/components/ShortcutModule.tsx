@@ -1,6 +1,5 @@
 import React from 'react';
 import Link from 'next/link';
-import { mockDashboardData } from '@/app/mockData';
 import type { Shortcut } from '@/app/types';
 
 interface Props {
@@ -8,7 +7,18 @@ interface Props {
 }
 
 export function ShortcutModule({ data }: Props) {
-  const shortcuts = data ?? mockDashboardData.shortcuts;
+  if (!data || data.length === 0) {
+    return (
+      <section className="card-blue">
+        <div className="mb-1 h-1 w-16 rounded-full bg-gradient-to-r from-brand-500 to-brand-300" />
+        <p className="text-xs font-semibold uppercase tracking-wide text-brand-500 sm:text-sm">Pintasan Modul</p>
+        <h2 className="text-xl font-bold text-slate-800 sm:text-2xl">Akses cepat ke fitur utama</h2>
+        <p className="mt-3 text-sm text-slate-500">Pintasan belum tersedia.</p>
+      </section>
+    );
+  }
+
+  const shortcuts = data;
 
   return (
     <section className="card-blue">

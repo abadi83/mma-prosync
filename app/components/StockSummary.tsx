@@ -1,5 +1,4 @@
 import React from 'react';
-import { mockDashboardData } from '@/app/mockData';
 import type { StockSummaryData } from '@/app/types';
 
 interface Props {
@@ -7,7 +6,17 @@ interface Props {
 }
 
 export function StockSummary({ data }: Props) {
-  const stockSummary = data ?? mockDashboardData.stockSummary;
+  if (!data) {
+    return (
+      <div className="card-blue">
+        <p className="text-xs font-semibold uppercase tracking-wide text-brand-500 sm:text-sm">Ringkasan Stok</p>
+        <h2 className="text-xl font-bold text-slate-800 sm:text-2xl">—</h2>
+        <p className="mt-3 text-sm text-slate-500">Data stok belum tersedia.</p>
+      </div>
+    );
+  }
+
+  const stockSummary = data;
 
   return (
     <div className="card-blue">

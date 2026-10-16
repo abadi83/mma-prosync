@@ -7,14 +7,36 @@ export default function ResetPasswordPage() {
   const [konfirmasi, setKonfirmasi] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     if (!password || !konfirmasi) { setError('Semua field wajib diisi.'); return; }
     if (password !== konfirmasi) { setError('Password tidak cocok.'); return; }
     if (password.length < 6) { setError('Password minimal 6 karakter.'); return; }
-    setSuccess(true);
+
+    const token = new URLSearchParams(window.location.search).get('token');
+    if (!token) { setError('Link reset tidak valid. Minta link baru dari halaman Lupa Password.'); return; }
+
+    setLoading(true);
+    try {
+      const res = await fetch('/api/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, password, konfirmasi }),
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) {
+        setError(body?.error || 'Gagal mereset password.');
+        return;
+      }
+      setSuccess(true);
+    } catch {
+      setError('Gagal menghubungi server.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -41,7 +63,7 @@ export default function ResetPasswordPage() {
                 <span className="text-xs font-semibold text-slate-600">Konfirmasi Password</span>
                 <input type="password" value={konfirmasi} onChange={(e) => setKonfirmasi(e.target.value)} placeholder="Ulangi password" className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-200" />
               </label>
-              <button type="submit" className="w-full rounded-xl bg-brand-500 py-2.5 text-sm font-semibold text-white shadow transition hover:bg-brand-700">Reset Password</button>
+              <button type="submit" disabled={loading} className="w-full rounded-xl bg-brand-500 py-2.5 text-sm font-semibold text-white shadow transition hover:bg-brand-700 disabled:opacity-60">{loading ? 'Memproses…' : 'Reset Password'}</button>
             </>
           )}
         </form>

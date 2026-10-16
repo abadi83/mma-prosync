@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { NextRequest } from 'next/server';
 import { GET, POST } from './route';
 
 function buildRequest(url: string, init?: RequestInit): Request {
@@ -23,7 +24,7 @@ describe('GET /api/barang-masuk', () => {
 
 describe('POST /api/barang-masuk', () => {
   it('rejects invalid body with 400', async () => {
-    const req = buildRequest('http://localhost/api/barang-masuk', {
+    const req = new NextRequest('http://localhost/api/barang-masuk', {
       method: 'POST',
       body: JSON.stringify({ produk: '' }),
     });
@@ -32,7 +33,7 @@ describe('POST /api/barang-masuk', () => {
   });
 
   it('creates new barang masuk entry with valid data', async () => {
-    const req = buildRequest('http://localhost/api/barang-masuk', {
+    const req = new NextRequest('http://localhost/api/barang-masuk', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

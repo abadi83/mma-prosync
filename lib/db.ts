@@ -20,12 +20,18 @@ function createPool(): Pool {
     });
   }
 
+  const dbPassword = process.env.DB_PASSWORD;
+  if (process.env.NODE_ENV === 'production' && !dbPassword) {
+    // Production TIDAK boleh jatuh ke kredensial default hardcoded.
+    throw new Error('DB_PASSWORD (atau DATABASE_URL) wajib diset di production.');
+  }
+
   return new Pool({
     host: process.env.DB_HOST || '127.0.0.1',
     port: parseInt(process.env.DB_PORT || '5432', 10),
     database: process.env.DB_NAME || 'mma_prosync',
     user: process.env.DB_USER || 'mma_admin',
-    password: process.env.DB_PASSWORD || 'mma_prosync_2024!',
+    password: dbPassword || 'mma_prosync_2024!',
     max: 20,
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 5000,

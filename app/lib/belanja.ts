@@ -59,7 +59,11 @@ export function computeBelanjaOrders(allRows: AgregasiRow[], skus: { sku: string
     const key = `${r.noPesanan}||${r.noResi}`;
     if (!map.has(key)) map.set(key, { key, noPesanan: r.noPesanan, noResi: r.noResi, marketplace: r.marketplace, namaToko: r.namaToko, statusPesanan: r.statusPesanan, statusProses: r.statusProses, items: [] });
     const bo = map.get(key)!;
-    if (!bo.items.some(i => i.sku === r.sku)) {
+    const existingItem = bo.items.find(i => i.sku === r.sku);
+    if (existingItem) {
+      // Baris SKU yang sama dalam satu pesanan → jumlahkan qty (jangan hanya baris pertama)
+      existingItem.qty += r.kuantity;
+    } else {
       bo.items.push({ sku: r.sku, namaProduk: r.namaProduk, qty: r.kuantity, reason: status });
     }
   }

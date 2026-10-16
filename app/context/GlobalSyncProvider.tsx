@@ -225,7 +225,7 @@ function removeLocal(key: string): void {
   try { localStorage.removeItem(key); } catch {} finally { suppressDirty = false; }
 }
 
-async function pullFromServer(key: string): Promise<{ data: any; deletedAt: number | null } | null> {
+async function pullFromServer(key: string): Promise<{ data: any; deletedAt: number | null; sig?: string } | null> {
   try {
     const res = await fetch(`/api/data?key=${key}&t=${Date.now()}&${deviceQuery()}`);
     if (!res.ok) return null;
@@ -234,7 +234,7 @@ async function pullFromServer(key: string): Promise<{ data: any; deletedAt: numb
     const deletedAt = typeof json.deletedAt === 'number' ? json.deletedAt : null;
     // Array kosong dianggap "tidak ada data"
     const data = Array.isArray(d) && d.length === 0 ? null : (d ?? null);
-    return { data, deletedAt };
+    return { data, deletedAt, sig: typeof json.sig === 'string' ? json.sig : undefined };
   } catch { return null; }
 }
 
@@ -282,16 +282,21 @@ async function readResponseSig(res: Response): Promise<string | null> {
   } catch { return null; }
 }
 
-async function pushToServer(key: string, data: any): Promise<{ ok: boolean; sig: string | null }> {
+async function pushToServer(key: string, data: any, expectedSig?: string): Promise<{ ok: boolean; sig: string | null; conflict: boolean }> {
   try {
     const res = await fetch('/api/data', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ key, data, device: getDeviceId(), name: getDeviceName() }),
+      body: JSON.stringify({ key, data, device: getDeviceId(), name: getDeviceName(), sig: expectedSig || undefined }),
     });
-    if (!res.ok) return { ok: false, sig: null };
-    return { ok: true, sig: await readResponseSig(res) };
-  } catch { return { ok: false, sig: null }; }
+    if (res.status === 409) {
+      // Server sudah berubah sejak kita merge → jangan timpa; balikin sig terbaru biar klien tarik ulang
+      const j = await res.json().catch(() => null);
+      return { ok: false, sig: typeof j?.sig === 'string' ? j.sig : null, conflict: true };
+    }
+    if (!res.ok) return { ok: false, sig: null, conflict: false };
+    return { ok: true, sig: await readResponseSig(res), conflict: false };
+  } catch { return { ok: false, sig: null, conflict: false }; }
 }
 
 async function deleteOnServer(key: string): Promise<{ ok: boolean; sig: string | null }> {
@@ -361,6 +366,15 @@ export function GlobalSyncProvider({ children }: { children: React.ReactNode }) 
     if (sig) { sigsRef.current[key] = sig; persistSigs(); }
   };
 
+  /* Push bentrok (server berubah sejak kita merge) → buang sig & cache baseline,
+     tandai kotor. Siklus berikutnya tarik ulang data terbaru, merge, lalu push lagi. */
+  const handlePushConflict = (key: string) => {
+    delete sigsRef.current[key];
+    delete serverCache.current[key];
+    persistSigs();
+    dirtyKeys.add(key);
+  };
+
   /* Satu siklus sinkron: tarik batch, lalu merge/push HANYA key yang berubah.
      forceFull=true (saat halaman dibuka) → semua key diproses; ini juga jadi jaring
      pengaman kalau ada perubahan lokal yang belum sempat terkirim ke server.
@@ -414,16 +428,21 @@ export function GlobalSyncProvider({ children }: { children: React.ReactNode }) 
 
   /* Sinkron satu key. Balikan true = hasil merge sudah terkirim ke server (sig & cache ikut
      diperbarui). Perubahan data lokalnya sendiri sudah diberitahukan ke UI lewat notifyListeners. */
-  const syncKey = async (key: string, remoteOverride?: { data: any; deletedAt: number | null } | null): Promise<boolean> => {
+  const syncKey = async (key: string, remoteOverride?: { data: any; deletedAt: number | null; sig?: string | null } | null): Promise<boolean> => {
     try {
       let local = readLocal(key);
-      let remote: { data: any; deletedAt: number | null } | null;
+      let remote: { data: any; deletedAt: number | null; sig?: string | null } | null;
       if (remoteOverride !== undefined) {
         remote = remoteOverride ?? null;
       } else {
         remote = await pullFromServer(key);
         // null = server tidak terjangkau (bukan berarti server kosong) → jangan menebak
         if (remote === null) { dirtyKeys.add(key); return false; }
+      }
+      // Server memberitahu signature state-nya → catat sebagai baseline merge
+      if (remote && typeof remote.sig === 'string' && sigsRef.current[key] !== remote.sig) {
+        sigsRef.current[key] = remote.sig;
+        persistSigs();
       }
       let server = remote ? remote.data : null;
       const deletedAt = remote ? remote.deletedAt : null;
@@ -459,8 +478,9 @@ export function GlobalSyncProvider({ children }: { children: React.ReactNode }) 
         if (localIsNew) {
           tombstoneSeen.current.delete(key);
           localSnapshots.current[key] = localStr as string;
-          const res = await pushToServer(key, local);
+          const res = await pushToServer(key, local, sigsRef.current[key]);
           if (res.ok) recordPushed(key, local, res.sig);
+          else if (res.conflict) handlePushConflict(key);
           else dirtyKeys.add(key);
           notifyListeners(key);
           return res.ok;
@@ -486,8 +506,9 @@ export function GlobalSyncProvider({ children }: { children: React.ReactNode }) 
         let pushed = false;
         // Kalau tombstone memfilter data server, bersihkan juga copy server-nya
         if (!contentEqual(key, serverOrig, server)) {
-          const res = await pushToServer(key, server);
+          const res = await pushToServer(key, server, sigsRef.current[key]);
           if (res.ok) { recordPushed(key, server, res.sig); pushed = true; }
+          else if (res.conflict) handlePushConflict(key);
           else dirtyKeys.add(key);
         }
         notifyListeners(key);
@@ -502,7 +523,8 @@ export function GlobalSyncProvider({ children }: { children: React.ReactNode }) 
           localSnapshots.current[key] = localStr;
           return false;
         }
-        const res = await pushToServer(key, local);
+        const res = await pushToServer(key, local, sigsRef.current[key]);
+        if (res.conflict) { handlePushConflict(key); return false; }
         if (!res.ok) { dirtyKeys.add(key); return false; }
         localSnapshots.current[key] = localStr;
         recordPushed(key, local, res.sig);
@@ -540,9 +562,10 @@ export function GlobalSyncProvider({ children }: { children: React.ReactNode }) 
       // Push ke server HANYA kalau ISI server beda dari hasil merge (bukan sekadar beda urutan).
       // Ini yang menghentikan data besar bolak-balik antar komputer tiap siklus.
       if (!contentEqual(key, serverOrig, merged)) {
-        const res = await pushToServer(key, merged);
+        const res = await pushToServer(key, merged, sigsRef.current[key]);
         if (res.ok) { recordPushed(key, merged, res.sig); return true; }
-        dirtyKeys.add(key);
+        if (res.conflict) handlePushConflict(key);
+        else dirtyKeys.add(key);
       }
       return false;
     } catch { return false; }

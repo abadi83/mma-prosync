@@ -210,7 +210,7 @@ export async function GET(request: Request) {
     }
     const data = readData(key);
     const deletedAt = readTombstone(key);
-    return NextResponse.json({ key, data: data || [], deletedAt: deletedAt || undefined });
+    return NextResponse.json({ key, data: data || [], deletedAt: deletedAt || undefined, sig: getFileSig(key) });
   } catch {
     return NextResponse.json({ error: 'Gagal membaca data.' }, { status: 500 });
   }
@@ -219,12 +219,21 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { key, data, device, name } = body;
+    const { key, data, device, name, sig } = body;
     if (!key) {
       return NextResponse.json({ error: 'Field key wajib.' }, { status: 400 });
     }
     if (data === undefined || data === null) {
       return NextResponse.json({ error: 'Field data wajib.' }, { status: 400 });
+    }
+    // Optimistic concurrency: klien kirim sig (signature) versi data yang dia merge.
+    // Kalau server sudah berubah sejak itu, tolak push → klien tarik ulang & merge lagi
+    // (mencegah dua komputer menimpa perubahan satu sama lain).
+    if (typeof sig === 'string' && sig.length > 0 && sig !== getFileSig(key)) {
+      return NextResponse.json(
+        { success: false, conflict: true, key, sig: getFileSig(key) },
+        { status: 409 }
+      );
     }
     writeData(key, data);
     if (typeof device === 'string' && device) touchDevice(device, typeof name === 'string' ? name : '', 'push', key);
