@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { todayLocal } from '@/app/lib/dateLocal';
-import { getTransaksi, createTransaksi, deleteTransaksiByMatch } from '@/app/services/transaksiService';
-import { apiSuccess, apiCreated, apiBadRequest, apiServerError } from '@/app/lib/apiResponse';
+import { getTransaksi, createTransaksi, deleteTransaksiById, deleteTransaksiByMatch } from '@/app/services/transaksiService';
+import { apiSuccess, apiCreated, apiBadRequest, apiNotFound, apiServerError } from '@/app/lib/apiResponse';
 import { validateRequired, validatePositiveNumber, validateDate, runValidations } from '@/app/lib/validation';
 
 export const dynamic = 'force-dynamic';
@@ -11,9 +11,18 @@ const DEFAULT_TOKO = 'a0a0a0a0-0000-0000-0000-000000000001';
 export async function DELETE(request: Request) {
   try {
     const body = await request.json().catch(() => ({}));
-    const { tanggal, produk, total } = body;
-    if (!tanggal || !produk || total == null) return apiBadRequest('tanggal, produk, dan total wajib diisi.');
     const tokoId = body.toko_id ?? DEFAULT_TOKO;
+
+    // Jalur utama: hapus by id DB (presisi — tidak mungkin salah transaksi)
+    if (body.id) {
+      const ok = await deleteTransaksiById(tokoId, String(body.id));
+      if (!ok) return apiNotFound('Transaksi tidak ditemukan.');
+      return apiSuccess({ deleted: 1 });
+    }
+
+    // Fallback baris lama tanpa dbId: match by (tanggal, produk, total)
+    const { tanggal, produk, total } = body;
+    if (!tanggal || !produk || total == null) return apiBadRequest('id (atau tanggal, produk, dan total) wajib diisi.');
     const count = await deleteTransaksiByMatch(tokoId, { tanggal, produk, total: Number(total) });
     return apiSuccess({ deleted: count });
   } catch (error) {

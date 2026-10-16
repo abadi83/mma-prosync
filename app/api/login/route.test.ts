@@ -8,16 +8,13 @@ function req(body: unknown) {
 }
 
 describe('POST /api/login', () => {
-  it('returns token for valid demo credentials', async () => {
-    const res = await POST(req({ email: 'demo@mma.id', password: 'demo123' }));
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body).toHaveProperty('token');
-    expect(body.email).toBe('demo@mma.id');
+  it('rejects missing fields with 400', async () => {
+    const res = await POST(req({}));
+    expect(res.status).toBe(400);
   });
 
-  it('rejects wrong password', async () => {
-    const res = await POST(req({ email: 'demo@mma.id', password: 'wrong' }));
+  it('rejects empty email with 400', async () => {
+    const res = await POST(req({ email: '', password: 'secret123' }));
     expect(res.status).toBe(400);
   });
 });

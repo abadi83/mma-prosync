@@ -42,13 +42,15 @@ export default function PenjualanPage() {
 
   useEffect(() => { fetchTransaksi(); }, [fetchTransaksi]);
 
-  const handleCheckout = useCallback(async (items: CartItem[], pelanggan: string, tanggal: string, diskon: number) => {
+  const handleCheckout = useCallback(async (items: CartItem[], pelanggan: string, tanggal: string, diskon: number): Promise<(string | null)[]> => {
     const subtotal = items.reduce((s, i) => s + i.harga * i.qty, 0);
     const shareDiskon = (itemSub: number) => (subtotal > 0 ? diskon * (itemSub / subtotal) : 0);
-    // Simpan ke API per item (dengan tanggal backdate & diskon share per item)
+    // Simpan ke API per item (dengan tanggal backdate & diskon share per item).
+    // id DB tiap item dikembalikan → dipakai untuk hapus/edit presisi (bukan match tanggal+produk+total).
+    const dbIds: (string | null)[] = [];
     for (const item of items) {
       try {
-        await fetch('/api/transaksi', {
+        const res = await fetch('/api/transaksi', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -60,7 +62,9 @@ export default function PenjualanPage() {
             diskon: Math.round(shareDiskon(item.harga * item.qty)),
           }),
         });
-      } catch {}
+        const json = await res.json().catch(() => null);
+        dbIds.push(json?.id ?? null);
+      } catch { dbIds.push(null); }
     }
     // ── Rekam aktivitas kasir (KPI) ──
     recordActivity([{
@@ -76,6 +80,7 @@ export default function PenjualanPage() {
     }]);
     // Refresh daftar
     fetchTransaksi();
+    return dbIds;
   }, [fetchTransaksi]);
 
   return (
@@ -110,7 +115,7 @@ export default function PenjualanPage() {
 /* ═══════════════════════════════════════════════════════════════════ */
 /* KASIR TAB — POS lengkap                                           */
 /* ═══════════════════════════════════════════════════════════════════ */
-function KasirTab({ onCheckout }: { onCheckout: (items: CartItem[], pelanggan: string, tanggal: string, diskon: number) => void }) {
+function KasirTab({ onCheckout }: { onCheckout: (items: CartItem[], pelanggan: string, tanggal: string, diskon: number) => Promise<(string | null)[]> }) {
   const { skus } = useSkus();
   const [cart, setCart] = useState<CartItem[]>([]);
   const [search, setSearch] = useState('');
@@ -198,19 +203,19 @@ function KasirTab({ onCheckout }: { onCheckout: (items: CartItem[], pelanggan: s
     setJumlahBayar(String(totalBayar));
     setShowBayar(true);
   };
-  const prosesBayar = () => {
+  const prosesBayar = async () => {
     const bayar = +jumlahBayar || 0;
     if (bayar < totalBayar) return;
     const kembali = bayar - totalBayar;
     const now = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
     const checkoutId = `ck-${Date.now()}`; // id checkout — untuk sinkron hapus/edit ke kas & laporan
     setStruk({ items: [...cart], total: totalBayar, diskon, bayar, kembali, pelanggan: pelanggan.trim() || 'Umum', waktu: now, metode: metodeBayar, tanggal: tanggalTx });
-    onCheckout(cart, pelanggan, tanggalTx, diskon);
+    const dbIds = await onCheckout(cart, pelanggan, tanggalTx, diskon);
 
     // Simpan ke localStorage untuk laporan (diskon dibagi proporsional per item)
     try {
       const existing = JSON.parse(localStorage.getItem('mma_penjualan_transaksi') || '[]');
-      const newTx = cart.map(item => {
+      const newTx = cart.map((item, idx) => {
         const itemSub = item.harga * item.qty;
         const share = subtotal > 0 ? Math.round(diskon * (itemSub / subtotal)) : 0;
         return {
@@ -227,6 +232,7 @@ function KasirTab({ onCheckout }: { onCheckout: (items: CartItem[], pelanggan: s
           tanggal: tanggalTx,
           jam: now,
           metode: metodeBayar,
+          dbId: dbIds[idx] ?? undefined,
         };
       });
       localStorage.setItem('mma_penjualan_transaksi', JSON.stringify([...newTx, ...existing]));
@@ -531,6 +537,7 @@ function KasirTab({ onCheckout }: { onCheckout: (items: CartItem[], pelanggan: s
 interface TxRow {
   id: string;
   checkoutId?: string;
+  dbId?: string; // id transaksi di PostgreSQL — untuk hapus/edit presisi
   produk: string;
   sku: string;
   qty: number;
@@ -621,13 +628,15 @@ function DaftarTransaksi({ onChanged }: { onChanged?: () => void }) {
       alert('⚠ Transaksi lama tanpa link kas — entry kas tidak otomatis dihapus. Cek Keuangan → Riwayat Uang Masuk.');
     }
 
-    // 3. DB riwayat (satu baris per item)
+    // 3. DB riwayat (satu baris per item) — by id kalau ada (presisi), fallback match
     for (const it of g.items) {
       try {
         await fetch('/api/transaksi', {
           method: 'DELETE',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tanggal: it.tanggal, produk: it.produk, total: it.total }),
+          body: JSON.stringify(it.dbId
+            ? { id: it.dbId }
+            : { tanggal: it.tanggal, produk: it.produk, total: it.total }),
         });
       } catch {}
     }
@@ -680,25 +689,37 @@ function DaftarTransaksi({ onChanged }: { onChanged?: () => void }) {
       } catch {}
     }
 
-    // 3. DB riwayat — hapus baris lama & insert ulang
+    // 3. DB riwayat — hapus baris lama (by id kalau ada) & insert ulang
     for (const old of editGroup) {
       try {
         await fetch('/api/transaksi', {
           method: 'DELETE',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tanggal: old.tanggal, produk: old.produk, total: old.total }),
+          body: JSON.stringify(old.dbId
+            ? { id: old.dbId }
+            : { tanggal: old.tanggal, produk: old.produk, total: old.total }),
         });
       } catch {}
     }
+    const newDbIds: (string | null)[] = [];
     for (const it of items) {
       try {
-        await fetch('/api/transaksi', {
+        const res = await fetch('/api/transaksi', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ produk: it.produk, jumlah: it.qty, hargaSatuan: it.hargaSatuan, pelanggan: editPelanggan.trim() || 'Umum', tanggal: editTanggal, diskon: 0 }),
         });
-      } catch {}
+        const json = await res.json().catch(() => null);
+        newDbIds.push(json?.id ?? null);
+      } catch { newDbIds.push(null); }
     }
+    // Tempel id DB baru ke baris lokal biar edit/hapus berikutnya presisi
+    const finalRows = updatedRows.map(r => {
+      const idx = items.findIndex(x => x.id === r.id);
+      return idx >= 0 && newDbIds[idx] ? { ...r, dbId: newDbIds[idx]! } : r;
+    });
+    setRows(finalRows);
+    localStorage.setItem('mma_penjualan_transaksi', JSON.stringify(finalRows));
 
     // 4. Refresh semua pemakai data
     window.dispatchEvent(new Event('refresh-laporan'));

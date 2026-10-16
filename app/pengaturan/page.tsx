@@ -265,16 +265,37 @@ function PasswordTab() {
   const [confirmPw, setConfirmPw] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setSuccess(false);
     if (!oldPw || !newPw || !confirmPw) { setError('Semua field wajib diisi.'); return; }
-    if (oldPw !== 'demo123') { setError('Password lama salah.'); return; }
     if (newPw.length < 6) { setError('Password baru minimal 6 karakter.'); return; }
     if (newPw !== confirmPw) { setError('Password baru tidak cocok.'); return; }
     if (newPw === oldPw) { setError('Password baru tidak boleh sama dengan password lama.'); return; }
-    setSuccess(true);
+    setLoading(true);
+    try {
+      const res = await fetch('/api/ubah-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ oldPassword: oldPw, newPassword: newPw, konfirmasi: confirmPw }),
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) {
+        setError(body?.error || (res.status === 401 ? 'Sesi berakhir. Silakan login ulang.' : 'Gagal mengubah password.'));
+        return;
+      }
+      setSuccess(true);
+      setOldPw('');
+      setNewPw('');
+      setConfirmPw('');
+    } catch {
+      setError('Gagal menghubungi server.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -289,7 +310,7 @@ function PasswordTab() {
         <input type="password" value={oldPw} onChange={(e) => setOldPw(e.target.value)} placeholder="Password lama" className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm focus:border-brand-500 focus:outline-none" />
         <input type="password" value={newPw} onChange={(e) => setNewPw(e.target.value)} placeholder="Password baru (min. 6 karakter)" className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm focus:border-brand-500 focus:outline-none" />
         <input type="password" value={confirmPw} onChange={(e) => setConfirmPw(e.target.value)} placeholder="Konfirmasi password baru" className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm focus:border-brand-500 focus:outline-none" />
-        <button type="submit" className="rounded-xl bg-brand-500 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700">Ubah Password</button>
+        <button type="submit" disabled={loading} className="rounded-xl bg-brand-500 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-60">{loading ? 'Menyimpan…' : 'Ubah Password'}</button>
       </form>
     </div>
   );

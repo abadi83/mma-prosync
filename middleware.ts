@@ -1,12 +1,13 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { canAccessPath } from '@/app/lib/accessControl';
+import { AUTH_COOKIE, verifyAuthToken } from '@/app/lib/authToken';
 
 // Route publik — tidak perlu login (prefix match)
 const PUBLIC_PREFIXES = ['/login', '/daftar', '/lupa-password', '/reset-password'];
 
-// Route API — selalu bypass middleware auth (gunakan token di header)
-const API_ROUTES = ['/api/'];
+// API publik — satu-satunya API yang boleh diakses tanpa token
+const PUBLIC_API_PREFIXES = ['/api/login', '/api/register', '/api/lupa-password', '/api/reset-password'];
 
 // Static & internal paths — jangan redirect ke login
 const STATIC_PATHS = ['/_next/', '/manifest.json', '/icon.svg', '/sw.js', '/favicon.ico'];
@@ -19,8 +20,15 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Biarkan API routes lolos
-  if (API_ROUTES.some((r) => pathname.startsWith(r))) {
+  // ── API: wajib token valid (kecuali endpoint publik auth flow) ──
+  if (pathname.startsWith('/api/')) {
+    const isPublic = PUBLIC_API_PREFIXES.some((r) => pathname === r || pathname.startsWith(r + '/'));
+    if (isPublic) return NextResponse.next();
+
+    const token = request.cookies.get(AUTH_COOKIE)?.value;
+    if (!verifyAuthToken(token)) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
     return NextResponse.next();
   }
 
@@ -29,32 +37,25 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Cek token dari cookie (simulasi — ganti dengan verifikasi JWT nanti)
-  const token = request.cookies.get('auth_token')?.value;
-
-  if (!token) {
-    // Redirect ke login jika belum login
+  // ── Halaman: token wajib valid (bukan sekadar cookie ada) ──
+  const token = request.cookies.get(AUTH_COOKIE)?.value;
+  const payload = verifyAuthToken(token);
+  if (!payload) {
     const loginUrl = new URL('/login', request.url);
     loginUrl.searchParams.set('redirect', pathname);
-    return NextResponse.redirect(loginUrl);
+    const res = NextResponse.redirect(loginUrl);
+    // Bersihkan cookie stale biar tidak redirect-loop
+    res.cookies.delete(AUTH_COOKIE);
+    res.cookies.delete('user_name');
+    res.cookies.delete('user_role');
+    res.cookies.delete('user_roles');
+    res.cookies.delete('user_pegawai_id');
+    return res;
   }
 
-  // ── Cek role (ketat): user hanya bisa buka modul sesuai rolenya ──
-  // Gabungkan user_roles (multi) + user_role (utama); admin SELALU lolos.
-  const rolesCookie = request.cookies.get('user_roles')?.value || '';
-  const mainRole = request.cookies.get('user_role')?.value || '';
-  const roleSet = new Set<string>(rolesCookie.split(',').map(r => r.trim()).filter(Boolean));
-  if (mainRole) roleSet.add(mainRole);
-  if (mainRole === 'admin' || roleSet.has('admin')) {
-    return NextResponse.next(); // admin bebas akses semua
-  }
-  // Role kosong sama sekali (cookie habis/stale) → paksa login ulang, bukan redirect loop
-  if (roleSet.size === 0) {
-    const loginUrl = new URL('/login', request.url);
-    loginUrl.searchParams.set('redirect', pathname);
-    return NextResponse.redirect(loginUrl);
-  }
-  if (!canAccessPath(Array.from(roleSet), pathname)) {
+  // ── Cek role (dari token terverifikasi, bukan cookie yang bisa dipalsukan) ──
+  const roles = Array.isArray(payload.roles) && payload.roles.length > 0 ? payload.roles : [payload.role];
+  if (!canAccessPath(roles, pathname)) {
     const home = new URL('/', request.url);
     home.searchParams.set('denied', pathname);
     return NextResponse.redirect(home);
@@ -64,5 +65,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!_next|api|favicon\\.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|css|js)$).*)'],
+  matcher: ['/((?!_next|favicon\\.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|css|js)$).*)'],
 };

@@ -90,6 +90,16 @@ export async function createTransaksi(
 }
 
 /** Hapus SATU transaksi DB yang cocok (dipakai saat edit/hapus dari Daftar Transaksi kasir) */
+export async function deleteTransaksiById(tokoId: string | undefined, id: string): Promise<boolean> {
+  const tid = tokoId || DEFAULT_TOKO;
+  const { rowCount } = await query('DELETE FROM transaksi WHERE id = $1 AND toko_id = $2', [id, tid]);
+  return (rowCount || 0) > 0;
+}
+
+/**
+ * Fallback untuk baris lama yang belum punya dbId: hapus 1 transaksi yang cocok.
+ * Prefer deleteTransaksiById — match by (tanggal, produk, total) bisa ambigu.
+ */
 export async function deleteTransaksiByMatch(
   tokoId: string | undefined,
   match: { tanggal: string; produk: string; total: number },

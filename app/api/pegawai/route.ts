@@ -2,15 +2,11 @@ import { NextResponse } from 'next/server';
 import { query } from '@/lib/db';
 import { apiSuccess, apiCreated, apiBadRequest, apiNotFound, apiServerError } from '@/app/lib/apiResponse';
 import { validateRequired } from '@/app/lib/validation';
+import { hashPassword } from '@/app/lib/password';
 
 export const dynamic = 'force-dynamic';
 
 const DEFAULT_TOKO = 'a0a0a0a0-0000-0000-0000-000000000001';
-
-/* ── Helper: hash sederhana (konsisten dengan authService) ── */
-function hashPassword(password: string): string {
-  return `mock_hash_${password}`;
-}
 
 /* ── Helper: cek apakah string valid UUID ── */
 function isUuid(v: string): boolean {
