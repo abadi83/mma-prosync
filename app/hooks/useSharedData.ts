@@ -52,15 +52,21 @@ export function useSharedData<T extends { id: string }>(options: UseSharedDataOp
     } catch { return null; }
   }, [key]);
 
-  /* ── Push ke server ── */
+  /* ── Push ke server (dengan sig CAS) ── */
   const pushToServer = useCallback(async (items: T[]) => {
     try {
-      await fetch('/api/data', {
+      let sig = '';
+      const g = await fetch(`/api/data?key=${encodeURIComponent(key)}&t=${Date.now()}`);
+      if (g.ok) {
+        const j = await g.json().catch(() => null);
+        if (j && typeof j.sig === 'string') sig = j.sig;
+      }
+      const res = await fetch('/api/data', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key, data: items }),
+        body: JSON.stringify({ key, data: items, sig }),
       });
-      return true;
+      return res.ok;
     } catch { return false; }
   }, [key]);
 

@@ -4,7 +4,7 @@ import { todayLocal } from '@/app/lib/dateLocal';
 import React, { useState, useMemo, useEffect } from 'react';
 import FaceAttendance from '@/app/components/FaceAttendance';
 import { useUser, hasRole } from '@/app/hooks/useUser';
-import { getDeviceId, getDeviceName } from '@/app/lib/deviceIdentity';
+import { pushToDataServer } from '@/app/lib/dataApi';
 
 /* ── Types ── */
 interface Pegawai {
@@ -867,11 +867,7 @@ function DaftarPegawai({ pegawai, setPegawai }: { pegawai: Pegawai[]; setPegawai
                 // (tanpa ini, data hapus akan balik dari server dalam ±5 detik)
                 try {
                   localStorage.setItem('mma_pegawai_data', JSON.stringify(next));
-                  fetch('/api/data', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ key: 'mma_pegawai_data', data: next, device: getDeviceId(), name: getDeviceName() }),
-                  }).catch(() => {});
+                  void pushToDataServer('mma_pegawai_data', next);
                 } catch {}
                 // Hapus juga dari PostgreSQL (login membaca dari DB)
                 // Kirim nik juga biar API bisa resolve id placeholder pg-*

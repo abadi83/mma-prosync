@@ -660,6 +660,9 @@ export function GlobalSyncProvider({ children }: { children: React.ReactNode }) 
         delete localSnapshots.current[key];
         dirtyKeys.delete(key);
         const res = await deleteOnServer(key);
+        // Tandai key sudah melihat tombstone → data BARU yang muncul berikutnya
+        // dianggap aktivitas baru user (dipush balik), bukan dihapus.
+        if (res.ok) tombstoneSeen.current.add(key);
         serverCache.current[key] = { data: null, deletedAt: null };
         // Catat sig versi terhapus → siklus berikutnya tidak menarik ulang key ini
         if (res.ok && res.sig) { sigsRef.current[key] = res.sig; persistSigs(); }

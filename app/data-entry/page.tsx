@@ -8,9 +8,9 @@ import { todayLocal } from '@/app/lib/dateLocal';
 import { useUser } from '@/app/hooks/useUser';
 import { fetchMarketplaceOrdersFiltered, fetchMpSummary } from '@/app/lib/marketplaceOrdersClient';
 import { recordActivity } from '@/app/lib/recordActivity';
-import { getDeviceId, getDeviceName } from '@/app/lib/deviceIdentity';
 import { markMasukSaldoByResi, syncSaldoKeOperasional } from '@/app/lib/saldoMarketplace';
 import { getJSON } from '@/app/lib/idbStorage';
+import { pushToDataServer } from '@/app/lib/dataApi';
 
 type Tab = 'shopee' | 'operasional' | 'keuangan' | 'riwayat';
 
@@ -97,19 +97,13 @@ interface ShopeeOrder {
 }
 
 /* ── Simpan data ke localStorage + server sekaligus ──
-   POST /api/data otomatis membersihkan tombstone reset lama,
-   jadi data baru tidak dihapus balik oleh GlobalSyncProvider. */
+   Push server memakai sig (CAS) supaya tidak menimpa hapusan global;
+   GlobalSyncProvider tetap jalur sync utama. */
 async function saveSynced(key: string, data: unknown): Promise<boolean> {
   let ok = true;
   try { localStorage.setItem(key, JSON.stringify(data)); }
   catch (e) { ok = false; console.error(`Gagal simpan ${key} ke localStorage:`, e); }
-  try {
-    await fetch('/api/data', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ key, data, device: getDeviceId(), name: getDeviceName() }),
-    });
-  } catch {}
+  void pushToDataServer(key, data);
   return ok;
 }
 

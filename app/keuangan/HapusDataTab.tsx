@@ -4,9 +4,9 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useAkuntansi } from '@/app/context/AkuntansiContext';
 import { recordActivity } from '@/app/lib/recordActivity';
 import { addTombstones, readTombstones, type Tombstone } from '@/app/lib/tombstones';
-import { getDeviceId, getDeviceName } from '@/app/lib/deviceIdentity';
 import { useSyncedStorage } from '@/app/hooks/useSyncedStorage';
 import { storageGetRaw } from '@/app/lib/idbStorage';
+import { pushToDataServer } from '@/app/lib/dataApi';
 
 /* ═══════════════════════════════════════════════════════════════════ */
 /* HAPUS DATA (per tanggal & supplier) — Pembelian SKU + Pembayaran PO */
@@ -156,10 +156,10 @@ export default function HapusDataTab() {
     setBukti(newBukti);
     // Tombstone: penanda hapus permanen (sync lintas perangkat) — sebelum push biar langsung kedetect
     addTombstones(sel.map(noPO => ({ id: noPO, kind: 'po' })));
-    // Push langsung ke server biar perangkat lain cepat ikut bersih
-    try { void fetch('/api/data', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: HPP_STORAGE, data: newHpp, device: getDeviceId(), name: getDeviceName() }) }); } catch {}
-    try { void fetch('/api/data', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: PAYMENT_STORAGE, data: newPay, device: getDeviceId(), name: getDeviceName() }) }); } catch {}
-    try { void fetch('/api/data', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: BUKTI_STORAGE, data: newBukti, device: getDeviceId(), name: getDeviceName() }) }); } catch {}
+    // Push langsung ke server biar perangkat lain cepat ikut bersih (dengan sig CAS)
+    void pushToDataServer(HPP_STORAGE, newHpp);
+    void pushToDataServer(PAYMENT_STORAGE, newPay);
+    void pushToDataServer(BUKTI_STORAGE, newBukti);
     // Riwayat harga modal dengan noPO yang sama
     try {
       const hist = JSON.parse(localStorage.getItem(HARGA_HISTORY) || '[]');
@@ -199,8 +199,8 @@ Payment, bukti bayar, riwayat harga modal & jurnal yang terkait ikut terhapus.
     // Tombstone: penanda hapus permanen (sync lintas perangkat) — sebelum push biar langsung kedetect
     addTombstones(toDelete.map(p => ({ id: p.id, kind: 'payment' })));
     // Push langsung ke server biar perangkat lain cepat ikut bersih
-    try { void fetch('/api/data', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: PAYMENT_STORAGE, data: newPay, device: getDeviceId(), name: getDeviceName() }) }); } catch {}
-    try { void fetch('/api/data', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: BUKTI_STORAGE, data: newBukti, device: getDeviceId(), name: getDeviceName() }) }); } catch {}
+    try { void pushToDataServer(PAYMENT_STORAGE, newPay); } catch {}
+    try { void pushToDataServer(BUKTI_STORAGE, newBukti); } catch {}
     // Restore status PO: kurangi dibayar, kembalikan sisa tagihan
     if (byPo.size > 0) {
       setHppData(prev => {

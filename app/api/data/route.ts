@@ -229,6 +229,17 @@ export async function POST(request: Request) {
     // Optimistic concurrency: klien kirim sig (signature) versi data yang dia merge.
     // Kalau server sudah berubah sejak itu, tolak push → klien tarik ulang & merge lagi
     // (mencegah dua komputer menimpa perubahan satu sama lain).
+    //
+    // Kalau key ini SUDAH punya state (file data atau tombstone), sig WAJIB — klien
+    // kode-lama yang push buta (tanpa sig) bisa menimpa hapusan global & membatalkan
+    // tombstone. Klien baru selalu mengirim sig setelah menarik data.
+    const hasState = fs.existsSync(getFilePath(key)) || fs.existsSync(getTombstonePath(key));
+    if (hasState && (typeof sig !== 'string' || sig.length === 0)) {
+      return NextResponse.json(
+        { success: false, conflict: true, key, sig: getFileSig(key), error: 'sig wajib untuk push key yang sudah ada' },
+        { status: 409 }
+      );
+    }
     if (typeof sig === 'string' && sig.length > 0 && sig !== getFileSig(key)) {
       return NextResponse.json(
         { success: false, conflict: true, key, sig: getFileSig(key) },
