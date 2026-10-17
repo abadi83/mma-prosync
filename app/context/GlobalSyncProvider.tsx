@@ -113,6 +113,12 @@ const SYNC_KEY_SET = new Set(SYNC_KEYS);
 const dirtyKeys = new Set<string>();
 // Key yang sedang di-reset global (DELETE /api/data) — sync/push ditahan sampai selesai
 const resettingKeys = new Set<string>();
+// Guard pasca-reset: sig state server SETELAH delete + kapan reset selesai.
+// Batch/pull yang terlanjur diambil SEBELUM reset selesai membawa sig lama →
+// harus dibuang, jangan sampai menulis balik data yang baru dihapus.
+const postResetSig = new Map<string, string>();
+const postResetAt = new Map<string, number>();
+const POST_RESET_GUARD_MS = 10000; // guard kedaluwarsa supaya tidak memblokir selamanya
 let onLocalChange: (() => void) | null = null;
 let dirtyTrackerInstalled = false;
 let suppressDirty = false;
@@ -388,6 +394,20 @@ export function GlobalSyncProvider({ children }: { children: React.ReactNode }) 
     for (const key of SYNC_KEYS) {
       if (resettingKeys.has(key)) continue; // sedang di-reset global → jangan diproses
       const entry = all[key];
+      // ── Guard pasca-reset: buang entry basi yang diambil sebelum reset selesai ──
+      const rSig = postResetSig.get(key);
+      const rAt = postResetAt.get(key);
+      if (rSig !== undefined && rAt !== undefined) {
+        if (Date.now() - rAt > POST_RESET_GUARD_MS) {
+          postResetSig.delete(key);
+          postResetAt.delete(key);
+        } else if (!entry || (!entry.same && entry.sig !== rSig)) {
+          continue; // data basi dari sebelum reset — jangan diproses
+        } else if (entry.same) {
+          postResetSig.delete(key); // sudah selaras dengan state post-reset
+          postResetAt.delete(key);
+        }
+      }
       const same = !!(entry && entry.same);
       const dirty = dirtyKeys.has(key);
 
@@ -442,6 +462,22 @@ export function GlobalSyncProvider({ children }: { children: React.ReactNode }) 
         if (remote === null) { dirtyKeys.add(key); return false; }
       }
       // Server memberitahu signature state-nya → catat sebagai baseline merge
+      // ── Guard pasca-reset: pull basi (sebelum reset selesai) harus dibuang ──
+      if (remote && typeof remote.sig === 'string') {
+        const rSig = postResetSig.get(key);
+        const rAt = postResetAt.get(key);
+        if (rSig !== undefined && rAt !== undefined) {
+          if (Date.now() - rAt > POST_RESET_GUARD_MS) {
+            postResetSig.delete(key);
+            postResetAt.delete(key);
+          } else if (remote.sig !== rSig) {
+            return false; // basi — jangan timpa state post-reset
+          } else {
+            postResetSig.delete(key); // sudah selaras
+            postResetAt.delete(key);
+          }
+        }
+      }
       if (remote && typeof remote.sig === 'string' && sigsRef.current[key] !== remote.sig) {
         sigsRef.current[key] = remote.sig;
         persistSigs();
@@ -677,7 +713,15 @@ export function GlobalSyncProvider({ children }: { children: React.ReactNode }) 
           if (res.ok) {
             tombstoneSeen.current.add(key);
             serverCache.current[key] = { data: null, deletedAt: null };
-            if (res.sig) { sigsRef.current[key] = res.sig; persistSigs(); }
+            if (res.sig) {
+              sigsRef.current[key] = res.sig;
+              persistSigs();
+              // Pasang guard post-reset: entry/pull dengan sig LAMA (diambil sebelum
+              // reset selesai) akan dibuang beberapa siklus — ini yang selama ini
+              // membuat data yang dihapus "hidup lagi" seketika.
+              postResetSig.set(key, res.sig);
+              postResetAt.set(key, Date.now());
+            }
           } else {
             // Gagal hapus di server → tandai kotor supaya dicoba lagi siklus berikutnya
             dirtyKeys.add(key);

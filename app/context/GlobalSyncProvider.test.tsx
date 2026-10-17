@@ -246,4 +246,69 @@ describe('GlobalSyncProvider — kecepatan sinkron antar komputer', () => {
     expect(server['mma_kas_kecil']).toBeUndefined();
     expect(posts().filter((c) => c.body?.key === 'mma_kas_kecil')).toHaveLength(0);
   });
+
+  it('batch yang terlanjur diambil SEBELUM reset selesai tidak menghidupkan data lagi', async () => {
+    localStorage.setItem('mma_kas_kecil', JSON.stringify([{ id: 'a' }]));
+    server['mma_kas_kecil'] = [{ id: 'a' }];
+    renderProvider();
+    await tick(0); // initial sync selesai
+    calls = [];
+
+    const prevFetch = global.fetch as any;
+    global.fetch = vi.fn(async (input: any, init?: any) => {
+      const url = String(input);
+      const method = (init?.method || 'GET').toUpperCase();
+      const parsed = new URL(url, 'http://localhost');
+      const body = init?.body ? JSON.parse(init.body) : undefined;
+      calls.push({ url, method, body });
+
+      if (method === 'DELETE') {
+        await new Promise((r) => setTimeout(r, 200));
+        delete server['mma_kas_kecil'];
+        serverDeleted['mma_kas_kecil'] = Date.now();
+        bumpSig('mma_kas_kecil');
+        return jsonResponse({ success: true, key: parsed.searchParams.get('key'), deleted: true, sig: serverSigs['mma_kas_kecil'] });
+      }
+
+      if (method === 'GET' && url.includes('keys=')) {
+        // Snapshot BASI: ambil isi server SEKARANG (sebelum reset), respons baru
+        // dikirim 1500ms kemudian — melewati selesainya DELETE reset.
+        const stale: Record<string, any> = {};
+        const sigsAtStart: Record<string, string> = {};
+        const deletedAtStart: Record<string, number> = {};
+        for (const k of Object.keys(server)) stale[k] = server[k];
+        Object.assign(sigsAtStart, serverSigs);
+        Object.assign(deletedAtStart, serverDeleted);
+        await new Promise((r) => setTimeout(r, 1500));
+        const keys = parsed.searchParams.get('keys')!.split(',');
+        const sigArr = (parsed.searchParams.get('sigs') || '').split(',');
+        const out: Record<string, any> = {};
+        keys.forEach((k, i) => {
+          const sig = sigsAtStart[k] || DEFAULT_SIG;
+          if (sigArr[i] && sigArr[i] === sig) out[k] = { same: true, sig };
+          else out[k] = { data: stale[k] ?? [], sig, deletedAt: deletedAtStart[k] };
+        });
+        return jsonResponse({ batch: true, keys: out, devices: [] });
+      }
+
+      return prevFetch(input, init);
+    }) as any;
+
+    await act(async () => {
+      // Poll cycle ke-1 mulai (batch GET tertunda 1500ms), lalu reset jalan di tengahnya
+      await vi.advanceTimersByTimeAsync(1000);
+      window.dispatchEvent(new CustomEvent('global-data-reset', { detail: { key: 'mma_kas_kecil' } }));
+      await vi.advanceTimersByTimeAsync(3000); // DELETE selesai (200ms) → batch basi tiba (1500ms)
+    });
+
+    // Batch basi harus dibuang: lokal tetap kosong, server tetap terhapus, tidak ada push balik
+    expect(localStorage.getItem('mma_kas_kecil')).toBeNull();
+    expect(server['mma_kas_kecil']).toBeUndefined();
+    expect(posts().filter((c) => c.body?.key === 'mma_kas_kecil')).toHaveLength(0);
+
+    // Siklus berikutnya (setelah guard) tetap bersih
+    await tick(POLL_MS * 2);
+    expect(localStorage.getItem('mma_kas_kecil')).toBeNull();
+    expect(posts().filter((c) => c.body?.key === 'mma_kas_kecil')).toHaveLength(0);
+  });
 });
