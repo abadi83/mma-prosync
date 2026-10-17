@@ -289,7 +289,7 @@ async function readResponseSig(res: Response): Promise<string | null> {
   } catch { return null; }
 }
 
-async function pushToServer(key: string, data: any, expectedSig?: string): Promise<{ ok: boolean; sig: string | null; conflict: boolean }> {
+async function pushToServer(key: string, data: any, expectedSig?: string): Promise<{ ok: boolean; sig: string | null; conflict: boolean; identicalToDeleted: boolean }> {
   try {
     const res = await fetch('/api/data', {
       method: 'POST',
@@ -299,11 +299,16 @@ async function pushToServer(key: string, data: any, expectedSig?: string): Promi
     if (res.status === 409) {
       // Server sudah berubah sejak kita merge → jangan timpa; balikin sig terbaru biar klien tarik ulang
       const j = await res.json().catch(() => null);
-      return { ok: false, sig: typeof j?.sig === 'string' ? j.sig : null, conflict: true };
+      return {
+        ok: false,
+        sig: typeof j?.sig === 'string' ? j.sig : null,
+        conflict: true,
+        identicalToDeleted: !!j?.identicalToDeleted,
+      };
     }
-    if (!res.ok) return { ok: false, sig: null, conflict: false };
-    return { ok: true, sig: await readResponseSig(res), conflict: false };
-  } catch { return { ok: false, sig: null, conflict: false }; }
+    if (!res.ok) return { ok: false, sig: null, conflict: false, identicalToDeleted: false };
+    return { ok: true, sig: await readResponseSig(res), conflict: false, identicalToDeleted: false };
+  } catch { return { ok: false, sig: null, conflict: false, identicalToDeleted: false }; }
 }
 
 async function deleteOnServer(key: string): Promise<{ ok: boolean; sig: string | null }> {
@@ -379,6 +384,25 @@ export function GlobalSyncProvider({ children }: { children: React.ReactNode }) 
     delete sigsRef.current[key];
     delete serverCache.current[key];
     persistSigs();
+    dirtyKeys.add(key);
+  };
+
+  /* Tangani hasil push: ok → true. Conflict karena data IDENTIK dengan yang baru
+     dihapus global → terima state terhapus (bersihkan lokal, jangan push lagi).
+     Conflict biasa → bersihkan baseline & tarik ulang. Gagal → tandai kotor. */
+  const applyPushConflict = async (
+    key: string,
+    res: { ok: boolean; sig: string | null; conflict: boolean; identicalToDeleted: boolean },
+  ): Promise<void> => {
+    if (res.conflict && res.identicalToDeleted) {
+      await removeLocal(key);
+      delete localSnapshots.current[key];
+      serverCache.current[key] = { data: null, deletedAt: null };
+      if (res.sig) { sigsRef.current[key] = res.sig; persistSigs(); }
+      notifyListeners(key);
+      return;
+    }
+    if (res.conflict) { handlePushConflict(key); return; }
     dirtyKeys.add(key);
   };
 
@@ -518,8 +542,7 @@ export function GlobalSyncProvider({ children }: { children: React.ReactNode }) 
           localSnapshots.current[key] = localStr as string;
           const res = await pushToServer(key, local, sigsRef.current[key]);
           if (res.ok) recordPushed(key, local, res.sig);
-          else if (res.conflict) handlePushConflict(key);
-          else dirtyKeys.add(key);
+          else await applyPushConflict(key, res);
           notifyListeners(key);
           return res.ok;
         }
@@ -546,8 +569,7 @@ export function GlobalSyncProvider({ children }: { children: React.ReactNode }) 
         if (!contentEqual(key, serverOrig, server)) {
           const res = await pushToServer(key, server, sigsRef.current[key]);
           if (res.ok) { recordPushed(key, server, res.sig); pushed = true; }
-          else if (res.conflict) handlePushConflict(key);
-          else dirtyKeys.add(key);
+          else await applyPushConflict(key, res);
         }
         notifyListeners(key);
         return pushed;
@@ -562,8 +584,7 @@ export function GlobalSyncProvider({ children }: { children: React.ReactNode }) 
           return false;
         }
         const res = await pushToServer(key, local, sigsRef.current[key]);
-        if (res.conflict) { handlePushConflict(key); return false; }
-        if (!res.ok) { dirtyKeys.add(key); return false; }
+        if (!res.ok) { await applyPushConflict(key, res); return false; }
         localSnapshots.current[key] = localStr;
         recordPushed(key, local, res.sig);
         return true;
@@ -602,8 +623,7 @@ export function GlobalSyncProvider({ children }: { children: React.ReactNode }) 
       if (!contentEqual(key, serverOrig, merged)) {
         const res = await pushToServer(key, merged, sigsRef.current[key]);
         if (res.ok) { recordPushed(key, merged, res.sig); return true; }
-        if (res.conflict) handlePushConflict(key);
-        else dirtyKeys.add(key);
+        await applyPushConflict(key, res);
       }
       return false;
     } catch { return false; }

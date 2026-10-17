@@ -311,4 +311,43 @@ describe('GlobalSyncProvider — kecepatan sinkron antar komputer', () => {
     expect(localStorage.getItem('mma_kas_kecil')).toBeNull();
     expect(posts().filter((c) => c.body?.key === 'mma_kas_kecil')).toHaveLength(0);
   });
+
+  it('push data identik dengan yang baru dihapus global ditolak (409) → lokal ikut bersih, tanpa loop', async () => {
+    localStorage.setItem('mma_kas_kecil', JSON.stringify([{ id: 'a' }]));
+    serverDeleted['mma_kas_kecil'] = Date.now();
+    renderProvider();
+    await tick(0); // tombstone diproses → lokal bersih
+    expect(localStorage.getItem('mma_kas_kecil')).toBeNull();
+    calls = [];
+
+    // Server tolak POST yang isinya identik dengan data yang baru dihapus
+    const prevFetch = global.fetch as any;
+    global.fetch = vi.fn(async (input: any, init?: any) => {
+      const url = String(input);
+      const method = (init?.method || 'GET').toUpperCase();
+      if (method === 'POST') {
+        const body = init?.body ? JSON.parse(init.body) : undefined;
+        calls.push({ url, method, body });
+        if (body?.key === 'mma_kas_kecil' && serverDeleted['mma_kas_kecil']) {
+          return { ok: false, status: 409, json: async () => ({ success: false, conflict: true, identicalToDeleted: true, key: body.key, sig: 'v9|1|1|0' }) };
+        }
+        return prevFetch(input, init);
+      }
+      return prevFetch(input, init);
+    }) as any;
+
+    // Muncul data lokal lagi (restore dari tab lain) → flush coba push → ditolak → lokal dibersihkan
+    localStorage.setItem('mma_kas_kecil', JSON.stringify([{ id: 'a' }]));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(PUSH_DEBOUNCE_MS + 200);
+    });
+
+    expect(posts().filter((c) => c.body?.key === 'mma_kas_kecil')).toHaveLength(1);
+    expect(localStorage.getItem('mma_kas_kecil')).toBeNull();
+
+    // Tidak ada loop push di siklus berikutnya
+    await tick(POLL_MS * 3);
+    expect(posts().filter((c) => c.body?.key === 'mma_kas_kecil')).toHaveLength(1);
+    expect(localStorage.getItem('mma_kas_kecil')).toBeNull();
+  });
 });

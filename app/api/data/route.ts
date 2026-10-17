@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 
 export const dynamic = 'force-dynamic';
 
@@ -148,6 +149,38 @@ function getFileSig(key: string): string {
   return `${keyVersions.get(key) || 0}|${m}|${s}|${t}`;
 }
 
+/* ── Proteksi "resurrect": hash data yang baru saja dihapus global ──
+   Klien dengan kode lama bisa memulihkan data yang dihapus dari salinan
+   lokalnya lalu push balik dengan sig valid. Kalau isi yang dipush IDENTIK
+   dengan data yang barusan dihapus, tolak permanen (409) — hanya data yang
+   benar-benar berbeda (aktivitas baru) yang boleh menimpa penghapusan. */
+const deletedHashes = new Map<string, string>();
+const MAX_DELETED_HASHES = 200;
+
+function hashData(data: unknown): string {
+  try {
+    return crypto.createHash('sha256').update(JSON.stringify(data)).digest('hex');
+  } catch {
+    return '';
+  }
+}
+
+function rememberDeletedHash(key: string, rawContent: string | null): void {
+  let hash = '';
+  try {
+    const parsed = rawContent !== null ? JSON.parse(rawContent) : null;
+    hash = hashData(parsed);
+  } catch {
+    hash = hashData(rawContent);
+  }
+  if (!hash) return;
+  deletedHashes.set(key, hash);
+  if (deletedHashes.size > MAX_DELETED_HASHES) {
+    const oldest = deletedHashes.keys().next().value;
+    if (oldest !== undefined) deletedHashes.delete(oldest);
+  }
+}
+
 function getTombstonePath(key: string): string {
   const safeKey = key.replace(/[^a-zA-Z0-9_-]/g, '_');
   return path.join(DATA_DIR, `${safeKey}.deleted`);
@@ -246,6 +279,18 @@ export async function POST(request: Request) {
         { status: 409 }
       );
     }
+    // ── Anti-resurrect: tolak data identik dengan yang baru dihapus global ──
+    const deletedHash = deletedHashes.get(key);
+    if (deletedHash !== undefined) {
+      const currentHash = hashData(data);
+      if (currentHash && currentHash === deletedHash) {
+        return NextResponse.json(
+          { success: false, conflict: true, identicalToDeleted: true, key, sig: getFileSig(key), error: 'Data identik dengan data yang baru saja dihapus global.' },
+          { status: 409 }
+        );
+      }
+      deletedHashes.delete(key); // isi berbeda → aktivitas baru yang sah
+    }
     writeData(key, data);
     if (typeof device === 'string' && device) touchDevice(device, typeof name === 'string' ? name : '', 'push', key);
     // Sertakan sig terbaru → klien yang baru push tidak perlu menarik ulang data itu
@@ -267,11 +312,15 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: 'Parameter key wajib.' }, { status: 400 });
     }
     const filePath = getFilePath(key);
+    // Ingat hash isi data yang dihapus → push data identik akan ditolak (anti-resurrect)
+    let rawContent: string | null = null;
+    try { rawContent = fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf-8') : null; } catch {}
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
     }
     // Tulis tombstone agar device lain tahu data ini dihapus global
     writeTombstone(key);
+    rememberDeletedHash(key, rawContent);
     const device = searchParams.get('device') || '';
     if (device) touchDevice(device, searchParams.get('name') || '', 'delete', key);
     return NextResponse.json({ success: true, key, deleted: true, sig: getFileSig(key) });
