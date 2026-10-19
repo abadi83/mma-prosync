@@ -152,26 +152,68 @@ function getFileSig(key: string): string {
 /* ── Proteksi "resurrect": hash data yang baru saja dihapus global ──
    Klien dengan kode lama bisa memulihkan data yang dihapus dari salinan
    lokalnya lalu push balik dengan sig valid. Kalau isi yang dipush IDENTIK
-   dengan data yang barusan dihapus, tolak permanen (409) — hanya data yang
-   benar-benar berbeda (aktivitas baru) yang boleh menimpa penghapusan. */
+   (secara kanonik) dengan data yang barusan dihapus, tolak permanen (409) —
+   hanya data yang benar-benar berbeda (aktivitas baru) yang boleh menimpa
+   penghapusan.
+   Hash disimpan ke disk supaya proteksi bertahan saat proses restart. */
 const deletedHashes = new Map<string, string>();
 const MAX_DELETED_HASHES = 200;
+const DELETED_HASHES_FILE = path.join(DATA_DIR, '.deleted_hashes.json');
+
+/** JSON dengan urutan key dinormalisasi (rekursif) → hash stabil antar klien. */
+function canonicalize(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const k of Object.keys(value as Record<string, unknown>).sort()) {
+      out[k] = canonicalize((value as Record<string, unknown>)[k]);
+    }
+    return out;
+  }
+  return value;
+}
 
 function hashData(data: unknown): string {
   try {
-    return crypto.createHash('sha256').update(JSON.stringify(data)).digest('hex');
+    return crypto.createHash('sha256').update(JSON.stringify(canonicalize(data))).digest('hex');
   } catch {
     return '';
   }
 }
 
+function loadDeletedHashes(): void {
+  try {
+    if (!fs.existsSync(DELETED_HASHES_FILE)) return;
+    const parsed = JSON.parse(fs.readFileSync(DELETED_HASHES_FILE, 'utf-8'));
+    if (parsed && typeof parsed === 'object') {
+      for (const [k, v] of Object.entries(parsed)) {
+        if (typeof v === 'string') deletedHashes.set(k, v);
+      }
+    }
+  } catch {}
+}
+
+function persistDeletedHashes(): void {
+  try {
+    const tmp = DELETED_HASHES_FILE + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(Object.fromEntries(deletedHashes)), 'utf-8');
+    fs.renameSync(tmp, DELETED_HASHES_FILE);
+  } catch {}
+}
+
+loadDeletedHashes();
+
 function rememberDeletedHash(key: string, rawContent: string | null): void {
+  if (rawContent === null || rawContent === undefined) {
+    // File sudah tidak ada (mis. DELETE kedua kali) — JANGAN timpa hash yang
+    // sudah terekam dengan hash kosong; proteksi lama tetap berlaku.
+    return;
+  }
   let hash = '';
   try {
-    const parsed = rawContent !== null ? JSON.parse(rawContent) : null;
-    hash = hashData(parsed);
+    hash = hashData(JSON.parse(rawContent));
   } catch {
-    hash = hashData(rawContent);
+    hash = '';
   }
   if (!hash) return;
   deletedHashes.set(key, hash);
@@ -179,6 +221,7 @@ function rememberDeletedHash(key: string, rawContent: string | null): void {
     const oldest = deletedHashes.keys().next().value;
     if (oldest !== undefined) deletedHashes.delete(oldest);
   }
+  persistDeletedHashes();
 }
 
 function getTombstonePath(key: string): string {
@@ -289,7 +332,13 @@ export async function POST(request: Request) {
           { status: 409 }
         );
       }
-      deletedHashes.delete(key); // isi berbeda → aktivitas baru yang sah
+      // Isi berbeda = aktivitas baru yang sah. Catat siapa yang memulihkan
+      // key ini (untuk forensik kalau ternyata bukan aktivitas yang diinginkan).
+      try {
+        console.log(`[data-revive] key=${key} device=${typeof device === 'string' ? device.slice(0, 12) : '?'} name=${typeof name === 'string' ? name.slice(0, 40) : '?'}`);
+      } catch {}
+      deletedHashes.delete(key);
+      persistDeletedHashes();
     }
     writeData(key, data);
     if (typeof device === 'string' && device) touchDevice(device, typeof name === 'string' ? name : '', 'push', key);
