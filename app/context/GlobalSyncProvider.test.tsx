@@ -172,6 +172,26 @@ describe('GlobalSyncProvider — kecepatan sinkron antar komputer', () => {
     expect(events).toEqual(['shared-data-updated']);
   });
 
+  it('edit item dengan updatedAt terbaru menang di merge — tidak ditimpa versi lama lokal', async () => {
+    // Lokal pegang versi LAMA (updatedAt 100), server punya edit BARU dari komputer lain (200)
+    localStorage.setItem(
+      'mma_biaya_operasional',
+      JSON.stringify([{ id: 'b1', deskripsi: 'Listrik', jumlah: 100, tanggal: '2026-10-19', updatedAt: 100 }]),
+    );
+    server['mma_biaya_operasional'] = [
+      { id: 'b1', deskripsi: 'Listrik (edit Naufal)', jumlah: 150, tanggal: '2026-10-19', updatedAt: 200 },
+    ];
+
+    renderProvider();
+    await tick(0);
+
+    const local = JSON.parse(localStorage.getItem('mma_biaya_operasional')!);
+    expect(local[0].jumlah).toBe(150);
+    expect(local[0].updatedAt).toBe(200);
+    // Hasil merge = isi server → tidak boleh push balik versi lama
+    expect(posts().filter((c) => c.body?.key === 'mma_biaya_operasional')).toHaveLength(0);
+  });
+
   it('data yang dihapus global tetap terhapus (tidak dihidupkan kembali)', async () => {
     localStorage.setItem('mma_kas_kecil', JSON.stringify([{ id: 'a' }]));
     serverDeleted['mma_kas_kecil'] = Date.now();

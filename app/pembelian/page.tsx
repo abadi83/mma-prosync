@@ -134,6 +134,7 @@ interface BiayaOp {
   jumlah: number;
   tanggal: string;
   nonTunai?: boolean; // akrual: masuk Laba Rugi tapi TIDAK mengurangi Arus Kas
+  updatedAt?: number; // timestamp edit terakhir → merge sync pilih versi terbaru
 }
 
 const BIAYA_STORAGE = 'mma_biaya_operasional';
@@ -1739,6 +1740,7 @@ function BiayaOpTab() {
         jumlah: +jumlah,
         nonTunai,
         tanggal: tanggal || todayLocal(),
+        updatedAt: Date.now(),
       } : b));
       recordActivity([{ modul: 'pembelian', aksi: 'biaya', refLabel: `${deskripsi.trim()} (${kat})`, detail: { jumlah: +jumlah, tanggal, edit: true } }]);
       cancelEdit();
@@ -1752,6 +1754,7 @@ function BiayaOpTab() {
       jumlah: +jumlah,
       nonTunai,
       tanggal: tanggal || todayLocal(),
+      updatedAt: Date.now(),
     };
 
     setBiayaList(prev => [biaya, ...prev]);

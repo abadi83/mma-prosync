@@ -153,7 +153,21 @@ function mergeUnion<T>(key: string, a: T[], b: T[], excluded?: Set<string>): T[]
   for (const item of [...b, ...a]) {
     const k = itemKey(key, item);
     if (excluded && excluded.has(k)) continue; // item dihapus lokal → jangan dihidupkan lagi
-    map.set(k, item);
+    const existing = map.get(k);
+    if (!existing) {
+      map.set(k, item);
+      continue;
+    }
+    // Item yang sama dari dua sisi: kalau KEDUANYA punya updatedAt (timestamp edit),
+    // versi terbaru yang menang — mencegah edit user A ditimpa versi lama user B
+    // (sebelumnya "lokal menang" selalu, jadi edit antar komputer bisa bolak-balik).
+    const tsItem = (item as any)?.updatedAt;
+    const tsExisting = (existing as any)?.updatedAt;
+    if (typeof tsItem === 'number' && typeof tsExisting === 'number') {
+      if (tsItem >= tsExisting) map.set(k, item);
+    } else {
+      map.set(k, item); // tanpa timestamp: perilaku lama (sisi lokal menang)
+    }
   }
   return Array.from(map.values());
 }
