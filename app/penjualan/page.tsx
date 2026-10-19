@@ -16,6 +16,7 @@ const TABS: { key: Tab; label: string; icon: string }[] = [
 ];
 
 interface CartItem { id: string; produk: string; harga: number; hargaAsli: number; hargaModal: number; qty: number; }
+interface PelangganDb { id: string; nama: string; kontak: string; alamat?: string; telepon?: string; totalTransaksi?: number; }
 interface TransaksiEntry { id: string; produk: string; jumlah: number; hargaSatuan: number; total: number; pelanggan: string; tanggal: string; }
 
 export default function PenjualanPage() {
@@ -42,7 +43,7 @@ export default function PenjualanPage() {
 
   useEffect(() => { fetchTransaksi(); }, [fetchTransaksi]);
 
-  const handleCheckout = useCallback(async (items: CartItem[], pelanggan: string, tanggal: string, diskon: number): Promise<(string | null)[]> => {
+  const handleCheckout = useCallback(async (items: CartItem[], pelanggan: string, tanggal: string, diskon: number, pelangganId?: string | null): Promise<(string | null)[]> => {
     const subtotal = items.reduce((s, i) => s + i.harga * i.qty, 0);
     const shareDiskon = (itemSub: number) => (subtotal > 0 ? diskon * (itemSub / subtotal) : 0);
     // Simpan ke API per item (dengan tanggal backdate & diskon share per item).
@@ -58,6 +59,7 @@ export default function PenjualanPage() {
             jumlah: item.qty,
             hargaSatuan: item.harga,
             pelanggan: pelanggan.trim() || 'Umum',
+            pelangganId: pelangganId || undefined,
             tanggal,
             diskon: Math.round(shareDiskon(item.harga * item.qty)),
           }),
@@ -115,7 +117,7 @@ export default function PenjualanPage() {
 /* ═══════════════════════════════════════════════════════════════════ */
 /* KASIR TAB — POS lengkap                                           */
 /* ═══════════════════════════════════════════════════════════════════ */
-function KasirTab({ onCheckout }: { onCheckout: (items: CartItem[], pelanggan: string, tanggal: string, diskon: number) => Promise<(string | null)[]> }) {
+function KasirTab({ onCheckout }: { onCheckout: (items: CartItem[], pelanggan: string, tanggal: string, diskon: number, pelangganId?: string | null) => Promise<(string | null)[]> }) {
   const { skus } = useSkus();
   const [cart, setCart] = useState<CartItem[]>([]);
   const [search, setSearch] = useState('');
@@ -161,6 +163,14 @@ function KasirTab({ onCheckout }: { onCheckout: (items: CartItem[], pelanggan: s
   }, [filtered]);
 
   const [pelanggan, setPelanggan] = useState('Umum');
+  // 👥 Data pembeli tersimpan (database) — pilih, tambah cepat, lihat riwayat belanja
+  const [daftarPelanggan, setDaftarPelanggan] = useState<PelangganDb[]>([]);
+  const [pelangganId, setPelangganId] = useState<string | null>(null);
+  const [pelangganInfo, setPelangganInfo] = useState<PelangganDb | null>(null);
+  const [showTambahPembeli, setShowTambahPembeli] = useState(false);
+  const [fPembeli, setFPembeli] = useState({ nama: '', alamat: '', telepon: '' });
+  const [riwayat, setRiwayat] = useState<TransaksiEntry[]>([]);
+  const [pelangganFokus, setPelangganFokus] = useState(false);
   const [showBayar, setShowBayar] = useState(false);
   const [jumlahBayar, setJumlahBayar] = useState('');
   const [metodeBayar, setMetodeBayar] = useState<'cash' | 'transfer'>('cash');
@@ -187,7 +197,94 @@ function KasirTab({ onCheckout }: { onCheckout: (items: CartItem[], pelanggan: s
     }).filter(Boolean) as CartItem[]);
   };
   const removeItem = (id: string) => setCart(prev => prev.filter(c => c.id !== id));
-  const clearCart = () => { setCart([]); setPelanggan('Umum'); setDiskonStr(''); };
+  const clearCart = () => { setCart([]); setPelanggan('Umum'); setPelangganId(null); setPelangganInfo(null); setRiwayat([]); setDiskonStr(''); };
+
+  /* ── Data pembeli (database) ── */
+  // Muat daftar pelanggan tersimpan. Offline / gagal → input tetap berfungsi sebagai teks bebas (flow lama).
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const res = await fetch('/api/pelanggan');
+        if (res.ok && active) {
+          const data = await res.json();
+          setDaftarPelanggan(Array.isArray(data) ? data : []);
+        }
+      } catch {}
+    })();
+    return () => { active = false; };
+  }, []);
+
+  // Saran pelanggan sesuai ketikan (nama / telepon / kontak)
+  const saranPelanggan = useMemo(() => {
+    const q = pelanggan.trim().toLowerCase();
+    if (!q) return daftarPelanggan.slice(0, 8);
+    return daftarPelanggan
+      .filter(p => p.nama.toLowerCase().includes(q) || (p.telepon || '').replace(/\D/g, '').includes(q.replace(/\D/g, '')) || (p.kontak || '').toLowerCase().includes(q))
+      .slice(0, 8);
+  }, [daftarPelanggan, pelanggan]);
+
+  const pickPelanggan = (p: PelangganDb) => {
+    setPelanggan(p.nama);
+    setPelangganId(p.id);
+    setPelangganInfo(p);
+    setPelangganFokus(false);
+  };
+
+  // Riwayat belanja pelanggan terpilih (5 transaksi terakhir)
+  useEffect(() => {
+    if (!pelangganId) { setRiwayat([]); return; }
+    let active = true;
+    (async () => {
+      try {
+        const res = await fetch(`/api/transaksi?pelanggan_id=${encodeURIComponent(pelangganId)}`);
+        if (res.ok && active) {
+          const data = await res.json();
+          setRiwayat(Array.isArray(data) ? data.slice(0, 5) : []);
+        }
+      } catch { if (active) setRiwayat([]); }
+    })();
+    return () => { active = false; };
+  }, [pelangganId]);
+
+  // Tambah pembeli baru ke database. Kalau offline / gagal → tetap dipakai sebagai nama teks bebas.
+  const simpanPembeli = async () => {
+    const nama = fPembeli.nama.trim();
+    if (!nama) return;
+    const telepon = fPembeli.telepon.trim();
+    try {
+      const res = await fetch('/api/pelanggan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nama, alamat: fPembeli.alamat.trim(), telepon, kontak: telepon }),
+      });
+      if (res.ok) {
+        const item = await res.json().catch(() => null);
+        if (item?.id) {
+          setDaftarPelanggan(prev => [item, ...prev.filter(x => x.id !== item.id)]);
+          pickPelanggan(item);
+          setFPembeli({ nama: '', alamat: '', telepon: '' });
+          setShowTambahPembeli(false);
+          return;
+        }
+      }
+    } catch {}
+    // Fallback flow lama (offline): nama tetap terekam di transaksi sebagai teks bebas
+    setPelanggan(nama);
+    setPelangganId(null);
+    setPelangganInfo(null);
+    setFPembeli({ nama: '', alamat: '', telepon: '' });
+    setShowTambahPembeli(false);
+  };
+
+  const ubahPelanggan = (v: string) => {
+    setPelanggan(v);
+    // Ketikan berbeda dari pelanggan terpilih → kembali ke mode teks bebas (flow lama)
+    if (!pelangganInfo || pelangganInfo.nama !== v) {
+      setPelangganId(null);
+      setPelangganInfo(null);
+    }
+  };
 
   const subtotal = cart.reduce((s, c) => s + c.harga * c.qty, 0);
   // Diskon otomatis: angka Rp, dibatasi 0 s.d. subtotal
@@ -210,7 +307,7 @@ function KasirTab({ onCheckout }: { onCheckout: (items: CartItem[], pelanggan: s
     const now = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
     const checkoutId = `ck-${Date.now()}`; // id checkout — untuk sinkron hapus/edit ke kas & laporan
     setStruk({ items: [...cart], total: totalBayar, diskon, bayar, kembali, pelanggan: pelanggan.trim() || 'Umum', waktu: now, metode: metodeBayar, tanggal: tanggalTx });
-    const dbIds = await onCheckout(cart, pelanggan, tanggalTx, diskon);
+    const dbIds = await onCheckout(cart, pelanggan, tanggalTx, diskon, pelangganId);
 
     // Simpan ke localStorage untuk laporan (diskon dibagi proporsional per item)
     try {
@@ -270,6 +367,9 @@ function KasirTab({ onCheckout }: { onCheckout: (items: CartItem[], pelanggan: s
 
     setCart([]);
     setPelanggan('Umum');
+    setPelangganId(null);
+    setPelangganInfo(null);
+    setRiwayat([]);
     setDiskonStr('');
     setShowBayar(false);
     setMetodeBayar('cash');
@@ -428,10 +528,74 @@ function KasirTab({ onCheckout }: { onCheckout: (items: CartItem[], pelanggan: s
 
           {/* Checkout footer */}
           <div className="border-t border-slate-100 px-4 py-3 space-y-2">
-            <label className="flex items-center gap-2">
-              <span className="text-xs font-semibold text-slate-500 w-20">Pelanggan</span>
-              <input type="text" value={pelanggan} onChange={e => setPelanggan(e.target.value)} placeholder="Nama pelanggan" className="flex-1 rounded-lg border border-slate-200 px-2 py-1.5 text-sm focus:border-brand-500 focus:outline-none" />
-            </label>
+            <div>
+              <label className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-slate-500 w-20">👥 Pelanggan</span>
+                <input
+                  type="text"
+                  value={pelanggan}
+                  onChange={e => ubahPelanggan(e.target.value)}
+                  onFocus={() => setPelangganFokus(true)}
+                  onBlur={() => setTimeout(() => setPelangganFokus(false), 150)}
+                  placeholder="Nama pembeli (kosongkan = Umum)"
+                  className="flex-1 rounded-lg border border-slate-200 px-2 py-1.5 text-sm focus:border-brand-500 focus:outline-none"
+                />
+                <button onClick={() => setShowTambahPembeli(v => !v)} title="Tambah pembeli baru ke database"
+                  className="rounded-lg border border-brand-200 bg-brand-50 px-2 py-1.5 text-xs font-semibold text-brand-700 hover:bg-brand-100">
+                  {showTambahPembeli ? '✕' : '＋ Baru'}
+                </button>
+              </label>
+
+              {/* Saran pelanggan dari database */}
+              {pelangganFokus && !pelangganId && saranPelanggan.length > 0 && (
+                <ul className="mt-1 ml-20 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg">
+                  {saranPelanggan.map(p => (
+                    <li key={p.id}>
+                      <button type="button" onMouseDown={e => { e.preventDefault(); pickPelanggan(p); }}
+                        className="flex w-full items-center justify-between gap-2 px-2 py-1.5 text-left text-sm hover:bg-brand-50">
+                        <span className="font-medium text-slate-700">{p.nama}</span>
+                        <span className="text-xs text-slate-400">{p.telepon || p.kontak || ''}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              {/* Form tambah pembeli cepat */}
+              {showTambahPembeli && (
+                <div className="mt-1 ml-20 space-y-1.5 rounded-lg border border-brand-200 bg-brand-50/50 p-2">
+                  <p className="text-xs font-bold text-brand-700">＋ Pembeli baru (tersimpan di database)</p>
+                  <input type="text" value={fPembeli.nama} onChange={e => setFPembeli({ ...fPembeli, nama: e.target.value })} placeholder="Nama *" className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm focus:border-brand-500 focus:outline-none" />
+                  <input type="text" value={fPembeli.alamat} onChange={e => setFPembeli({ ...fPembeli, alamat: e.target.value })} placeholder="Alamat" className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm focus:border-brand-500 focus:outline-none" />
+                  <input type="text" value={fPembeli.telepon} onChange={e => setFPembeli({ ...fPembeli, telepon: e.target.value })} placeholder="No. telepon" className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm focus:border-brand-500 focus:outline-none" />
+                  <div className="flex justify-end gap-2">
+                    <button onClick={() => setShowTambahPembeli(false)} className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-600">Batal</button>
+                    <button onClick={simpanPembeli} disabled={!fPembeli.nama.trim()} className="rounded-lg bg-brand-500 px-3 py-1.5 text-xs font-semibold text-white disabled:bg-slate-300">💾 Simpan & pilih</button>
+                  </div>
+                </div>
+              )}
+
+              {/* Info + riwayat belanja pelanggan terpilih */}
+              {pelangganId && pelangganInfo && (
+                <div className="mt-1 ml-20 rounded-lg border border-emerald-200 bg-emerald-50/50 p-2 text-xs">
+                  {pelangganInfo.telepon && <p className="text-slate-600">📱 {pelangganInfo.telepon}</p>}
+                  {pelangganInfo.alamat && <p className="text-slate-600">📍 {pelangganInfo.alamat}</p>}
+                  {riwayat.length > 0 && (
+                    <>
+                      <p className="mt-1 font-bold text-emerald-700">🕓 Riwayat belanja terakhir</p>
+                      <ul className="mt-0.5 space-y-0.5">
+                        {riwayat.map((r, i) => (
+                          <li key={i} className="flex items-center justify-between gap-2 text-slate-600">
+                            <span className="truncate">{r.tanggal} • {r.produk} ×{r.jumlah}</span>
+                            <span className="font-semibold text-slate-700">Rp {r.total.toLocaleString('id-ID')}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
             <label className="flex items-center gap-2">
               <span className="text-xs font-semibold text-slate-500 w-20">📅 Tanggal</span>
               <input type="date" value={tanggalTx} onChange={e => e.target.value && setTanggalTx(e.target.value)} className="flex-1 rounded-lg border border-slate-200 px-2 py-1.5 text-sm focus:border-brand-500 focus:outline-none" />

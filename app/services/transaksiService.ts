@@ -8,24 +8,27 @@ export interface TransaksiItem {
   hargaSatuan: number;
   total: number;
   pelanggan: string;
+  pelangganId?: string | null;
   tanggal: string;
 }
 
 const DEFAULT_TOKO = 'a0a0a0a0-0000-0000-0000-000000000001';
 
-export async function getTransaksi(tokoId?: string): Promise<TransaksiItem[]> {
+export async function getTransaksi(tokoId?: string, filter?: { pelangganId?: string }): Promise<TransaksiItem[]> {
+  const pelangganId = filter?.pelangganId || null;
   const { rows } = await query(
     `SELECT dt.id, p.nama AS produk, dt.jumlah, dt.harga_satuan AS "hargaSatuan",
-            dt.subtotal AS total, COALESCE(pl.nama, 'Umum') AS pelanggan,
+            dt.subtotal AS total, COALESCE(pl.nama, 'Umum') AS pelanggan, t.pelanggan_id AS "pelangganId",
             to_char(t.tanggal, 'YYYY-MM-DD') AS tanggal
      FROM detail_transaksi dt
      JOIN transaksi t ON dt.transaksi_id = t.id
      JOIN produk p ON dt.produk_id = p.id
      LEFT JOIN pelanggan pl ON t.pelanggan_id = pl.id
      WHERE t.toko_id = $1
+       AND ($2::uuid IS NULL OR t.pelanggan_id = $2::uuid)
      ORDER BY t.tanggal DESC
     LIMIT 1000`,
-    [tokoId || DEFAULT_TOKO]
+    [tokoId || DEFAULT_TOKO, pelangganId]
   );
   return rows;
 }
@@ -85,6 +88,7 @@ export async function createTransaksi(
     hargaSatuan: entry.hargaSatuan,
     total,
     pelanggan: entry.pelanggan || 'Umum',
+    pelangganId,
     tanggal,
   };
 }

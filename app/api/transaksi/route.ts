@@ -34,7 +34,8 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const tokoId = searchParams.get('toko_id') ?? DEFAULT_TOKO;
-    const data = await getTransaksi(tokoId);
+    const pelangganId = searchParams.get('pelanggan_id') ?? undefined;
+    const data = await getTransaksi(tokoId, pelangganId ? { pelangganId } : undefined);
     return apiSuccess(data);
   } catch (error) {
     return apiServerError('GET /api/transaksi');
@@ -61,6 +62,7 @@ export async function POST(request: Request) {
       jumlah,
       hargaSatuan,
       pelanggan: body.pelanggan ?? 'Umum',
+      pelangganId: body.pelangganId ?? undefined,
       tanggal: tanggal ?? todayLocal(),
       diskon: diskon != null ? Number(diskon) : undefined,
     });
