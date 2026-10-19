@@ -122,14 +122,17 @@ function readData(key: string): any {
   }
 }
 
-function writeData(key: string, data: any): void {
+function writeData(key: string, data: any, opts?: { keepTombstone?: boolean }): void {
   const filePath = getFilePath(key);
   // Tulis atomik: temp dulu, lalu rename
   const tmpPath = filePath + '.tmp';
   fs.writeFileSync(tmpPath, JSON.stringify(data), 'utf-8');
   fs.renameSync(tmpPath, filePath);
-  // Data baru masuk → hapus tombstone kalau ada
-  clearTombstone(key);
+  // Data baru masuk → hapus tombstone kalau ada (kecuali push kosong saat
+  // proteksi anti-resurrect aktif — tombstone dipertahankan).
+  if (!opts?.keepTombstone) {
+    clearTombstone(key);
+  }
   bumpVersion(key);
 }
 
@@ -149,16 +152,20 @@ function getFileSig(key: string): string {
   return `${keyVersions.get(key) || 0}|${m}|${s}|${t}`;
 }
 
-/* ── Proteksi "resurrect": hash data yang baru saja dihapus global ──
+/* ── Proteksi "resurrect": sidik jari data yang baru saja dihapus global ──
    Klien dengan kode lama bisa memulihkan data yang dihapus dari salinan
-   lokalnya lalu push balik dengan sig valid. Kalau isi yang dipush IDENTIK
-   (secara kanonik) dengan data yang barusan dihapus, tolak permanen (409) —
-   hanya data yang benar-benar berbeda (aktivitas baru) yang boleh menimpa
-   penghapusan.
-   Hash disimpan ke disk supaya proteksi bertahan saat proses restart. */
-const deletedHashes = new Map<string, string>();
-const MAX_DELETED_HASHES = 200;
+   lokalnya lalu push balik dengan sig valid. Aturan:
+   - Push dengan isi KANONIK identik dengan data terhapus → 409 permanen.
+   - Push dengan isi berbeda tapi ≥80% id item-nya berasal dari data terhapus
+     (varian salinan lama) → 409 permanen.
+   - Push kosong ([]/null) → diterima TAPI proteksi TETAP aktif (tidak
+     membatalkan tombstone) — push kosong bukan aktivitas baru.
+   - Hanya push dengan isi benar-benar baru yang boleh menimpa penghapusan.
+   Proteksi dipersisten ke disk supaya tahan restart proses. */
+const deletedRecords = new Map<string, { hash: string; ids: string[]; count: number }>();
+const MAX_DELETED_RECORDS = 200;
 const DELETED_HASHES_FILE = path.join(DATA_DIR, '.deleted_hashes.json');
+const STALE_OVERLAP_THRESHOLD = 0.8;
 
 /** JSON dengan urutan key dinormalisasi (rekursif) → hash stabil antar klien. */
 function canonicalize(value: unknown): unknown {
@@ -181,47 +188,76 @@ function hashData(data: unknown): string {
   }
 }
 
-function loadDeletedHashes(): void {
+function idsOf(data: unknown): string[] {
+  if (!Array.isArray(data)) return [];
+  const out: string[] = [];
+  for (const item of data) {
+    if (item && typeof item === 'object' && typeof (item as any).id === 'string' && (item as any).id) {
+      out.push((item as any).id);
+    }
+  }
+  return out;
+}
+
+function isEmptyData(data: unknown): boolean {
+  return data === null || data === undefined || (Array.isArray(data) && data.length === 0);
+}
+
+function loadDeletedRecords(): void {
   try {
     if (!fs.existsSync(DELETED_HASHES_FILE)) return;
     const parsed = JSON.parse(fs.readFileSync(DELETED_HASHES_FILE, 'utf-8'));
     if (parsed && typeof parsed === 'object') {
       for (const [k, v] of Object.entries(parsed)) {
-        if (typeof v === 'string') deletedHashes.set(k, v);
+        if (typeof v === 'string') {
+          // format lama: hanya hash
+          deletedRecords.set(k, { hash: v, ids: [], count: 0 });
+        } else if (v && typeof v === 'object' && typeof (v as any).hash === 'string') {
+          deletedRecords.set(k, {
+            hash: (v as any).hash,
+            ids: Array.isArray((v as any).ids) ? (v as any).ids : [],
+            count: Number((v as any).count) || 0,
+          });
+        }
       }
     }
   } catch {}
 }
 
-function persistDeletedHashes(): void {
+function persistDeletedRecords(): void {
   try {
     const tmp = DELETED_HASHES_FILE + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify(Object.fromEntries(deletedHashes)), 'utf-8');
+    const out: Record<string, { hash: string; ids: string[]; count: number }> = {};
+    for (const [k, v] of deletedRecords) out[k] = v;
+    fs.writeFileSync(tmp, JSON.stringify(out), 'utf-8');
     fs.renameSync(tmp, DELETED_HASHES_FILE);
   } catch {}
 }
 
-loadDeletedHashes();
+loadDeletedRecords();
 
 function rememberDeletedHash(key: string, rawContent: string | null): void {
   if (rawContent === null || rawContent === undefined) {
-    // File sudah tidak ada (mis. DELETE kedua kali) — JANGAN timpa hash yang
-    // sudah terekam dengan hash kosong; proteksi lama tetap berlaku.
+    // File sudah tidak ada (mis. DELETE kedua kali) — JANGAN timpa proteksi
+    // yang sudah terekam; proteksi lama tetap berlaku.
     return;
   }
   let hash = '';
+  let ids: string[] = [];
   try {
-    hash = hashData(JSON.parse(rawContent));
+    const parsed = JSON.parse(rawContent);
+    hash = hashData(parsed);
+    ids = idsOf(parsed);
   } catch {
     hash = '';
   }
   if (!hash) return;
-  deletedHashes.set(key, hash);
-  if (deletedHashes.size > MAX_DELETED_HASHES) {
-    const oldest = deletedHashes.keys().next().value;
-    if (oldest !== undefined) deletedHashes.delete(oldest);
+  deletedRecords.set(key, { hash, ids, count: ids.length });
+  if (deletedRecords.size > MAX_DELETED_RECORDS) {
+    const oldest = deletedRecords.keys().next().value;
+    if (oldest !== undefined) deletedRecords.delete(oldest);
   }
-  persistDeletedHashes();
+  persistDeletedRecords();
 }
 
 function getTombstonePath(key: string): string {
@@ -322,23 +358,42 @@ export async function POST(request: Request) {
         { status: 409 }
       );
     }
-    // ── Anti-resurrect: tolak data identik dengan yang baru dihapus global ──
-    const deletedHash = deletedHashes.get(key);
-    if (deletedHash !== undefined) {
+    // ── Anti-resurrect ──
+    const rec = deletedRecords.get(key);
+    if (rec) {
       const currentHash = hashData(data);
-      if (currentHash && currentHash === deletedHash) {
+      if (currentHash && currentHash === rec.hash) {
         return NextResponse.json(
           { success: false, conflict: true, identicalToDeleted: true, key, sig: getFileSig(key), error: 'Data identik dengan data yang baru saja dihapus global.' },
           { status: 409 }
         );
       }
-      // Isi berbeda = aktivitas baru yang sah. Catat siapa yang memulihkan
-      // key ini (untuk forensik kalau ternyata bukan aktivitas yang diinginkan).
+      if (isEmptyData(data)) {
+        // Push kosong = klien menyetujui penghapusan → simpan (tanpa membatalkan
+        // tombstone) dan TETAP jaga proteksi dari salinan lama perangkat lain.
+        writeData(key, data, { keepTombstone: true });
+        if (typeof device === 'string' && device) touchDevice(device, typeof name === 'string' ? name : '', 'push', key);
+        return NextResponse.json({ success: true, key, count: 0, sig: getFileSig(key) });
+      }
+      // Isi berbeda: cek tumpang-tindih id item — ≥80% dari data terhapus
+      // berarti salinan lama (varian), bukan aktivitas baru.
+      const pushedIds = idsOf(data);
+      const idSet = new Set(rec.ids);
+      if (pushedIds.length > 0 && idSet.size > 0) {
+        const overlap = pushedIds.filter((id) => idSet.has(id)).length / pushedIds.length;
+        if (overlap >= STALE_OVERLAP_THRESHOLD) {
+          return NextResponse.json(
+            { success: false, conflict: true, identicalToDeleted: true, key, sig: getFileSig(key), error: 'Data merupakan salinan lama dari data yang dihapus global.' },
+            { status: 409 }
+          );
+        }
+      }
+      // Benar-benar aktivitas baru — catat siapa yang memulihkan key ini
       try {
-        console.log(`[data-revive] key=${key} device=${typeof device === 'string' ? device.slice(0, 12) : '?'} name=${typeof name === 'string' ? name.slice(0, 40) : '?'}`);
+        console.log(`[data-revive] key=${key} device=${typeof device === 'string' ? device.slice(0, 12) : '?'} name=${typeof name === 'string' ? name.slice(0, 40) : '?'} pushedIds=${pushedIds.length} overlapIds=${pushedIds.filter((id) => idSet.has(id)).length}`);
       } catch {}
-      deletedHashes.delete(key);
-      persistDeletedHashes();
+      deletedRecords.delete(key);
+      persistDeletedRecords();
     }
     writeData(key, data);
     if (typeof device === 'string' && device) touchDevice(device, typeof name === 'string' ? name : '', 'push', key);
