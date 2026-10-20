@@ -9,6 +9,7 @@ describe('OperasionalGudangPage', () => {
     expect(screen.getByRole('tab', { name: /picking/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /qc/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /packing/i })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /produksi kardus/i })).toBeInTheDocument();
   });
 
   it('shows Dashboard Agregasi by default', () => {

@@ -11,8 +11,9 @@ import { recordOpLog } from '@/app/lib/recordOpLog';
 import { recordActivity } from '@/app/lib/recordActivity';
 import { syncSaldoKeOperasional } from '@/app/lib/saldoMarketplace';
 import { storageGetRaw, setJSON } from '@/app/lib/idbStorage';
+import { ProduksiKardusTab } from '@/app/operasional-gudang/components/ProduksiKardusTab';
 
-type Tab = 'agregasi' | 'picking' | 'qc' | 'packing' | 'runner' | 'logistik' | 'belanja';
+type Tab = 'agregasi' | 'picking' | 'qc' | 'packing' | 'runner' | 'logistik' | 'belanja' | 'produksi';
 
 const TABS = [
   { key: 'agregasi' as const, label: 'Dashboard', icon: '📊' },
@@ -22,6 +23,7 @@ const TABS = [
   { key: 'runner' as const, label: 'Runner Scan', icon: '📱' },
   { key: 'logistik' as const, label: 'Logistik', icon: '🚛' },
   { key: 'belanja' as const, label: 'Harus Belanja', icon: '🛒' },
+  { key: 'produksi' as const, label: 'Produksi Kardus', icon: '🗃️' },
 ];
 
 /* ── Parse Rupiah ── */
@@ -45,7 +47,7 @@ export default function OperasionalGudangPage() {
       <header className="rounded-3xl bg-gradient-to-br from-brand-700 via-brand-500 to-brand-300 p-5 text-white shadow-lg sm:p-7">
         <p className="text-xs font-semibold uppercase tracking-[0.25em] text-brand-100 sm:text-sm">Warehouse</p>
         <h1 className="mt-2 text-2xl font-bold sm:text-3xl">Operasional Gudang</h1>
-        <p className="mt-1 text-sm text-brand-100 sm:text-base">Dashboard agregasi pesanan, picking, QC, packing, runner scanner & logistik.</p>
+        <p className="mt-1 text-sm text-brand-100 sm:text-base">Dashboard agregasi pesanan, picking, QC, packing, runner scanner, logistik & produksi kardus.</p>
       </header>
       <nav className="flex gap-1 overflow-x-auto rounded-2xl bg-white p-1 shadow-sm" role="tablist">
         {TABS.map(t=>(<button key={t.key} role="tab" aria-selected={tab===t.key} onClick={()=>setTab(t.key)} className={`flex shrink-0 items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold transition sm:px-5 sm:text-sm ${tab===t.key?'bg-brand-500 text-white shadow':t.key==='belanja'&&belanjaCount>0?'bg-red-50 text-red-600 hover:bg-red-100':'text-slate-600 hover:bg-brand-50 hover:text-brand-700'}`}><span className="text-base sm:text-lg">{t.icon}</span><span className="hidden sm:inline">{t.label}</span>{t.key==='belanja'&&belanjaCount>0&&<span className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${tab===t.key?'bg-white text-red-600':'bg-red-500 text-white'}`}>{belanjaCount}</span>}</button>))}
@@ -58,6 +60,7 @@ export default function OperasionalGudangPage() {
         {tab==='runner' && <RunnerScan />}
         {tab==='logistik' && <LogistikTab />}
         {tab==='belanja' && <HarusBelanjaTab />}
+        {tab==='produksi' && <ProduksiKardusTab />}
       </section>
     </main>
   );
