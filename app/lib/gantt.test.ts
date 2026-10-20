@@ -4,7 +4,7 @@ import { buildGantt, resolveRange, parseDateSafe, GanttTask } from './gantt';
 const NOW = new Date(2026, 9, 20); // 20 Okt 2026
 
 function t(over: Partial<GanttTask> & { id: string }): GanttTask {
-  return { judul: 'Tugas', status: 'todo', progress: 0, petugasNama: null, tanggalMulai: null, tenggat: null, ...over };
+  return { judul: 'Tugas', status: 'todo', progress: 0, petugas: [], tanggalMulai: null, tenggat: null, ...over };
 }
 
 describe('gantt helpers', () => {
@@ -33,20 +33,39 @@ describe('gantt helpers', () => {
 
   it('buildGantt: mengelompokkan baris per petugas & range mencakup semua bar', () => {
     const layout = buildGantt([
-      t({ id: '1', judul: 'A', petugasNama: 'Andi', tanggalMulai: '2026-10-01', tenggat: '2026-10-05' }),
-      t({ id: '2', judul: 'B', petugasNama: 'Andi', tanggalMulai: '2026-10-03', tenggat: '2026-10-08' }),
-      t({ id: '3', judul: 'C', petugasNama: 'Siti', tanggalMulai: '2026-10-10', tenggat: '2026-10-12' }),
+      t({ id: '1', judul: 'A', petugas: ['Andi'], tanggalMulai: '2026-10-01', tenggat: '2026-10-05' }),
+      t({ id: '2', judul: 'B', petugas: ['Andi'], tanggalMulai: '2026-10-03', tenggat: '2026-10-08' }),
+      t({ id: '3', judul: 'C', petugas: ['Siti'], tanggalMulai: '2026-10-10', tenggat: '2026-10-12' }),
     ], NOW);
     expect(layout.rows).toEqual(['Andi', 'Siti']);
     expect(layout.bars).toHaveLength(3);
-    expect(layout.bars.find(b => b.id === '1')!.row).toBe(0);
-    expect(layout.bars.find(b => b.id === '3')!.row).toBe(1);
+    expect(layout.bars.find(b => b.taskId === '1')!.row).toBe(0);
+    expect(layout.bars.find(b => b.taskId === '3')!.row).toBe(1);
     expect(layout.bars.every(b => b.lengthDays >= 1)).toBe(true);
-    // range harus mencakup semua bar
     const minStart = Math.min(...layout.bars.map(b => b.start.getTime()));
     const maxEnd = Math.max(...layout.bars.map(b => b.end.getTime()));
     expect(layout.range.start.getTime()).toBeLessThanOrEqual(minStart);
     expect(layout.range.end.getTime()).toBeGreaterThanOrEqual(maxEnd);
+  });
+
+  it('buildGantt: tugas multi-petugas muncul di baris tiap petugas', () => {
+    const layout = buildGantt([
+      t({ id: '9', judul: 'Tim', petugas: ['Andi', 'Siti'], tanggalMulai: '2026-10-10', tenggat: '2026-10-14' }),
+    ], NOW);
+    expect(layout.rows).toEqual(['Andi', 'Siti']);
+    expect(layout.bars).toHaveLength(2);
+    const andiBar = layout.bars.find(b => b.petugas === 'Andi')!;
+    const sitiBar = layout.bars.find(b => b.petugas === 'Siti')!;
+    expect(andiBar.taskId).toBe('9');
+    expect(sitiBar.taskId).toBe('9');
+    expect(andiBar.row).toBe(0);
+    expect(sitiBar.row).toBe(1);
+  });
+
+  it('buildGantt: tugas tanpa petugas masuk baris "Tanpa petugas"', () => {
+    const layout = buildGantt([t({ id: 'x', petugas: [] })], NOW);
+    expect(layout.rows).toEqual(['— Tanpa petugas —']);
+    expect(layout.bars).toHaveLength(1);
   });
 
   it('buildGantt: tugas lewat tenggat & belum selesai → isLate', () => {
@@ -54,8 +73,8 @@ describe('gantt helpers', () => {
       t({ id: '1', status: 'proses', tanggalMulai: '2026-10-01', tenggat: '2026-10-05' }),
       t({ id: '2', status: 'selesai', tanggalMulai: '2026-10-01', tenggat: '2026-10-05' }),
     ], NOW);
-    expect(layout.bars.find(b => b.id === '1')!.isLate).toBe(true);
-    expect(layout.bars.find(b => b.id === '2')!.isLate).toBe(false);
+    expect(layout.bars.find(b => b.taskId === '1')!.isLate).toBe(true);
+    expect(layout.bars.find(b => b.taskId === '2')!.isLate).toBe(false);
   });
 
   it('buildGantt: tanpa tugas → range 14 hari dari sekarang', () => {

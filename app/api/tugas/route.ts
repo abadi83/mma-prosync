@@ -46,13 +46,13 @@ export async function POST(request: NextRequest) {
     const item = await createTugas(undefined, {
       judul: body.judul,
       deskripsi: body.deskripsi,
-      petugasId: body.petugasId || null,
+      petugasIds: Array.isArray(body.petugasIds) ? body.petugasIds : (body.petugasId ? [body.petugasId] : []),
       prioritas: body.prioritas,
       tanggalMulai: body.tanggalMulai || null,
       tenggat: body.tenggat || null,
     }, actor);
 
-    await recordActivities([{ modul: 'tugas', aksi: 'tambah', refLabel: item.judul, detail: { petugas: item.petugasNama || '', tenggat: item.tenggat || '' } }], { username: actor.pegawaiId || actor.nama, namaUser: actor.nama });
+    await recordActivities([{ modul: 'tugas', aksi: 'tambah', refLabel: item.judul, detail: { petugas: item.petugas.map(p => p.nama).join(', '), tenggat: item.tenggat || '' } }], { username: actor.pegawaiId || actor.nama, namaUser: actor.nama });
     return apiCreated(item);
   } catch (e: any) {
     console.error('POST /api/tugas error:', e?.message);
@@ -70,7 +70,7 @@ export async function PUT(request: NextRequest) {
     const item = await updateTugas(undefined, body.id, {
       judul: body.judul,
       deskripsi: body.deskripsi,
-      petugasId: body.petugasId,
+      petugasIds: Array.isArray(body.petugasIds) ? body.petugasIds : (body.petugasId ? [body.petugasId] : undefined),
       prioritas: body.prioritas,
       tanggalMulai: body.tanggalMulai,
       tenggat: body.tenggat,
@@ -83,9 +83,9 @@ export async function PUT(request: NextRequest) {
 
     const aksi = body.status === 'selesai' ? 'selesai'
       : body.progress !== undefined ? 'progress'
-      : body.petugasId !== undefined ? 'assign'
+      : body.petugasIds !== undefined || body.petugasId !== undefined ? 'assign'
       : 'ubah';
-    await recordActivities([{ modul: 'tugas', aksi, refLabel: item.judul, detail: { status: item.status, progress: item.progress, petugas: item.petugasNama || '' } }], { username: actor.pegawaiId || actor.nama, namaUser: actor.nama });
+    await recordActivities([{ modul: 'tugas', aksi, refLabel: item.judul, detail: { status: item.status, progress: item.progress, petugas: item.petugas.map(p => p.nama).join(', ') } }], { username: actor.pegawaiId || actor.nama, namaUser: actor.nama });
     return apiSuccess(item);
   } catch (e: any) {
     console.error('PUT /api/tugas error:', e?.message);

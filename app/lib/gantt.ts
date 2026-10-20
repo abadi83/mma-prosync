@@ -5,7 +5,7 @@ export interface GanttTask {
   judul: string;
   status: string;
   progress: number;
-  petugasNama: string | null;
+  petugas: string[];          // nama petugas (bisa lebih dari 1)
   tanggalMulai: string | null; // YYYY-MM-DD
   tenggat: string | null;      // YYYY-MM-DD
   createdAt?: string;          // fallback bila tidak ada tanggal
@@ -13,6 +13,7 @@ export interface GanttTask {
 
 export interface GanttBar {
   id: string;
+  taskId: string;
   judul: string;
   status: string;
   progress: number;
@@ -69,26 +70,31 @@ export function resolveRange(task: GanttTask, now = todayMidnight()): { start: D
 export function buildGantt(tasks: GanttTask[], now = todayMidnight()): GanttLayout {
   const rows: string[] = [];
   const rowOf = new Map<string, number>();
-  const sorted = [...tasks].sort((a, b) => {
-    const pa = a.petugasNama || '— Tanpa petugas —';
-    const pb = b.petugasNama || '— Tanpa petugas —';
-    if (pa !== pb) return pa.localeCompare(pb);
+
+  // Ekspansi: 1 tugas dengan N petugas → N bar (satu per petugas)
+  const expanded = tasks.flatMap((t) => {
+    const names = t.petugas.length > 0 ? t.petugas : ['— Tanpa petugas —'];
+    return names.map((nama) => ({ ...t, key: `${t.id}|${nama}`, petugasName: nama }));
+  });
+
+  const sorted = [...expanded].sort((a, b) => {
+    if (a.petugasName !== b.petugasName) return a.petugasName.localeCompare(b.petugasName);
     return (resolveRange(a, now).start.getTime()) - (resolveRange(b, now).start.getTime());
   });
 
   const bars: GanttBar[] = sorted.map((t) => {
     const { start, end } = resolveRange(t, now);
-    const key = t.petugasNama || '— Tanpa petugas —';
-    if (!rowOf.has(key)) { rowOf.set(key, rows.length); rows.push(key); }
+    if (!rowOf.has(t.petugasName)) { rowOf.set(t.petugasName, rows.length); rows.push(t.petugasName); }
     return {
-      id: t.id,
+      id: t.key,
+      taskId: t.id,
       judul: t.judul,
       status: t.status,
       progress: Math.min(100, Math.max(0, Math.round(t.progress || 0))),
-      petugas: key,
+      petugas: t.petugasName,
       start,
       end,
-      row: rowOf.get(key)!,
+      row: rowOf.get(t.petugasName)!,
       offsetDays: 0,
       lengthDays: 0,
       isLate: t.status !== 'selesai' && end.getTime() < now.getTime(),

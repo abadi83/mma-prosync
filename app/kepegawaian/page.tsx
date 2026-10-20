@@ -90,6 +90,7 @@ const ROLE_LABELS: Record<string, string> = {
   sales: '🛒 Sales',
   masterdata: '🗂️ Data Master',
   pegawai: '👤 Pegawai',
+  pengawas: '🛡️ Pengawas',
 };
 
 /* ── Tabs ── */
@@ -426,7 +427,7 @@ function DaftarPegawai({ pegawai, setPegawai }: { pegawai: Pegawai[]; setPegawai
   const [formErr, setFormErr] = useState('');
 
   // All available roles
-  const ALL_ROLES = ['admin', 'hr', 'finance', 'purchasing', 'warehouse', 'logistik', 'inventory', 'sales', 'masterdata', 'pegawai'];
+  const ALL_ROLES = ['admin', 'hr', 'finance', 'purchasing', 'warehouse', 'logistik', 'inventory', 'sales', 'masterdata', 'pengawas', 'pegawai'];
 
   // Reset password handler
   const handleResetPassword = () => {

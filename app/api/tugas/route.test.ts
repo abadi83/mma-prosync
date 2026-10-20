@@ -1,9 +1,10 @@
 import { describe, it, expect } from 'vitest';
+import type { NextRequest } from 'next/server';
 import { GET, POST } from './route';
 
 describe('Tugas API', () => {
   it('GET returns list', async () => {
-    const r = await GET(new Request('http://localhost/api/tugas'));
+    const r = await GET(new Request('http://localhost/api/tugas') as unknown as NextRequest);
     expect(r.status).toBe(200);
   });
 
@@ -11,8 +12,8 @@ describe('Tugas API', () => {
     const r = await POST(new Request('http://localhost/api/tugas', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ judul: 'Tugas Uji', deskripsi: 'Cek API', prioritas: 'normal', tanggalMulai: '2026-10-20' }),
-    }));
+      body: JSON.stringify({ judul: 'Tugas Uji', deskripsi: 'Cek API', prioritas: 'normal', tanggalMulai: '2026-10-20', petugasIds: [] }),
+    }) as unknown as NextRequest);
     expect(r.status).toBe(201);
   });
 });

@@ -79,7 +79,8 @@ export default function TugasPage() {
 /* ═══════════════════════════════════════════════════════════════ */
 function DaftarTugasTab() {
   const { nama, roles } = useUser();
-  const isAdmin = roles.includes('admin');
+  // Admin & Pengawas bisa membuat, edit, assign & hapus tugas
+  const canKelola = roles.includes('admin') || roles.includes('pengawas');
   const [tasks, setTasks] = useState<TugasItem[]>([]);
   const [pegawai, setPegawai] = useState<PegawaiDb[]>([]);
   const [loading, setLoading] = useState(true);
@@ -126,8 +127,8 @@ function DaftarTugasTab() {
     const q = search.toLowerCase().trim();
     return tasks.filter(t => {
       if (fStatus && t.status !== fStatus) return false;
-      if (fPetugas && t.petugasId !== fPetugas) return false;
-      if (q && !(`${t.judul} ${t.petugasNama || ''} ${t.pemberiNama || ''}`.toLowerCase().includes(q))) return false;
+      if (fPetugas && !t.petugas.some(p => p.id === fPetugas)) return false;
+      if (q && !(`${t.judul} ${t.petugas.map(p => p.nama).join(' ')} ${t.pemberiNama || ''}`.toLowerCase().includes(q))) return false;
       return true;
     });
   }, [tasks, search, fStatus, fPetugas]);
@@ -186,7 +187,13 @@ function DaftarTugasTab() {
                     <p className="font-semibold text-slate-800">{t.judul}</p>
                     {t.deskripsi && <p className="max-w-56 truncate text-xs text-slate-400">{t.deskripsi}</p>}
                   </td>
-                  <td className="px-3 py-3 text-slate-600">{t.petugasNama || <span className="text-slate-400">Belum di-assign</span>}</td>
+                  <td className="px-3 py-3">
+                    {t.petugas.length === 0 ? <span className="text-slate-400">Belum di-assign</span> : (
+                      <div className="flex flex-wrap gap-1">
+                        {t.petugas.map(p => <span key={p.id} className="rounded-full bg-purple-50 px-2 py-0.5 text-[10px] font-semibold text-purple-700">{p.nama}</span>)}
+                      </div>
+                    )}
+                  </td>
                   <td className="px-3 py-3 text-slate-600">{t.pemberiNama || '—'}</td>
                   <td className="px-3 py-3"><span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${PRIORITAS_BADGE[t.prioritas]}`}>{t.prioritas}</span></td>
                   <td className="px-3 py-3"><span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${STATUS_BADGE[t.status]}`}>{STATUS_LABEL[t.status]}</span></td>
@@ -200,8 +207,8 @@ function DaftarTugasTab() {
                   <td className="px-3 py-3">
                     <div className="flex gap-1">
                       <button onClick={() => openDetail(t.id)} title="Detail & update progress" className="rounded-lg bg-brand-100 px-2 py-1 text-xs font-semibold text-brand-700 hover:bg-brand-200">📄</button>
-                      {isAdmin && <button onClick={() => { setEditTask(t); setShowForm(true); }} title="Edit / assign ulang" className="rounded-lg bg-sky-100 px-2 py-1 text-xs font-semibold text-sky-700 hover:bg-sky-200">✏️</button>}
-                      {isAdmin && <button onClick={() => setHapusTask(t)} title="Hapus" className="rounded-lg bg-red-100 px-2 py-1 text-xs font-semibold text-red-600 hover:bg-red-200">🗑️</button>}
+                      {canKelola && <button onClick={() => { setEditTask(t); setShowForm(true); }} title="Edit / assign ulang" className="rounded-lg bg-sky-100 px-2 py-1 text-xs font-semibold text-sky-700 hover:bg-sky-200">✏️</button>}
+                      {canKelola && <button onClick={() => setHapusTask(t)} title="Hapus" className="rounded-lg bg-red-100 px-2 py-1 text-xs font-semibold text-red-600 hover:bg-red-200">🗑️</button>}
                     </div>
                   </td>
                 </tr>
@@ -222,7 +229,7 @@ function DaftarTugasTab() {
         item={detail.item}
         riwayat={detail.riwayat}
         pegawai={pegawai}
-        isAdmin={isAdmin}
+        canKelola={canKelola}
         onClose={() => setDetail(null)}
         onSaved={async () => { await refresh(); const d = await fetchDetail(detail.item.id); setDetail(d); }}
       />}
@@ -264,13 +271,20 @@ function FormTugas({ pegawai, edit, pemberiNama, onClose, onSaved }: {
   const [f, setF] = useState(() => ({
     judul: edit?.judul || '',
     deskripsi: edit?.deskripsi || '',
-    petugasId: edit?.petugasId || '',
+    petugasIds: (edit?.petugas || []).map(p => p.id),
     prioritas: (edit?.prioritas || 'normal') as TugasPrioritas,
     tanggalMulai: edit?.tanggalMulai || todayISO(),
     tenggat: edit?.tenggat || '',
   }));
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
+
+  const togglePetugas = (id: string) => {
+    setF(prev => ({
+      ...prev,
+      petugasIds: prev.petugasIds.includes(id) ? prev.petugasIds.filter(x => x !== id) : [...prev.petugasIds, id],
+    }));
+  };
 
   const save = async () => {
     if (!f.judul.trim()) { setErr('Judul tugas wajib diisi.'); return; }
@@ -279,7 +293,7 @@ function FormTugas({ pegawai, edit, pemberiNama, onClose, onSaved }: {
       const res = await fetch('/api/tugas', {
         method: edit ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(edit ? { id: edit.id, ...f, petugasId: f.petugasId || null } : f),
+        body: JSON.stringify(edit ? { id: edit.id, ...f } : f),
       });
       if (res.ok) onSaved();
       else setErr('Gagal menyimpan tugas.');
@@ -296,11 +310,20 @@ function FormTugas({ pegawai, edit, pemberiNama, onClose, onSaved }: {
           <input value={f.judul} onChange={e => setF({ ...f, judul: e.target.value })} placeholder="Judul tugas *" className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none" />
           <textarea value={f.deskripsi} onChange={e => setF({ ...f, deskripsi: e.target.value })} placeholder="Deskripsi / instruksi pekerjaan…" rows={3} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none" />
           <label className="flex flex-col gap-1">
-            <span className="text-xs font-semibold text-slate-500">Petugas (assign)</span>
-            <select value={f.petugasId} onChange={e => setF({ ...f, petugasId: e.target.value })} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm">
-              <option value="">— Belum di-assign —</option>
-              {pegawai.map(p => <option key={p.id} value={p.id}>{p.nama}{p.jabatan ? ` (${p.jabatan})` : ''}</option>)}
-            </select>
+            <span className="text-xs font-semibold text-slate-500">Petugas (bisa lebih dari 1) — klik untuk pilih</span>
+            <div className="flex max-h-36 flex-wrap gap-1.5 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2">
+              {pegawai.length === 0 && <span className="text-xs text-slate-400">Belum ada pegawai aktif di Kepegawaian.</span>}
+              {pegawai.map(p => {
+                const on = f.petugasIds.includes(p.id);
+                return (
+                  <button key={p.id} onClick={() => togglePetugas(p.id)} type="button"
+                    className={`rounded-full px-2.5 py-1 text-xs font-semibold transition ${on ? 'bg-brand-500 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
+                    {on ? '✓ ' : ''}{p.nama}{p.jabatan ? ` · ${p.jabatan}` : ''}
+                  </button>
+                );
+              })}
+            </div>
+            {f.petugasIds.length > 0 && <p className="text-[10px] text-brand-600">{f.petugasIds.length} petugas dipilih</p>}
           </label>
           <label className="flex flex-col gap-1">
             <span className="text-xs font-semibold text-slate-500">Prioritas</span>
@@ -332,11 +355,11 @@ function FormTugas({ pegawai, edit, pemberiNama, onClose, onSaved }: {
 }
 
 /* ── Detail + update progress & laporan selesai ── */
-function DetailTugas({ item, riwayat, pegawai, isAdmin, onClose, onSaved }: {
+function DetailTugas({ item, riwayat, pegawai, canKelola, onClose, onSaved }: {
   item: TugasItem;
   riwayat: TugasProgressItem[];
   pegawai: PegawaiDb[];
-  isAdmin: boolean;
+  canKelola: boolean;
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
@@ -344,7 +367,7 @@ function DetailTugas({ item, riwayat, pegawai, isAdmin, onClose, onSaved }: {
   const [status, setStatus] = useState<TugasStatus>(item.status);
   const [catatan, setCatatan] = useState('');
   const [laporan, setLaporan] = useState(item.laporanSelesai);
-  const [petugasId, setPetugasId] = useState(item.petugasId || '');
+  const [petugasIds, setPetugasIds] = useState<string[]>((item.petugas || []).map(p => p.id));
   const [judul, setJudul] = useState(item.judul);
   const [deskripsi, setDeskripsi] = useState(item.deskripsi);
   const [tenggat, setTenggat] = useState(item.tenggat || '');
@@ -352,6 +375,10 @@ function DetailTugas({ item, riwayat, pegawai, isAdmin, onClose, onSaved }: {
   const [prioritas, setPrioritas] = useState<TugasPrioritas>(item.prioritas);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
+
+  const togglePetugas = (id: string) => {
+    setPetugasIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  };
 
   const simpan = async () => {
     if (status === 'selesai' && !laporan.trim()) { setErr('Laporan selesai wajib diisi sebelum menandai selesai.'); return; }
@@ -361,7 +388,7 @@ function DetailTugas({ item, riwayat, pegawai, isAdmin, onClose, onSaved }: {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          id: item.id, judul, deskripsi, petugasId: petugasId || null, prioritas, tanggalMulai, tenggat,
+          id: item.id, judul, deskripsi, petugasIds, prioritas, tanggalMulai, tenggat,
           progress: status === 'selesai' ? 100 : progress, status,
           laporanSelesai: status === 'selesai' ? laporan : item.laporanSelesai,
           catatan,
@@ -385,7 +412,7 @@ function DetailTugas({ item, riwayat, pegawai, isAdmin, onClose, onSaved }: {
 
         {/* Info inti */}
         <div className="mt-3 space-y-2">
-          {isAdmin ? (
+          {canKelola ? (
             <>
               <input value={judul} onChange={e => setJudul(e.target.value)} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold" />
               <textarea value={deskripsi} onChange={e => setDeskripsi(e.target.value)} rows={2} placeholder="Deskripsi…" className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" />
@@ -397,16 +424,32 @@ function DetailTugas({ item, riwayat, pegawai, isAdmin, onClose, onSaved }: {
             </>
           )}
           <div className="grid grid-cols-2 gap-2 text-xs">
-            <div className="rounded-xl bg-slate-50 px-3 py-2"><p className="text-slate-400">Petugas</p>{isAdmin
-              ? <select value={petugasId} onChange={e => setPetugasId(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs"><option value="">— Belum di-assign —</option>{pegawai.map(p => <option key={p.id} value={p.id}>{p.nama}</option>)}</select>
-              : <p className="font-semibold text-slate-700">{item.petugasNama || 'Belum di-assign'}</p>}
+            <div className="col-span-2 rounded-xl bg-slate-50 px-3 py-2"><p className="text-slate-400">Petugas ({item.petugas.length})</p>
+              {canKelola ? (
+                <div className="mt-1 flex max-h-28 flex-wrap gap-1 overflow-y-auto">
+                  {pegawai.map(p => {
+                    const on = petugasIds.includes(p.id);
+                    return (
+                      <button key={p.id} onClick={() => togglePetugas(p.id)} type="button"
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${on ? 'bg-brand-500 text-white' : 'bg-white text-slate-600 border border-slate-200'}`}>
+                        {on ? '✓ ' : ''}{p.nama}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {item.petugas.length === 0 && <span className="text-slate-400">Belum di-assign</span>}
+                  {item.petugas.map(p => <span key={p.id} className="rounded-full bg-purple-100 px-2 py-0.5 text-[10px] font-semibold text-purple-700">{p.nama}</span>)}
+                </div>
+              )}
             </div>
             <div className="rounded-xl bg-slate-50 px-3 py-2"><p className="text-slate-400">Prioritas</p>
-              {isAdmin
+              {canKelola
                 ? <select value={prioritas} onChange={e => setPrioritas(e.target.value as TugasPrioritas)} className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs">{(['rendah', 'normal', 'tinggi', 'urgent'] as TugasPrioritas[]).map(p => <option key={p} value={p}>{p}</option>)}</select>
                 : <p className="font-semibold text-slate-700 capitalize">{prioritas}</p>}
             </div>
-            {isAdmin ? (
+            {canKelola ? (
               <>
                 <div className="rounded-xl bg-slate-50 px-3 py-2"><p className="text-slate-400">Mulai</p><input type="date" value={tanggalMulai} onChange={e => setTanggalMulai(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs" /></div>
                 <div className="rounded-xl bg-slate-50 px-3 py-2"><p className="text-slate-400">Tenggat</p><input type="date" value={tenggat} onChange={e => setTenggat(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs" /></div>
@@ -496,7 +539,8 @@ function GanttTab() {
   const now = todayMidnight();
   const layout = useMemo(() => buildGantt(tasks.map(t => ({
     id: t.id, judul: t.judul, status: t.status, progress: t.progress,
-    petugasNama: t.petugasNama, tanggalMulai: t.tanggalMulai, tenggat: t.tenggat,
+    petugas: (t.petugas || []).map(p => p.nama),
+    tanggalMulai: t.tanggalMulai, tenggat: t.tenggat,
     createdAt: t.createdAt,
   })), now), [tasks, now]);
 
@@ -621,8 +665,11 @@ function LaporanTab() {
   const perPetugas = useMemo(() => {
     const m = new Map<string, number>();
     for (const t of tasks) {
-      const k = t.petugasNama || 'Tanpa petugas';
-      m.set(k, (m.get(k) || 0) + 1);
+      if (!t.petugas || t.petugas.length === 0) {
+        m.set('Tanpa petugas', (m.get('Tanpa petugas') || 0) + 1);
+        continue;
+      }
+      for (const p of t.petugas) m.set(p.nama, (m.get(p.nama) || 0) + 1);
     }
     return Array.from(m.entries()).sort((a, b) => b[1] - a[1]);
   }, [tasks]);
@@ -656,7 +703,7 @@ function LaporanTab() {
                 <div className="min-w-0">
                   <p className="font-bold text-slate-800">✅ {t.judul}</p>
                   <p className="text-xs text-slate-500">
-                    {t.petugasNama || 'Tanpa petugas'} • diberikan {t.pemberiNama || '—'} • selesai {t.selesaiAt || ''}
+                    {t.petugas.length === 0 ? 'Tanpa petugas' : t.petugas.map(p => p.nama).join(', ')} • diberikan {t.pemberiNama || '—'} • selesai {t.selesaiAt || ''}
                     {durasiHari(t) !== null && <> • <span className="font-semibold text-slate-600">{durasiHari(t)} hari</span></>}
                   </p>
                 </div>
