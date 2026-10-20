@@ -27,7 +27,11 @@ const PRIORITAS_BADGE: Record<TugasPrioritas, string> = {
   urgent: 'bg-red-100 text-red-700',
 };
 
-interface PegawaiDb { id: string; nama: string; jabatan?: string; status?: string; }
+interface PegawaiDb { id: string; nama: string; jabatan?: string; status?: string; roles?: string[]; }
+
+function isPengawasPegawai(p: { roles?: string[] } | null | undefined): boolean {
+  return !!p && Array.isArray(p.roles) && p.roles.includes('pengawas');
+}
 
 function fmtDate(s: string | null): string {
   if (!s) return '—';
@@ -157,7 +161,8 @@ function DaftarTugasTab() {
       </div>
 
       {/* Filter */}
-      <div className="mt-3 flex flex-wrap gap-2">
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700 ring-1 ring-amber-200">🛡️ = Pengawas</span>
         <input value={search} onChange={e => setSearch(e.target.value)} placeholder="🔍 Cari judul / petugas / pemberi…" className="min-w-44 flex-1 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none" />
         <select value={fStatus} onChange={e => setFStatus(e.target.value)} className="rounded-xl border border-slate-200 bg-white px-2 py-1.5 text-sm">
           <option value="">Semua status</option>
@@ -165,7 +170,7 @@ function DaftarTugasTab() {
         </select>
         <select value={fPetugas} onChange={e => setFPetugas(e.target.value)} className="rounded-xl border border-slate-200 bg-white px-2 py-1.5 text-sm">
           <option value="">Semua petugas</option>
-          {pegawai.map(p => <option key={p.id} value={p.id}>{p.nama}</option>)}
+          {pegawai.map(p => <option key={p.id} value={p.id}>{p.nama}{isPengawasPegawai(p) ? ' 🛡️ Pengawas' : ''}</option>)}
         </select>
         <button onClick={refresh} className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-600 hover:bg-brand-50">🔄</button>
       </div>
@@ -190,7 +195,11 @@ function DaftarTugasTab() {
                   <td className="px-3 py-3">
                     {t.petugas.length === 0 ? <span className="text-slate-400">Belum di-assign</span> : (
                       <div className="flex flex-wrap gap-1">
-                        {t.petugas.map(p => <span key={p.id} className="rounded-full bg-purple-50 px-2 py-0.5 text-[10px] font-semibold text-purple-700">{p.nama}</span>)}
+                        {t.petugas.map(p => (
+                          <span key={p.id} className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${p.pengawas ? 'bg-amber-100 text-amber-800 ring-1 ring-amber-300' : 'bg-purple-50 text-purple-700'}`}>
+                            {p.pengawas && '🛡️ '}{p.nama}
+                          </span>
+                        ))}
                       </div>
                     )}
                   </td>
@@ -315,10 +324,11 @@ function FormTugas({ pegawai, edit, pemberiNama, onClose, onSaved }: {
               {pegawai.length === 0 && <span className="text-xs text-slate-400">Belum ada pegawai aktif di Kepegawaian.</span>}
               {pegawai.map(p => {
                 const on = f.petugasIds.includes(p.id);
+                const pengawas = isPengawasPegawai(p);
                 return (
                   <button key={p.id} onClick={() => togglePetugas(p.id)} type="button"
-                    className={`rounded-full px-2.5 py-1 text-xs font-semibold transition ${on ? 'bg-brand-500 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
-                    {on ? '✓ ' : ''}{p.nama}{p.jabatan ? ` · ${p.jabatan}` : ''}
+                    className={`rounded-full px-2.5 py-1 text-xs font-semibold transition ${on ? (pengawas ? 'bg-amber-500 text-white' : 'bg-brand-500 text-white') : (pengawas ? 'bg-amber-50 text-amber-700 ring-1 ring-amber-200 hover:bg-amber-100' : 'bg-slate-100 text-slate-600 hover:bg-slate-200')}`}>
+                    {on ? '✓ ' : ''}{pengawas ? '🛡️ ' : ''}{p.nama}{p.jabatan ? ` · ${p.jabatan}` : ''}
                   </button>
                 );
               })}
@@ -429,10 +439,11 @@ function DetailTugas({ item, riwayat, pegawai, canKelola, onClose, onSaved }: {
                 <div className="mt-1 flex max-h-28 flex-wrap gap-1 overflow-y-auto">
                   {pegawai.map(p => {
                     const on = petugasIds.includes(p.id);
+                    const pengawas = isPengawasPegawai(p);
                     return (
                       <button key={p.id} onClick={() => togglePetugas(p.id)} type="button"
-                        className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${on ? 'bg-brand-500 text-white' : 'bg-white text-slate-600 border border-slate-200'}`}>
-                        {on ? '✓ ' : ''}{p.nama}
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${on ? (pengawas ? 'bg-amber-500 text-white' : 'bg-brand-500 text-white') : (pengawas ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'bg-white text-slate-600 border border-slate-200')}`}>
+                        {on ? '✓ ' : ''}{pengawas ? '🛡️ ' : ''}{p.nama}
                       </button>
                     );
                   })}
@@ -440,7 +451,9 @@ function DetailTugas({ item, riwayat, pegawai, canKelola, onClose, onSaved }: {
               ) : (
                 <div className="mt-1 flex flex-wrap gap-1">
                   {item.petugas.length === 0 && <span className="text-slate-400">Belum di-assign</span>}
-                  {item.petugas.map(p => <span key={p.id} className="rounded-full bg-purple-100 px-2 py-0.5 text-[10px] font-semibold text-purple-700">{p.nama}</span>)}
+                  {item.petugas.map(p => (
+                    <span key={p.id} className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${p.pengawas ? 'bg-amber-100 text-amber-800' : 'bg-purple-100 text-purple-700'}`}>{p.pengawas && '🛡️ '}{p.nama}</span>
+                  ))}
                 </div>
               )}
             </div>
@@ -539,7 +552,7 @@ function GanttTab() {
   const now = todayMidnight();
   const layout = useMemo(() => buildGantt(tasks.map(t => ({
     id: t.id, judul: t.judul, status: t.status, progress: t.progress,
-    petugas: (t.petugas || []).map(p => p.nama),
+    petugas: (t.petugas || []).map(p => (p.pengawas ? '🛡️ ' : '') + p.nama),
     tanggalMulai: t.tanggalMulai, tenggat: t.tenggat,
     createdAt: t.createdAt,
   })), now), [tasks, now]);
@@ -669,7 +682,10 @@ function LaporanTab() {
         m.set('Tanpa petugas', (m.get('Tanpa petugas') || 0) + 1);
         continue;
       }
-      for (const p of t.petugas) m.set(p.nama, (m.get(p.nama) || 0) + 1);
+      for (const p of t.petugas) {
+        const k = (p.pengawas ? '🛡️ ' : '') + p.nama;
+        m.set(k, (m.get(k) || 0) + 1);
+      }
     }
     return Array.from(m.entries()).sort((a, b) => b[1] - a[1]);
   }, [tasks]);
@@ -703,7 +719,7 @@ function LaporanTab() {
                 <div className="min-w-0">
                   <p className="font-bold text-slate-800">✅ {t.judul}</p>
                   <p className="text-xs text-slate-500">
-                    {t.petugas.length === 0 ? 'Tanpa petugas' : t.petugas.map(p => p.nama).join(', ')} • diberikan {t.pemberiNama || '—'} • selesai {t.selesaiAt || ''}
+                    {t.petugas.length === 0 ? 'Tanpa petugas' : t.petugas.map(p => (p.pengawas ? '🛡️ ' : '') + p.nama).join(', ')} • diberikan {t.pemberiNama || '—'} • selesai {t.selesaiAt || ''}
                     {durasiHari(t) !== null && <> • <span className="font-semibold text-slate-600">{durasiHari(t)} hari</span></>}
                   </p>
                 </div>

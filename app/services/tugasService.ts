@@ -6,6 +6,7 @@ export type TugasPrioritas = 'rendah' | 'normal' | 'tinggi' | 'urgent';
 export interface TugasPetugas {
   id: string;
   nama: string;
+  pengawas?: boolean; // pegawai ini punya role pengawas
 }
 
 export interface TugasItem {
@@ -78,7 +79,7 @@ async function attachPetugas(items: TugasItem[]): Promise<TugasItem[]> {
   if (items.length === 0) return items;
   const ids = items.map(i => i.id);
   const { rows } = await query(
-    `SELECT tp.tugas_id, p.id, p.nama
+    `SELECT tp.tugas_id, p.id, p.nama, p.roles
      FROM tugas_petugas tp
      JOIN pegawai p ON p.id = tp.pegawai_id
      WHERE tp.tugas_id = ANY($1::uuid[])
@@ -88,14 +89,19 @@ async function attachPetugas(items: TugasItem[]): Promise<TugasItem[]> {
   const map = new Map<string, TugasPetugas[]>();
   for (const r of rows) {
     if (!map.has(r.tugas_id)) map.set(r.tugas_id, []);
-    map.get(r.tugas_id)!.push({ id: r.id, nama: r.nama });
+    const roles: unknown = r.roles;
+    map.get(r.tugas_id)!.push({
+      id: r.id,
+      nama: r.nama,
+      pengawas: Array.isArray(roles) && roles.includes('pengawas'),
+    });
   }
   for (const item of items) item.petugas = map.get(item.id) || [];
   return items;
 }
 
 export function petugasLabel(item: TugasItem): string {
-  return item.petugas.length ? item.petugas.map(p => p.nama).join(', ') : '';
+  return item.petugas.length ? item.petugas.map(p => (p.pengawas ? `🛡️ ${p.nama}` : p.nama)).join(', ') : '';
 }
 
 export async function listTugas(
