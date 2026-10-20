@@ -24,6 +24,7 @@ export function useDashboardRefresh(intervalMs = 30000) {
       { title: 'Operasional Gudang', category: 'Warehouse', description: 'Stok opname, mutasi, retur & penyesuaian.', href: '/operasional-gudang' },
       { title: 'Pengaturan', category: 'System', description: 'Info toko, akun, ubah password & preferensi.', href: '/pengaturan' },
       { title: 'Kepegawaian', category: 'HR', description: 'Data pegawai, absensi harian, rekap kehadiran & penilaian KPI.', href: '/kepegawaian' },
+      { title: 'Tugas Pekerjaan', category: 'Manajemen', description: 'Beri & assign tugas, pantau progress, laporan selesai & Gantt chart.', href: '/tugas' },
       { title: 'Data Entry', category: 'Operasional', description: 'Input data operasional & keuangan per marketplace.', href: '/data-entry' },
     ],
   });
