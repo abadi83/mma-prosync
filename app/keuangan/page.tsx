@@ -1485,6 +1485,7 @@ function ArusKasTab() {
 /* ================================================================ */
 function RiwayatTab() {
   const [payments, setPayments] = useLocalStorage<PaymentRecord[]>(PAYMENT_STORAGE, []);
+  const [hppDataAll, setHppDataAll] = useLocalStorage<HppPurchase[]>(HPP_STORAGE, []);
   const [search, setSearch] = useState('');
   const [filterBulan, setFilterBulan] = useState('');
   const [refundPay, setRefundPay] = useState<PaymentRecord | null>(null);
@@ -1531,6 +1532,7 @@ function RiwayatTab() {
       setPayments(prev => prev.filter(x => x.id !== refundPay.id));
 
       // 2. Hitung ulang dibayar/lunas item HPP PO ini dari pembayaran yang tersisa
+      //    (distribusi exact — jumlah dibayar pas, tanpa selisih pembulatan)
       const raw = await storageGetRaw(HPP_STORAGE);
       if (raw) {
         const hpp: HppPurchase[] = JSON.parse(raw);
@@ -1543,12 +1545,34 @@ function RiwayatTab() {
         const dibayar = Math.min(totalDibayar, total);
         const ratio = total > 0 ? dibayar / total : 0;
         const now = Date.now();
-        const updated = hpp.map(x => {
-          if (x.noPO !== noPO) return x;
-          const alokasi = Math.min(Math.round((x.total || 0) * ratio), x.total || 0);
-          return { ...x, dibayar: alokasi, sisaTagihan: Math.max(0, (x.total || 0) - alokasi), lunas: alokasi >= (x.total || 0), updatedAt: now };
+        // Alokasi dasar (floor) + sisa dibagikan ke sisa pecahan terbesar
+        const alokasi = new Map<number, number>();
+        let sumFloor = 0;
+        const targetIdx = hpp.map((x, idx) => ({ x, idx })).filter(({ x }) => x.noPO === noPO);
+        for (const { x, idx } of targetIdx) {
+          const f = Math.floor((x.total || 0) * ratio);
+          alokasi.set(idx, f);
+          sumFloor += f;
+        }
+        let sisaDistribusi = dibayar - sumFloor;
+        const bySisaPecahan = [...targetIdx].sort((a, b) => {
+          const ra = (a.x.total || 0) * ratio - Math.floor((a.x.total || 0) * ratio);
+          const rb = (b.x.total || 0) * ratio - Math.floor((b.x.total || 0) * ratio);
+          return rb - ra;
         });
-        await setJSON(HPP_STORAGE, updated);
+        for (const { idx } of bySisaPecahan) {
+          if (sisaDistribusi <= 0) break;
+          alokasi.set(idx, alokasi.get(idx)! + 1);
+          sisaDistribusi--;
+        }
+        const updated = hpp.map((x, idx) => {
+          if (x.noPO !== noPO) return x;
+          const alok = Math.min(alokasi.get(idx) || 0, x.total || 0);
+          return { ...x, dibayar: alok, sisaTagihan: Math.max(0, (x.total || 0) - alok), lunas: alok >= (x.total || 0), updatedAt: now };
+        });
+        const okWrite = await setJSON(HPP_STORAGE, updated);
+        setHppDataAll(updated);
+        if (!okWrite) alert('⚠️ Penyimpanan browser penuh — hitung ulang sisa PO belum tersimpan. Coba lagi setelah menutup tab lain / menghapus foto lama.');
         sisaSetelah = Math.max(0, total - dibayar);
       }
 
