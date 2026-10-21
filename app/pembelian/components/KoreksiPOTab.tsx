@@ -1,11 +1,13 @@
 'use client';
 import { todayLocal } from '@/app/lib/dateLocal';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useSkus } from '@/app/context/SkuContext';
 import { recordActivity } from '@/app/lib/recordActivity';
+import { useSyncedStorage } from '@/app/hooks/useSyncedStorage';
 
 const KOREKSI_STORAGE = 'mma_koreksi_po';
+const HPP_STORAGE = 'mma_hpp_purchases';
 
 interface KoreksiPOItem {
   id: string;
@@ -36,6 +38,23 @@ export default function KoreksiPOTab() {
     if (typeof window === 'undefined') return [];
     try { const r = localStorage.getItem(KOREKSI_STORAGE); return r ? JSON.parse(r) : []; } catch { return []; }
   });
+
+  // PO yang pernah dikoreksi harga/qty (di Arsip Invoice) & masih ada sisa tagihan
+  // → Finance bisa langsung tahu koreksi mana yang harus dibayar.
+  const [hpp] = useSyncedStorage<any[]>(HPP_STORAGE, []);
+  const koreksiBelumDibayar = useMemo(() => {
+    const m = new Map<string, { noPO: string; supplierNama: string; total: number; dibayar: number; sisa: number; koreksiPada: string }>();
+    for (const i of hpp) {
+      if (!i || !i.dikoreksi) continue;
+      const g = m.get(i.noPO) || { noPO: i.noPO, supplierNama: i.supplierNama || '', total: 0, dibayar: 0, sisa: 0, koreksiPada: i.koreksiPada || '' };
+      g.total += i.total || 0;
+      g.dibayar += i.dibayar || 0;
+      g.sisa += i.sisaTagihan || 0;
+      if (!g.koreksiPada && i.koreksiPada) g.koreksiPada = i.koreksiPada;
+      m.set(i.noPO, g);
+    }
+    return Array.from(m.values()).filter(g => g.sisa > 0).sort((a, b) => b.sisa - a.sisa);
+  }, [hpp]);
 
   const updateStatus = (id: string, status: KoreksiPOItem['status']) => {
     const item = koreksiList.find(k => k.id === id);
@@ -196,6 +215,36 @@ ${harusKurangi ? `📦 Stok Inventory dikurangi ${item.qty} (barang tidak datang
           <p className="text-4xl">✅</p>
           <p className="mt-2 text-sm font-semibold text-slate-500">Tidak ada koreksi PO</p>
           <p className="text-xs text-slate-400 mt-1">Koreksi muncul jika Inventory melaporkan masalah pada barang yang diterima.</p>
+        </div>
+      )}
+
+      {/* ── Selisih koreksi harga/qty yang belum dibayar (untuk Finance) ── */}
+      {koreksiBelumDibayar.length > 0 && (
+        <div className="mt-6">
+          <p className="text-sm font-bold text-amber-700 mb-2">💰 Koreksi Harga/Qty yang Belum Dibayar ({koreksiBelumDibayar.length})</p>
+          <p className="text-xs text-slate-500 mb-2">PO yang pernah dikoreksi di Arsip Invoice dan masih ada sisa tagihan — proses di Keuangan → Pembayaran PO.</p>
+          <div className="overflow-x-auto rounded-xl border border-amber-200">
+            <table className="w-full text-left text-sm">
+              <thead><tr className="bg-amber-50 text-xs uppercase text-amber-700">
+                {['No PO','Supplier','Total Terkoreksi','Dibayar','Sisa','Koreksi Pada','Aksi'].map(c => <th key={c} className="px-3 py-2.5 font-semibold">{c}</th>)}
+              </tr></thead>
+              <tbody className="divide-y divide-amber-50 bg-white">
+                {koreksiBelumDibayar.map(g => (
+                  <tr key={g.noPO}>
+                    <td className="px-3 py-2.5 font-mono text-xs font-bold text-indigo-700">{g.noPO}</td>
+                    <td className="px-3 py-2.5 text-xs text-slate-600">{g.supplierNama}</td>
+                    <td className="px-3 py-2.5 text-xs text-slate-600">Rp {g.total.toLocaleString('id-ID')}</td>
+                    <td className="px-3 py-2.5 text-xs font-semibold text-emerald-600">Rp {g.dibayar.toLocaleString('id-ID')}</td>
+                    <td className="px-3 py-2.5 text-xs font-bold text-red-600">Rp {g.sisa.toLocaleString('id-ID')}</td>
+                    <td className="px-3 py-2.5 text-[10px] text-slate-400">{g.koreksiPada ? new Date(g.koreksiPada).toLocaleString('id-ID') : '-'}</td>
+                    <td className="px-3 py-2.5">
+                      <a href="/keuangan" className="rounded-lg bg-indigo-500 px-2 py-1 text-[10px] font-semibold text-white hover:bg-indigo-700">💳 Bayar di Keuangan</a>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>

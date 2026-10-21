@@ -10,7 +10,7 @@ import { loadPencairan, savePencairan, totalPencairan, PENCAIRAN_STORAGE, type P
 import { recordActivity } from '@/app/lib/recordActivity';
 import { readTombstones, applyTombstones, addTombstones, type Tombstone } from '@/app/lib/tombstones';
 import { useSyncedStorage } from '@/app/hooks/useSyncedStorage';
-import { storageGetRaw } from '@/app/lib/idbStorage';
+import { storageGetRaw, setJSON } from '@/app/lib/idbStorage';
 import HapusDataTab from './HapusDataTab';
 
 /* ================================================================ */
@@ -209,7 +209,8 @@ function SaldoKas() {
   const kasKecil = kasKecilList.reduce((s, e) => s + (e.jenis === 'masuk' ? e.jumlah : -e.jumlah), 0);
 
   // Total pengeluaran dari Kas Besar
-  const totalPengeluaran = useMemo(() => {
+  // (dihitung ulang tiap render supaya refund/tombstone pembayaran langsung kelihatan di saldo)
+  const totalPengeluaran = (() => {
     try {
       let keluar = 0;
       const payments = applyTombstones('mma_payment_history', JSON.parse(localStorage.getItem('mma_payment_history') || '[]'), readTombstones());
@@ -220,7 +221,7 @@ function SaldoKas() {
       keluar += opex.reduce((s: number, o: any) => s + (o.total || 0), 0);
       return keluar;
     } catch { return 0; }
-  }, []);
+  })();
 
   const totalPencairanSum = totalPencairan(pencairan);
   // Uang yang bisa dicairkan dari marketplace = Pendapatan Kotor − Fee (= HPP + Keuntungan)
@@ -1483,19 +1484,98 @@ function ArusKasTab() {
 /* TAB 3: Riwayat Pembayaran                                        */
 /* ================================================================ */
 function RiwayatTab() {
-  const [payments] = useLocalStorage<PaymentRecord[]>(PAYMENT_STORAGE, []);
+  const [payments, setPayments] = useLocalStorage<PaymentRecord[]>(PAYMENT_STORAGE, []);
   const [search, setSearch] = useState('');
   const [filterBulan, setFilterBulan] = useState('');
+  const [refundPay, setRefundPay] = useState<PaymentRecord | null>(null);
+  const [refundBusy, setRefundBusy] = useState(false);
+  const [tombs, setTombs] = useState<Tombstone[]>([]);
+
+  useEffect(() => {
+    const load = () => setTombs(readTombstones());
+    load();
+    window.addEventListener('tombstones-updated', load);
+    window.addEventListener('storage', load);
+    return () => {
+      window.removeEventListener('tombstones-updated', load);
+      window.removeEventListener('storage', load);
+    };
+  }, []);
+
+  const payIds = useMemo(() => new Set(tombs.filter(t => t.kind === 'payment').map(t => t.id)), [tombs]);
+  const paymentsAktif = useMemo(() => payments.filter(p => !payIds.has(p.id)), [payments, payIds]);
 
   const filtered = useMemo(() => {
-    return payments.filter(p => {
+    return paymentsAktif.filter(p => {
       if (filterBulan && !p.tanggalBayar.startsWith(filterBulan)) return false;
       if (search && !p.noPO.toLowerCase().includes(search.toLowerCase()) && !p.supplierNama.toLowerCase().includes(search.toLowerCase())) return false;
       return true;
     });
-  }, [payments, filterBulan, search]);
+  }, [paymentsAktif, filterBulan, search]);
 
   const totalDibayar = filtered.reduce((s, p) => s + p.jumlahDibayar, 0);
+
+  /* ── Refund pembayaran (mis. bayar 2x) ──
+   * Tombstone pembayaran → pengeluaran Kas Besar otomatis batal (uang kembali).
+   * Item HPP PO dihitung ulang → kalau koreksi PO masih ada selisih, PO kembali
+   * berstatus "belum lunas" dan muncul di tab Pembayaran PO. */
+  const prosesRefundPembayaran = async () => {
+    if (!refundPay) return;
+    setRefundBusy(true);
+    const jml = refundPay.jumlahDibayar;
+    const noPO = refundPay.noPO;
+    let sisaSetelah = 0;
+    try {
+      // 1. Tombstone pembayaran → riwayat & Kas Besar otomatis menyesuaikan
+      addTombstones([{ id: refundPay.id, kind: 'payment' }]);
+      setPayments(prev => prev.filter(x => x.id !== refundPay.id));
+
+      // 2. Hitung ulang dibayar/lunas item HPP PO ini dari pembayaran yang tersisa
+      const raw = await storageGetRaw(HPP_STORAGE);
+      if (raw) {
+        const hpp: HppPurchase[] = JSON.parse(raw);
+        const tombsNow = readTombstones();
+        const tombPayIds = new Set(tombsNow.filter(t => t.kind === 'payment').map(t => t.id));
+        const remaining = payments.filter(p => p.noPO === noPO && !tombPayIds.has(p.id));
+        const totalDibayar = remaining.reduce((s, p) => s + (p.jumlahDibayar || 0), 0);
+        const items = hpp.filter(x => x.noPO === noPO);
+        const total = items.reduce((s, i) => s + (i.total || 0), 0);
+        const dibayar = Math.min(totalDibayar, total);
+        const ratio = total > 0 ? dibayar / total : 0;
+        const now = Date.now();
+        const updated = hpp.map(x => {
+          if (x.noPO !== noPO) return x;
+          const alokasi = Math.min(Math.round((x.total || 0) * ratio), x.total || 0);
+          return { ...x, dibayar: alokasi, sisaTagihan: Math.max(0, (x.total || 0) - alokasi), lunas: alokasi >= (x.total || 0), updatedAt: now };
+        });
+        await setJSON(HPP_STORAGE, updated);
+        sisaSetelah = Math.max(0, total - dibayar);
+      }
+
+      // 3. Catatan audit refund (nilaiRefund 0 → kas sudah kembali lewat pembatalan pengeluaran)
+      try {
+        const rf = JSON.parse(localStorage.getItem(REFUND_STORAGE) || '[]');
+        rf.push({
+          id: `refpay-${Date.now()}`, noPO, supplierNama: refundPay.supplierNama,
+          sku: '-', namaSku: `Refund pembayaran ganda (${refundPay.tanggalBayar} — ${refundPay.dibayarOleh || '-'})`,
+          qty: 1, tanggal: todayLocal(), status: 'selesai' as const, nilaiRefund: 0, tujuanKas: 'besar' as const,
+        });
+        localStorage.setItem(REFUND_STORAGE, JSON.stringify(rf));
+        try { window.dispatchEvent(new Event('refund-updated')); } catch {}
+      } catch {}
+
+      recordActivity([{ modul: 'keuangan', aksi: 'refund', refLabel: noPO, detail: { jumlah: jml, alasan: 'pembayaran ganda' } }]);
+      try { window.dispatchEvent(new Event('pembelian-updated')); } catch {}
+      try { window.dispatchEvent(new Event('kas-kecil-updated')); } catch {}
+
+      alert(`↩️ Refund pembayaran ${noPO} sebesar Rp ${jml.toLocaleString('id-ID')} selesai.\n\n🏦 Uang otomatis kembali ke Kas Besar (pengeluaran pembayaran ini dibatalkan).${sisaSetelah > 0 ? `\n\n⚠️ PO ini masih punya SISA Rp ${sisaSetelah.toLocaleString('id-ID')} (selisih koreksi) — sekarang tampil di tab Pembayaran PO untuk dibayar.` : ''}`);
+    } catch {
+      alert('Gagal memproses refund.');
+    } finally {
+      setRefundBusy(false);
+      setRefundPay(null);
+    }
+  };
 
   return (
     <div>
@@ -1532,11 +1612,12 @@ function RiwayatTab() {
               <th className="px-3 py-3 font-semibold hidden sm:table-cell">Metode</th>
               <th className="px-3 py-3 font-semibold hidden sm:table-cell">No. Ref</th>
               <th className="px-3 py-3 font-semibold hidden sm:table-cell">Oleh</th>
+              <th className="px-3 py-3 text-center font-semibold">Aksi</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-50 bg-white">
             {filtered.length === 0 ? (
-              <tr><td colSpan={7} className="px-3 py-8 text-center text-sm text-slate-400">Belum ada riwayat pembayaran.</td></tr>
+              <tr><td colSpan={8} className="px-3 py-8 text-center text-sm text-slate-400">Belum ada riwayat pembayaran.</td></tr>
             ) : filtered.map(p => (
               <tr key={p.id} className="hover:bg-slate-50 transition">
                 <td className="px-3 py-2.5 text-xs text-slate-500">{p.tanggalBayar}</td>
@@ -1546,11 +1627,38 @@ function RiwayatTab() {
                 <td className="px-3 py-2.5 text-xs text-slate-500 hidden sm:table-cell">{METODE_OPTIONS.find(m => m.value === p.metode)?.label ?? p.metode}</td>
                 <td className="px-3 py-2.5 text-xs text-slate-400 hidden sm:table-cell font-mono">{p.nomorRef}</td>
                 <td className="px-3 py-2.5 text-xs text-slate-500 hidden sm:table-cell">{p.dibayarOleh}</td>
+                <td className="px-3 py-2.5 text-center">
+                  <button onClick={() => setRefundPay(p)} title="Refund / batalkan pembayaran ini (uang kembali ke Kas Besar)"
+                    className="rounded-lg bg-red-100 px-2 py-1 text-xs font-semibold text-red-600 hover:bg-red-200">↩️</button>
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+
+      {/* Modal Refund Pembayaran */}
+      {refundPay && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
+            <p className="text-lg font-bold text-slate-800">↩️ Refund Pembayaran</p>
+            <div className="mt-2 rounded-xl bg-red-50 px-4 py-3 text-sm text-slate-700">
+              <p><span className="font-mono font-bold text-indigo-700">{refundPay.noPO}</span> — {refundPay.supplierNama}</p>
+              <p className="mt-1">Rp <strong>{refundPay.jumlahDibayar.toLocaleString('id-ID')}</strong> ({refundPay.tanggalBayar} · {refundPay.dibayarOleh || '-'})</p>
+            </div>
+            <p className="mt-2 text-xs text-slate-500">
+              Pembayaran ini akan dibatalkan (mis. pembayaran ganda). 💰 Uang otomatis kembali ke <strong>Kas Besar</strong>, dan sisa tagihan PO dihitung ulang.
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button onClick={() => setRefundPay(null)} className="rounded-xl bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-600">Batal</button>
+              <button onClick={prosesRefundPembayaran} disabled={refundBusy}
+                className="rounded-xl bg-red-500 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-300">
+                {refundBusy ? 'Memproses…' : '↩️ Refund Sekarang'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
