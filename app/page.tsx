@@ -4,6 +4,8 @@ import React, { useEffect } from 'react';
 import { SalesSummary } from '@/app/components/SalesSummary';
 import { ShortcutModule } from '@/app/components/ShortcutModule';
 import { StockSummary } from '@/app/components/StockSummary';
+import { BeritaSection } from '@/app/components/BeritaSection';
+import { CollapsibleCard } from '@/app/components/CollapsibleCard';
 import AgregasiDashboard from '@/app/components/AgregasiDashboard';
 import { useDashboardRefresh } from '@/app/hooks/useDashboardRefresh';
 import { useUser } from '@/app/hooks/useUser';
@@ -52,10 +54,27 @@ export default function HomePage() {
         </p>
       </header>
 
-      <section className="grid gap-5 md:grid-cols-[1.3fr_0.7fr]">
-        <StockSummary data={data.stockSummary} />
+      {/* ── Berita Marketplace & E-Commerce (Google News) ── */}
+      <BeritaSection />
 
-        <SalesSummary data={data.salesSummary} />
+      {/* ── Ringkasan Stok & Penjualan — bisa dikecilkan ── */}
+      <section className="grid gap-5 md:grid-cols-[1.3fr_0.7fr]">
+        <CollapsibleCard
+          storageKey="mma_ui_collapse_stok"
+          title="Ringkasan Stok"
+          icon="📦"
+          summary={`${data.stockSummary.totalItems} item terpantau • ${data.stockSummary.lowStockCount} menipis`}
+        >
+          <StockSummary data={data.stockSummary} />
+        </CollapsibleCard>
+        <CollapsibleCard
+          storageKey="mma_ui_collapse_penjualan"
+          title="Ringkasan Penjualan"
+          icon="💰"
+          summary={`Rp ${data.salesSummary.today.toLocaleString('id-ID')} • ${data.salesSummary.transactions} transaksi`}
+        >
+          <SalesSummary data={data.salesSummary} />
+        </CollapsibleCard>
       </section>
 
       {/* ── Agregasi Pesanan dari Data Entry & Operasional Gudang ── */}
