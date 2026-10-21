@@ -43,6 +43,8 @@ export function BeritaSection() {
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+  // Otomatis ambil berita terbaru tiap 10 menit (sinkron dengan cache server)
+  useEffect(() => { const t = setInterval(() => { void load(); }, 10 * 60 * 1000); return () => clearInterval(t); }, [load]);
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 60000); return () => clearInterval(t); }, []);
 
   return (
@@ -53,7 +55,7 @@ export function BeritaSection() {
           <h2 className="text-lg font-bold text-slate-800 sm:text-xl">📰 Marketplace & E-Commerce</h2>
         </div>
         <div className="flex items-center gap-2">
-          <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-semibold text-slate-500">via Google News · gratis</span>
+          <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-semibold text-slate-500">via Google News · gratis · auto-refresh tiap 10 mnt</span>
           <button onClick={() => void load()} className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-brand-50 hover:text-brand-700">
             🔄 {loading ? 'Memuat…' : 'Segarkan'}
           </button>

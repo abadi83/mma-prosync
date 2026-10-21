@@ -92,7 +92,7 @@ export async function fetchBerita(): Promise<BeritaItem[]> {
     uniq.push(it);
   }
   uniq.sort((a, b) => (b.pubDate || '').localeCompare(a.pubDate || ''));
-  const items = uniq.slice(0, 12);
+  const items = uniq.slice(0, 5);
   cache = { at: Date.now(), items };
   return items;
 }
