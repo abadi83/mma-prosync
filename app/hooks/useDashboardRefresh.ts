@@ -25,6 +25,7 @@ export function useDashboardRefresh(intervalMs = 30000) {
       { title: 'Pengaturan', category: 'System', description: 'Info toko, akun, ubah password & preferensi.', href: '/pengaturan' },
       { title: 'Kepegawaian', category: 'HR', description: 'Data pegawai, absensi harian, rekap kehadiran & penilaian KPI.', href: '/kepegawaian' },
       { title: 'Tugas Pekerjaan', category: 'Manajemen', description: 'Beri & assign tugas, pantau progress, laporan selesai & Gantt chart.', href: '/tugas' },
+      { title: 'News MMA', category: 'Komunikasi', description: 'Buat berita internal — Morning Briefing, Operational News & Klaim News.', href: '/news-mma' },
       { title: 'Data Entry', category: 'Operasional', description: 'Input data operasional & keuangan per marketplace.', href: '/data-entry' },
     ],
   });

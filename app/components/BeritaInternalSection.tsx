@@ -47,7 +47,7 @@ export function BeritaInternalSection() {
                 <span className="rounded-full bg-black/25 px-2 py-0.5 text-[10px] font-bold">{def.icon} {def.label}</span>
                 <div>
                   <p className="text-sm font-bold">Belum ada berita</p>
-                  <p className="mt-1 text-xs text-white/70">Isi di Data Entry → News MMA</p>
+                  <a href="/news-mma" className="mt-1 inline-block text-xs text-white/70 underline hover:text-white">Isi di News MMA →</a>
                 </div>
               </div>
             );
