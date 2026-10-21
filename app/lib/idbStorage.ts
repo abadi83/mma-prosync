@@ -74,16 +74,27 @@ function idbGet(key: string): Promise<string | null> {
 
 function idbSet(key: string, value: string): Promise<boolean> {
   return openDb().then(
-    (db) =>
-      new Promise<boolean>((resolve) => {
-        if (!db) return resolve(false);
-        try {
+    async (db) => {
+      if (!db) return false;
+      try {
+        const ok = await new Promise<boolean>((resolve) => {
           const tx = db.transaction(IDB_STORE, 'readwrite');
           tx.objectStore(IDB_STORE).put(value, key);
           tx.oncomplete = () => resolve(true);
           tx.onerror = () => resolve(false);
-        } catch { resolve(false); }
-      })
+          tx.onabort = () => resolve(false);
+        });
+        if (!ok) {
+          // Koneksi mungkin rusak/terblokir → tutup & buka baru di percobaan berikutnya
+          dbPromise = null;
+          try { db.close(); } catch {}
+        }
+        return ok;
+      } catch {
+        dbPromise = null;
+        return false;
+      }
+    }
   );
 }
 
@@ -143,6 +154,11 @@ export async function storageSetRaw(key: string, value: string): Promise<boolean
     }
   } else {
     ok = await idbSet(key, value);
+    if (!ok) {
+      // Coba sekali lagi dengan koneksi IndexedDB baru (bisa pulih dari koneksi terblokir)
+      await new Promise(r => setTimeout(r, 400));
+      ok = await idbSet(key, value);
+    }
     if (ok) {
       lsRemove(key); // salinan lama di localStorage tidak lagi dipakai
       // Penanda dirty → GlobalSyncProvider menandai key ini berubah

@@ -27,10 +27,26 @@ export function useSyncedStorage<T>(key: string, fallback: T): [T, React.Dispatc
     return () => { cancelled = true; mounted.current = false; };
   }, [key]);
 
-  // Write-through saat nilai berubah (setelah hydrate)
+  // Write-through saat nilai berubah (setelah hydrate).
+  // Key besar bisa gagal (koneksi IndexedDB terblokir) → coba ulang sekali,
+  // lalu beri sinyal "penyimpanan bermasalah" supaya user tahu data belum aman.
   useEffect(() => {
     if (!hydrated || !mounted.current) return;
-    void storageSetRaw(key, JSON.stringify(val));
+    let cancelled = false;
+    const write = async () => {
+      const raw = JSON.stringify(val);
+      let ok = await storageSetRaw(key, raw);
+      if (!ok) {
+        await new Promise(r => setTimeout(r, 600));
+        if (cancelled) return;
+        ok = await storageSetRaw(key, raw);
+      }
+      if (!ok && typeof window !== 'undefined') {
+        try { window.dispatchEvent(new CustomEvent('sync-storage-error', { detail: { key } })); } catch {}
+      }
+    };
+    void write();
+    return () => { cancelled = true; };
   }, [val, key, hydrated]);
 
   // LIVE UPDATE: komputer lain nge-sync data baru → baca ulang penyimpanan

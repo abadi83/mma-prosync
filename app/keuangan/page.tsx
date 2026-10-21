@@ -888,15 +888,46 @@ function PembayaranTab() {
     if (jml > bayarPoGroup.sisa) { setFerr(`Maks Rp ${bayarPoGroup.sisa.toLocaleString('id-ID')}.`); return; }
 
     const isCash = bayarPoGroup.metodeBayar === 'cash';
-    // Distribute payment proportionally across SKU lines
-    const ratio = bayarPoGroup.total > 0 ? jml / bayarPoGroup.total : 0;
-    setHppData(prev => prev.map(p => {
-      if (p.noPO !== bayarPoGroup.noPO) return p;
-      const alokasi = Math.round(p.total * ratio);
-      const newDibayar = p.dibayar + alokasi;
-      const newSisa = p.total - newDibayar;
-      return { ...p, dibayar: newDibayar, sisaTagihan: newSisa > 0 ? newSisa : 0, lunas: newDibayar >= p.total, updatedAt: Date.now(), ...(isCash ? { dibayarKePetugas: true } : {}) };
-    }));
+    // Distribusi pembayaran ke baris SKU secara EXACT (largest remainder atas sisa
+    // tiap item) — membayar sisa tepat membuat SEMUA item lunas, tanpa sisa recehan.
+    setHppData(prev => {
+      const poItems = prev.filter(p => p.noPO === bayarPoGroup.noPO);
+      const sisaMap = new Map<string, number>();
+      let totalSisa = 0;
+      for (const p of poItems) {
+        const s = Math.max(0, p.total - p.dibayar);
+        sisaMap.set(p.id, s);
+        totalSisa += s;
+      }
+      const jmlEfektif = Math.min(jml, totalSisa);
+      const ratio = totalSisa > 0 ? jmlEfektif / totalSisa : 0;
+      const alokasi = new Map<string, number>();
+      let sumFloor = 0;
+      for (const p of poItems) {
+        const f = Math.floor((sisaMap.get(p.id) || 0) * ratio);
+        alokasi.set(p.id, f);
+        sumFloor += f;
+      }
+      let sisaDistribusi = jmlEfektif - sumFloor;
+      const urut = [...poItems].sort((a, b) => {
+        const ra = (sisaMap.get(a.id) || 0) * ratio - Math.floor((sisaMap.get(a.id) || 0) * ratio);
+        const rb = (sisaMap.get(b.id) || 0) * ratio - Math.floor((sisaMap.get(b.id) || 0) * ratio);
+        return rb - ra;
+      });
+      for (const p of urut) {
+        if (sisaDistribusi <= 0) break;
+        alokasi.set(p.id, (alokasi.get(p.id) || 0) + 1);
+        sisaDistribusi--;
+      }
+      const now = Date.now();
+      return prev.map(p => {
+        if (p.noPO !== bayarPoGroup.noPO) return p;
+        const alok = Math.min(alokasi.get(p.id) || 0, Math.max(0, p.total - p.dibayar));
+        const newDibayar = p.dibayar + alok;
+        const newSisa = p.total - newDibayar;
+        return { ...p, dibayar: newDibayar, sisaTagihan: newSisa > 0 ? newSisa : 0, lunas: newDibayar >= p.total, updatedAt: now, ...(isCash ? { dibayarKePetugas: true } : {}) };
+      });
+    });
 
     const supplierLabel = isCash && bayarPoGroup.petugasLogistik
       ? `${bayarPoGroup.supplierNama} (via ${bayarPoGroup.petugasLogistik})`
