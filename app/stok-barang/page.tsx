@@ -5,10 +5,11 @@ import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { Html5Qrcode } from 'html5-qrcode';
 import { BarangMasukForm, type BarangMasukEntry } from '@/app/stok-barang/components/BarangMasukForm';
 import { BarangKeluarForm, type BarangKeluarEntry } from '@/app/stok-barang/components/BarangKeluarForm';
+import { DenahRakTab } from '@/app/stok-barang/components/DenahRakTab';
 import { useSkus, type SkuItem } from '@/app/context/SkuContext';
 import { recordActivity } from '@/app/lib/recordActivity';
 
-type Tab = 'opname' | 'masuk' | 'keluar' | 'cek-stok' | 'riwayat' | 'po-check';
+type Tab = 'opname' | 'masuk' | 'keluar' | 'cek-stok' | 'riwayat' | 'po-check' | 'denah';
 
 const TABS: { key: Tab; label: string; icon: string }[] = [
   { key: 'opname', label: 'Stok Opname', icon: '🔍' },
@@ -17,6 +18,7 @@ const TABS: { key: Tab; label: string; icon: string }[] = [
   { key: 'cek-stok', label: 'Cek Stok', icon: '📋' },
   { key: 'riwayat', label: 'Riwayat Mutasi', icon: '🕐' },
   { key: 'po-check', label: 'PO Checklist', icon: '✅' },
+  { key: 'denah', label: 'Denah Rak', icon: '🗄️' },
 ];
 
 export default function StokBarangPage() {
@@ -61,7 +63,7 @@ export default function StokBarangPage() {
         {tab === 'masuk' && <BarangMasuk />}
         {tab === 'keluar' && <BarangKeluar />}
         {tab === 'cek-stok' && <CekStok />}
-        {tab === 'riwayat' && <RiwayatMutasi />}        {tab==='po-check' && <PoChecklist />}      </section>
+        {tab === 'riwayat' && <RiwayatMutasi />}        {tab==='po-check' && <PoChecklist />}        {tab==='denah' && <DenahRakTab />}      </section>
     </main>
   );
 }
