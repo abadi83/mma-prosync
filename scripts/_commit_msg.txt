@@ -1,0 +1,16 @@
+fix: pembayaran PO tidak tiba di Arsip Invoice / perangkat lain
+
+Akar masalah: item HPP (mma_hpp_purchases) tidak punya updatedAt, jadi
+merge sync jatuh ke aturan "lokal menang" — tab/perangkat yang masih
+memegang salinan lama menimpa balik status bayar (lunas) di server.
+Riwayat bayar tetap benar karena key-nya terpisah.
+
+- updatedAt kini dipasang saat PO dibuat (HPP & belanja picking),
+  dikoreksi, dan saat pembayaran PO di Keuangan
+- mergeUnion diperkuat: sisi yang PUNYA updatedAt menang atas sisi
+  tanpa timestamp (salinan lama tidak bisa lagi menimpa edit baru)
+- Siaran lintas tab via BroadcastChannel: perubahan key IndexedDB
+  (HPP/SKU) langsung terlihat di tab lain tanpa refresh
+- 6 unit test baru untuk aturan merge updatedAt
+
+Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>

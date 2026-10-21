@@ -54,6 +54,23 @@ export function useSyncedStorage<T>(key: string, fallback: T): [T, React.Dispatc
     };
   }, [key, fallback]);
 
+  // LIVE UPDATE lintas tab: key IndexedDB tidak memicu event 'storage',
+  // jadi perubahan di tab lain dikirim lewat BroadcastChannel.
+  useEffect(() => {
+    if (typeof BroadcastChannel === 'undefined') return;
+    const bc = new BroadcastChannel('mma-storage-changes');
+    bc.onmessage = (e: MessageEvent) => {
+      const k = (e.data as { key?: string } | null)?.key;
+      if (k && k !== key) return;
+      void (async () => {
+        const raw = await storageGetRaw(key);
+        if (!mounted.current) return;
+        try { setVal(raw !== null ? JSON.parse(raw) : fallback); } catch {}
+      })();
+    };
+    return () => bc.close();
+  }, [key, fallback]);
+
   return [val, setVal];
 }
 

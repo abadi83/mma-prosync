@@ -7,7 +7,7 @@ import {
   getDeviceId, getDeviceName, deviceQuery, DEVICES_CACHE_KEY,
   type SyncDevice,
 } from '@/app/lib/deviceIdentity';
-import { storageGetRaw, storageSetRaw, storageRemove, DIRTY_PREFIX } from '@/app/lib/idbStorage';
+import { storageGetRaw, storageSetRaw, storageRemove, DIRTY_PREFIX, storageBroadcast } from '@/app/lib/idbStorage';
 
 /**
  * GlobalSyncProvider — sync dua arah untuk SEMUA data yang masih di localStorage.
@@ -148,7 +148,7 @@ function installDirtyTracker(): void {
   } catch {}
 }
 
-function mergeUnion<T>(key: string, a: T[], b: T[], excluded?: Set<string>): T[] {
+export function mergeUnion<T>(key: string, a: T[], b: T[], excluded?: Set<string>): T[] {
   const map = new Map<string, T>();
   for (const item of [...b, ...a]) {
     const k = itemKey(key, item);
@@ -158,15 +158,19 @@ function mergeUnion<T>(key: string, a: T[], b: T[], excluded?: Set<string>): T[]
       map.set(k, item);
       continue;
     }
-    // Item yang sama dari dua sisi: kalau KEDUANYA punya updatedAt (timestamp edit),
-    // versi terbaru yang menang — mencegah edit user A ditimpa versi lama user B
-    // (sebelumnya "lokal menang" selalu, jadi edit antar komputer bisa bolak-balik).
+    // Item yang sama dari dua sisi: kalau salah satu/keduanya punya updatedAt (timestamp edit),
+    // versi TERBARU yang menang. Sisi yang TIDAK punya updatedAt dianggap paling tua —
+    // supaya edit baru (mis. pembayaran PO) tidak bisa ditimpa salinan lama dari
+    // tab/perangkat lain yang belum kebagian timestamp (akar masalah "data balik lagi").
     const tsItem = (item as any)?.updatedAt;
     const tsExisting = (existing as any)?.updatedAt;
-    if (typeof tsItem === 'number' && typeof tsExisting === 'number') {
-      if (tsItem >= tsExisting) map.set(k, item);
+    const itemHas = typeof tsItem === 'number' && isFinite(tsItem);
+    const existingHas = typeof tsExisting === 'number' && isFinite(tsExisting);
+    if (itemHas || existingHas) {
+      if (itemHas && (!existingHas || tsItem >= tsExisting)) map.set(k, item);
+      // kalau existing lebih baru (atau satu-satunya yang punya timestamp) → biarkan existing
     } else {
-      map.set(k, item); // tanpa timestamp: perilaku lama (sisi lokal menang)
+      map.set(k, item); // keduanya tanpa timestamp: perilaku lama (sisi lokal menang)
     }
   }
   return Array.from(map.values());
@@ -341,6 +345,8 @@ function notifyListeners(key: string) {
     window.dispatchEvent(new Event('refresh-upload-history'));
     window.dispatchEvent(new Event('refresh-laporan'));
     window.dispatchEvent(new Event('storage'));
+    // Siaran ke TAB LAIN (key IndexedDB tidak memicu event 'storage' lintas tab)
+    storageBroadcast(key);
   } catch {}
 }
 

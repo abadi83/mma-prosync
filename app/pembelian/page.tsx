@@ -44,6 +44,7 @@ interface HppPurchase {
   tanggal: string;
   jatuhTempo: string;    // untuk kontrabon
   lunas: boolean;
+  updatedAt?: number;    // timestamp edit terakhir → merge sync pilih versi terbaru (anti ketimpa)
   dikoreksi?: boolean;   // PO pernah dikoreksi (harga/qty/foto nota)
   koreksiPada?: string;  // waktu koreksi terakhir
   petugasLogistik?: string;  // Nama petugas yang menjemput PO (cash: yg talangi dulu)
@@ -337,6 +338,7 @@ function BelanjaPickingTab({ onGoHpp }: { onGoHpp?: () => void }) {
           dibayar: 0, sisaTagihan: subtotal,
           tanggal, jatuhTempo: metodeBayar === 'kontrabon' ? jatuhTempo : '',
           lunas: false, pickupStatus: 'belum',
+          updatedAt: Date.now(),
         };
         setPurchases(prev => [purchase, ...prev]);
         // Stok TIDAK naik di sini — naik saat barang berhasil di-checklist di Stok Barang → PO Checklist
@@ -1053,6 +1055,7 @@ function HppSkuTab() {
         jatuhTempo: metodeBayar === 'kontrabon' ? jatuhTempo : '',
         lunas: false,
         pickupStatus: 'belum',  // menunggu penjemputan oleh logistik
+        updatedAt: Date.now(),
         ...(isFirst && fotoBase64 ? { fotoBase64, namaFileFoto: fotoNama } : {}),
       };
       setPurchases(prev => [purchase, ...prev]);
@@ -2135,6 +2138,7 @@ function ArsipTab() {
         lunas: newSisa <= 0,
         dikoreksi: true,
         koreksiPada: new Date().toISOString(),
+        updatedAt: Date.now(),
         ...fotoPatch(p.namaFileFoto),
       });
     }
@@ -2161,6 +2165,7 @@ function ArsipTab() {
         lunas: total <= 0,
         dikoreksi: true,
         koreksiPada: new Date().toISOString(),
+        updatedAt: Date.now(),
         ...fotoPatch(undefined),
       });
       if (it.qty) void updateStok(it.sku, it.qty);

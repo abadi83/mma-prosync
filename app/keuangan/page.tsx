@@ -28,6 +28,7 @@ interface HppPurchase {
   koreksiPada?: string;  // waktu koreksi terakhir
   fotoBase64?: string;   // foto nota dari Pembelian (untuk dilihat di Keuangan)
   namaFileFoto?: string;
+  updatedAt?: number;    // timestamp edit → merge sync pilih versi terbaru (anti ketimpa)
 }
 
 const HPP_STORAGE = 'mma_hpp_purchases';
@@ -893,7 +894,7 @@ function PembayaranTab() {
       const alokasi = Math.round(p.total * ratio);
       const newDibayar = p.dibayar + alokasi;
       const newSisa = p.total - newDibayar;
-      return { ...p, dibayar: newDibayar, sisaTagihan: newSisa > 0 ? newSisa : 0, lunas: newDibayar >= p.total, ...(isCash ? { dibayarKePetugas: true } : {}) };
+      return { ...p, dibayar: newDibayar, sisaTagihan: newSisa > 0 ? newSisa : 0, lunas: newDibayar >= p.total, updatedAt: Date.now(), ...(isCash ? { dibayarKePetugas: true } : {}) };
     }));
 
     const supplierLabel = isCash && bayarPoGroup.petugasLogistik

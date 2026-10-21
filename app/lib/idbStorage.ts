@@ -17,6 +17,17 @@ const IDB_NAME = 'mma-prosync-idb';
 const IDB_STORE = 'kv';
 export const DIRTY_PREFIX = '__dirty_';
 
+/* ── Siaran lintas tab: key besar di IndexedDB tidak memicu event 'storage' ── */
+let broadcastChannel: BroadcastChannel | null = null;
+
+export function storageBroadcast(key: string) {
+  if (typeof BroadcastChannel === 'undefined') return;
+  try {
+    if (!broadcastChannel) broadcastChannel = new BroadcastChannel('mma-storage-changes');
+    broadcastChannel.postMessage({ key, at: Date.now() });
+  } catch {}
+}
+
 let dbPromise: Promise<IDBDatabase | null> | null = null;
 
 function openDb(): Promise<IDBDatabase | null> {
@@ -124,22 +135,25 @@ export async function storageGetRaw(key: string): Promise<string | null> {
 
 /** Tulis nilai mentah. Return false kalau gagal (kuota localStorage untuk key kecil). */
 export async function storageSetRaw(key: string, value: string): Promise<boolean> {
+  let ok = false;
   if (!isBigKey(key)) {
-    const ok = lsSet(key, value);
+    ok = lsSet(key, value);
     if (!ok && typeof window !== 'undefined') {
       try { window.dispatchEvent(new CustomEvent('sync-storage-error', { detail: { key } })); } catch {}
     }
-    return ok;
+  } else {
+    ok = await idbSet(key, value);
+    if (ok) {
+      lsRemove(key); // salinan lama di localStorage tidak lagi dipakai
+      // Penanda dirty → GlobalSyncProvider menandai key ini berubah
+      lsSet(DIRTY_PREFIX + key, '1');
+    } else {
+      // IndexedDB tidak tersedia (mis. environment terbatas) → fallback localStorage
+      ok = lsSet(key, value);
+    }
   }
-  const ok = await idbSet(key, value);
-  if (ok) {
-    lsRemove(key); // salinan lama di localStorage tidak lagi dipakai
-    // Penanda dirty → GlobalSyncProvider menandai key ini berubah
-    lsSet(DIRTY_PREFIX + key, '1');
-    return true;
-  }
-  // IndexedDB tidak tersedia (mis. environment terbatas) → fallback localStorage
-  return lsSet(key, value);
+  if (ok) storageBroadcast(key);
+  return ok;
 }
 
 export async function storageRemove(key: string): Promise<void> {
