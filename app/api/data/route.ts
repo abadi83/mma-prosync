@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+import { mergeUnion } from '@/app/lib/syncMerge';
 
 export const dynamic = 'force-dynamic';
 
@@ -395,10 +396,20 @@ export async function POST(request: Request) {
       deletedRecords.delete(key);
       persistDeletedRecords();
     }
-    writeData(key, data);
+    // ── Merge sisi server (pertahanan ganda) ──
+    // Klien kode-lama masih pakai aturan "lokal menang" — push-nya bisa menimpa
+    // item yang SUDAH di-update (mis. pembayaran PO). Di sini item yang punya
+    // updatedAt di server dijaga: salinan lama (tanpa timestamp / lebih tua)
+    // tidak boleh menimpanya.
+    let finalData: any = data;
+    if (Array.isArray(data)) {
+      const existing = readData(key);
+      if (Array.isArray(existing)) finalData = mergeUnion(key, data, existing);
+    }
+    writeData(key, finalData);
     if (typeof device === 'string' && device) touchDevice(device, typeof name === 'string' ? name : '', 'push', key);
     // Sertakan sig terbaru → klien yang baru push tidak perlu menarik ulang data itu
-    return NextResponse.json({ success: true, key, count: Array.isArray(data) ? data.length : 1, sig: getFileSig(key) });
+    return NextResponse.json({ success: true, key, count: Array.isArray(finalData) ? finalData.length : 1, sig: getFileSig(key) });
   } catch (err: any) {
     console.error('POST /api/data error:', err?.message);
     return NextResponse.json({ error: 'Gagal menyimpan data.' }, { status: 500 });
