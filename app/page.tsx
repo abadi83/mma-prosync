@@ -5,6 +5,7 @@ import { SalesSummary } from '@/app/components/SalesSummary';
 import { ShortcutModule } from '@/app/components/ShortcutModule';
 import { StockSummary } from '@/app/components/StockSummary';
 import { BeritaSection } from '@/app/components/BeritaSection';
+import { BeritaInternalSection } from '@/app/components/BeritaInternalSection';
 import { CollapsibleCard } from '@/app/components/CollapsibleCard';
 import AgregasiDashboard from '@/app/components/AgregasiDashboard';
 import { useDashboardRefresh } from '@/app/hooks/useDashboardRefresh';
@@ -56,6 +57,9 @@ export default function HomePage() {
 
       {/* ── Berita Marketplace & E-Commerce (Google News) ── */}
       <BeritaSection />
+
+      {/* ── Kabar Toko: 3 slide berita internal (Morning / Operational / Klaim) ── */}
+      <BeritaInternalSection />
 
       {/* ── Ringkasan Stok & Penjualan — bisa dikecilkan ── */}
       <section className="grid gap-5 md:grid-cols-[1.3fr_0.7fr]">

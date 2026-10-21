@@ -11,14 +11,16 @@ import { recordActivity } from '@/app/lib/recordActivity';
 import { markMasukSaldoByResi, syncSaldoKeOperasional } from '@/app/lib/saldoMarketplace';
 import { getJSON } from '@/app/lib/idbStorage';
 import { pushToDataServer } from '@/app/lib/dataApi';
+import { NewsMmaTab } from '@/app/data-entry/components/NewsMmaTab';
 
-type Tab = 'shopee' | 'operasional' | 'keuangan' | 'riwayat';
+type Tab = 'shopee' | 'operasional' | 'keuangan' | 'riwayat' | 'news';
 
 const TABS: { key: Tab; label: string; icon: string }[] = [
   { key: 'shopee', label: 'Pesanan Marketplace', icon: '🛒' },
   { key: 'operasional', label: 'Input Operasional', icon: '📋' },
   { key: 'keuangan', label: 'Input Keuangan', icon: '💰' },
   { key: 'riwayat', label: 'Riwayat Entry', icon: '📜' },
+  { key: 'news', label: 'News MMA', icon: '📰' },
 ];
 
 /* ── Data Marketplace dari Data Master ── */
@@ -178,6 +180,7 @@ export default function DataEntryPage() {
           </div>
         )}
         {tab==='riwayat' && <RiwayatEntry />}
+        {tab==='news' && <NewsMmaTab />}
       </section>
     </main>
   );
