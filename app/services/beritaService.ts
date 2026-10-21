@@ -66,7 +66,7 @@ const CACHE_TTL_MS = 10 * 60 * 1000;
 export async function fetchBerita(): Promise<BeritaItem[]> {
   if (cache && Date.now() - cache.at < CACHE_TTL_MS) return cache.items;
 
-  const queries = ['marketplace ecommerce', 'ecommerce'];
+  const queries = ['marketplace ecommerce', 'ecommerce', 'Shopee', 'TikTok Shop', 'Lazada', 'Tokopedia'];
   const all: BeritaItem[] = [];
   for (const q of queries) {
     try {
