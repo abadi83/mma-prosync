@@ -100,6 +100,7 @@ function loadAbsensiFace(): AbsensiFaceRecord[] {
 function saveAbsensiFace(records: AbsensiFaceRecord[]) {
   if (typeof window === 'undefined') return;
   try { localStorage.setItem(ABSENSI_FACE_KEY, JSON.stringify(records)); } catch { /* ignore */ }
+  window.dispatchEvent(new Event('face-absensi-updated'));
 }
 
 /* ── face-api.js CDN ── */

@@ -337,12 +337,76 @@ export default function KepegawaianPage() {
     return result;
   }, [absensi, pegawai, izinList]);
 
+  // ── Gabung catatan Face Absensi ke rekap (otomatis terekam) ──
+  const [faceAbsen, setFaceAbsen] = useState<Record<string, unknown>[]>(() => {
+    if (typeof window === 'undefined') return [];
+    try {
+      const r = localStorage.getItem('mma_absensi_face');
+      return r ? JSON.parse(r) : [];
+    } catch { return []; }
+  });
+  useEffect(() => {
+    const load = () => {
+      try {
+        const r = localStorage.getItem('mma_absensi_face');
+        setFaceAbsen(r ? JSON.parse(r) : []);
+      } catch {}
+    };
+    load();
+    window.addEventListener('face-absensi-updated', load);
+    window.addEventListener('storage', load);
+    window.addEventListener('shared-data-updated', load);
+    return () => {
+      window.removeEventListener('face-absensi-updated', load);
+      window.removeEventListener('storage', load);
+      window.removeEventListener('shared-data-updated', load);
+    };
+  }, []);
+
+  const absensiDenganFace = useMemo(() => {
+    if (!faceAbsen.length) return absensiWithAlfa;
+    const result = [...absensiWithAlfa];
+    const idx = new Map<string, number>();
+    result.forEach((a, i) => idx.set(a.pegawaiId + '|' + a.tanggal, i));
+    for (const f of faceAbsen as { id?: string; pegawaiId?: string; tanggal?: string; jenis?: string; jam?: string }[]) {
+      const pegawaiId = f.pegawaiId || '';
+      const tanggal = f.tanggal || '';
+      if (!pegawaiId || !tanggal) continue;
+      const key = pegawaiId + '|' + tanggal;
+      const jam = f.jam || '';
+      const isMasuk = f.jenis === 'masuk';
+      const i = idx.get(key);
+      if (i === undefined) {
+        result.push({
+          id: `face-${f.id || Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          pegawaiId,
+          tanggal,
+          jamMasuk: isMasuk ? jam : '-',
+          jamKeluar: isMasuk ? '-' : jam,
+          status: 'Hadir' as const,
+          keterangan: 'Face Absensi',
+        });
+        idx.set(key, result.length - 1);
+        continue;
+      }
+      const a = result[i];
+      const wasAlfa = a.status === 'Alfa';
+      result[i] = {
+        ...a,
+        ...(isMasuk && jam ? { jamMasuk: jam } : {}),
+        ...(!isMasuk && jam ? { jamKeluar: jam } : {}),
+        ...(wasAlfa ? { status: 'Hadir' as const, keterangan: 'Face Absensi' } : {}),
+      };
+    }
+    return result;
+  }, [absensiWithAlfa, faceAbsen]);
+
   const myAbsensi = useMemo(() => {
-    const data = isAdmin ? absensiWithAlfa : absensiWithAlfa.filter(a => {
+    const data = isAdmin ? absensiDenganFace : absensiDenganFace.filter(a => {
       return myPegawai.some(mp => mp.id === a.pegawaiId);
     });
     return data;
-  }, [isAdmin, absensiWithAlfa, myPegawai]);
+  }, [isAdmin, absensiDenganFace, myPegawai]);
 
   const myKpi = useMemo(() => {
     if (isAdmin) return kpi;
@@ -394,7 +458,7 @@ export default function KepegawaianPage() {
         {tab === 'daftar' && isAdmin && <DaftarPegawai pegawai={pegawai} setPegawai={setPegawai} />}
         {tab === 'aktivitas' && isAdmin && <AktivitasSkuTab />}
         {tab === 'absensi' && <AbsensiHarian pegawai={isAdmin ? pegawai : myPegawai} absensi={myAbsensi} isAdmin={isAdmin} />}
-        {tab === 'rekap' && isAdmin && <RekapAbsensi pegawai={pegawai} absensi={absensiWithAlfa} />}
+        {tab === 'rekap' && isAdmin && <RekapAbsensi pegawai={pegawai} absensi={absensiDenganFace} />}
         {tab === 'approval' && isAdmin && <ApprovalIzin izinList={izinList} setIzinList={setIzinList} pegawai={pegawai} />}
         {tab === 'gaji' && isAdmin && <GajiTab pegawai={pegawai} />}
         {tab === 'izin' && !isAdmin && <FormIzin pegawai={myPegawai[0]} izinList={myIzin} setIzinList={setIzinList} />}
