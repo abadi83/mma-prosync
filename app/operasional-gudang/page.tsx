@@ -76,6 +76,7 @@ function AgregasiDashboard() {
   const [err, setErr] = useState('');
   const [filterMp, setFilterMp] = useState('semua');
   const [filterStatus, setFilterStatus] = useState('semua');
+  const [filterTgl, setFilterTgl] = useState('semua');
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const fileRef = useRef<HTMLInputElement>(null);
   const pickingRef = useRef<HTMLInputElement>(null);
@@ -201,6 +202,18 @@ function AgregasiDashboard() {
   const statuses=['semua',...Array.from(new Set(allRows.map(r=>r.statusPesanan)))];
   let f=filterMp==='semua'?grouped:grouped.filter(g=>g.marketplace===filterMp);
   f=filterStatus==='semua'?f:f.filter(g=>g.statusPesanan===filterStatus);
+  if (filterTgl!=='semua') f=f.filter(g=>(g.dibuat||'').slice(0,10)===filterTgl);
+
+  /* ── Statistik per tanggal upload (biar jelas mana yang baru di-entry) ── */
+  const perTanggal = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const g of grouped) {
+      const d = (g.dibuat || '').slice(0, 10);
+      if (!d) continue;
+      m.set(d, (m.get(d) || 0) + 1);
+    }
+    return Array.from(m.entries()).sort((a, b) => b[0].localeCompare(a[0]));
+  }, [grouped]);
 
   /* ── Stats ── */
   const totalOrder=grouped.length;
@@ -253,8 +266,19 @@ function AgregasiDashboard() {
         <div className="mt-4 flex flex-wrap gap-2">
           <select value={filterMp} onChange={e=>setFilterMp(e.target.value)} className="rounded-xl border bg-white px-3 py-1.5 text-xs font-semibold text-slate-600">{marketplaces.map(m=><option key={m} value={m}>{m==='semua'?'🛒 Semua Marketplace':m}</option>)}</select>
           <select value={filterStatus} onChange={e=>setFilterStatus(e.target.value)} className="rounded-xl border bg-white px-3 py-1.5 text-xs font-semibold text-slate-600">{statuses.map(s=><option key={s} value={s}>{s==='semua'?'📋 Semua Status':s}</option>)}</select>
+          <select value={filterTgl} onChange={e=>setFilterTgl(e.target.value)} className="rounded-xl border bg-white px-3 py-1.5 text-xs font-semibold text-slate-600">
+            <option value="semua">📅 Semua Tanggal</option>
+            {perTanggal.map(([d, n]) => <option key={d} value={d}>{d} — {n} pesanan</option>)}
+          </select>
           <span className="text-xs text-slate-400 self-center ml-auto">{f.length} pesanan ditampilkan</span>
         </div>
+
+        {/* Penjelasan angka: total kumulatif vs batch upload */}
+        <p className="mt-2 text-xs text-slate-400">
+          ℹ️ Angka "Pesanan" adalah <strong>total kumulatif</strong> seluruh riwayat upload ({grouped.length} pesanan). 
+          Upload terbaru: {perTanggal[0] ? `${perTanggal[0][0]} — ${perTanggal[0][1]} pesanan` : '—'}
+          {filterTgl !== 'semua' && <span className="ml-1 rounded bg-brand-50 px-1.5 py-0.5 font-bold text-brand-600">sedang difilter: {filterTgl}</span>}
+        </p>
 
         <div className="mt-3 overflow-x-auto rounded-xl border border-slate-100">
           <table className="w-full text-left text-xs">
