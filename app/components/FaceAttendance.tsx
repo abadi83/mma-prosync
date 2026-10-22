@@ -30,8 +30,39 @@ interface AbsensiFaceRecord {
   confidence: number;
 }
 
-// Koordinat kantor (default: Jakarta Pusat — bisa dikustomisasi)
-const OFFICE_LOCATION = { lat: -6.2088, lng: 106.8456, radiusKm: 2.0 };
+// Koordinat kantor — dapat diatur admin (tersinkron antar perangkat via sync).
+// Default Jakarta, GANTI ke lokasi kantor sebenarnya lewat panel "📍 Lokasi Kantor".
+const OFFICE_LOCATION_KEY = 'mma_office_location';
+const DEFAULT_OFFICE_LOCATION = { lat: -6.2088, lng: 106.8456, radiusKm: 2.0 };
+
+interface OfficeLocation {
+  lat: number;
+  lng: number;
+  radiusKm: number;
+  alamat?: string;
+}
+
+function loadOfficeLocation(): OfficeLocation {
+  if (typeof window === 'undefined') return DEFAULT_OFFICE_LOCATION;
+  try {
+    const raw = localStorage.getItem(OFFICE_LOCATION_KEY);
+    if (raw) {
+      const p = JSON.parse(raw);
+      if (typeof p?.lat === 'number' && typeof p?.lng === 'number' && isFinite(p.lat) && isFinite(p.lng)) {
+        return { ...DEFAULT_OFFICE_LOCATION, ...p, radiusKm: typeof p.radiusKm === 'number' && p.radiusKm > 0 ? p.radiusKm : DEFAULT_OFFICE_LOCATION.radiusKm };
+      }
+    }
+  } catch {}
+  return DEFAULT_OFFICE_LOCATION;
+}
+
+function saveOfficeLocation(loc: OfficeLocation) {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(OFFICE_LOCATION_KEY, JSON.stringify(loc));
+    window.dispatchEvent(new Event('office-location-updated'));
+  } catch {}
+}
 
 /* ── Helpers ── */
 function getDistanceKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
@@ -148,6 +179,8 @@ export default function FaceAttendance({ pegawai, isAdmin = true }: Props) {
           </button>
         </div>
       )}
+
+      {mode === 'menu' && <LokasiKantorPanel isAdmin={isAdmin} />}
 
       {mode === 'register' && (
         <FaceRegister
@@ -453,9 +486,10 @@ function FaceAbsensi({ pegawai, selectedPegawai, onSelectPegawai, onBack }: {
     }
 
     // Cek jarak ke kantor
-    const distance = getDistanceKm(geoPos.lat, geoPos.lng, OFFICE_LOCATION.lat, OFFICE_LOCATION.lng);
-    if (distance > OFFICE_LOCATION.radiusKm) {
-      setError(`Anda berada di luar area kantor (${distance.toFixed(1)} km dari kantor). Maksimal radius: ${OFFICE_LOCATION.radiusKm} km.`);
+    const office = loadOfficeLocation();
+    const distance = getDistanceKm(geoPos.lat, geoPos.lng, office.lat, office.lng);
+    if (distance > office.radiusKm) {
+      setError(`Anda berada di luar area kantor (${distance.toFixed(1)} km dari kantor). Maksimal radius: ${office.radiusKm} km.`);
       setState('error');
       return;
     }
@@ -749,5 +783,90 @@ function RiwayatAbsensiFace({ onBack }: { onBack: () => void }) {
         </div>
       )}
     </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════ */
+/* PANEL LOKASI KANTOR — atur koordinat & radius absensi              */
+/* ═══════════════════════════════════════════════════════════════════ */
+function LokasiKantorPanel({ isAdmin }: { isAdmin: boolean }) {
+  const [office, setOffice] = useState<OfficeLocation>(() => loadOfficeLocation());
+  const [f, setF] = useState({ lat: '', lng: '', radiusKm: '', alamat: '' });
+  const [msg, setMsg] = useState('');
+  const [gpsBusy, setGpsBusy] = useState(false);
+
+  useEffect(() => {
+    const reload = () => {
+      const o = loadOfficeLocation();
+      setOffice(o);
+      setF({ lat: String(o.lat), lng: String(o.lng), radiusKm: String(o.radiusKm), alamat: o.alamat || '' });
+    };
+    reload();
+    window.addEventListener('office-location-updated', reload);
+    window.addEventListener('storage', reload);
+    return () => {
+      window.removeEventListener('office-location-updated', reload);
+      window.removeEventListener('storage', reload);
+    };
+  }, []);
+
+  const pakaiLokasiSaya = () => {
+    if (!navigator.geolocation) { setMsg('Browser tidak mendukung GPS.'); return; }
+    setGpsBusy(true);
+    setMsg('');
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setF(prev => ({ ...prev, lat: String(pos.coords.latitude.toFixed(6)), lng: String(pos.coords.longitude.toFixed(6)) }));
+        setMsg('✅ Koordinat diisi dari posisi kamu sekarang — cek radius lalu Simpan.');
+        setGpsBusy(false);
+      },
+      () => { setMsg('Gagal ambil GPS. Pastikan izin lokasi aktif, atau isi koordinat manual.'); setGpsBusy(false); },
+      { enableHighAccuracy: true, timeout: 12000 },
+    );
+  };
+
+  const simpan = () => {
+    const lat = parseFloat(f.lat);
+    const lng = parseFloat(f.lng);
+    const radiusKm = parseFloat(f.radiusKm) || office.radiusKm;
+    if (!isFinite(lat) || !isFinite(lng)) { setMsg('Isi latitude & longitude yang valid.'); return; }
+    saveOfficeLocation({ lat, lng, radiusKm: Math.max(0.1, radiusKm), alamat: f.alamat.trim() || undefined });
+    setMsg('✅ Lokasi kantor tersimpan & tersinkron ke semua perangkat.');
+    setTimeout(() => setMsg(''), 3000);
+  };
+
+  return (
+    <details className="mt-4 rounded-2xl border border-slate-200 bg-white p-4">
+      <summary className="cursor-pointer text-sm font-bold text-slate-700">📍 Lokasi Kantor (radius absensi)</summary>
+      <p className="mt-2 text-xs text-slate-500">
+        Lokasi sekarang: <strong>{office.lat}, {office.lng}</strong> · radius <strong>{office.radiusKm} km</strong>
+        {office.alamat ? ` · ${office.alamat}` : ''}
+        {office.lat === DEFAULT_OFFICE_LOCATION.lat && office.lng === DEFAULT_OFFICE_LOCATION.lng && (
+          <span className="ml-1 rounded bg-amber-50 px-1.5 py-0.5 font-bold text-amber-700">⚠ masih default (Jakarta) — atur ke lokasi kantor sebenarnya!</span>
+        )}
+      </p>
+
+      {isAdmin ? (
+        <div className="mt-3 space-y-2">
+          <button onClick={pakaiLokasiSaya} disabled={gpsBusy}
+            className="rounded-xl bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-600 disabled:bg-slate-300">
+            {gpsBusy ? '⏳ Ambil GPS…' : '🎯 Gunakan Lokasi Saya Sekarang'}
+          </button>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <input value={f.lat} onChange={e => setF({ ...f, lat: e.target.value })} placeholder="Latitude (cth -6.9175)" className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs" />
+            <input value={f.lng} onChange={e => setF({ ...f, lng: e.target.value })} placeholder="Longitude (cth 107.6191)" className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs" />
+            <input value={f.radiusKm} onChange={e => setF({ ...f, radiusKm: e.target.value })} placeholder="Radius km (cth 1)" className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs" />
+            <input value={f.alamat} onChange={e => setF({ ...f, alamat: e.target.value })} placeholder="Alamat (opsional)" className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs" />
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={simpan} className="rounded-xl bg-brand-500 px-4 py-1.5 text-xs font-semibold text-white hover:bg-brand-700">💾 Simpan Lokasi</button>
+            {msg && <span className="text-xs text-slate-500">{msg}</span>}
+          </div>
+          <p className="text-[10px] text-slate-400">Cara cepat: berdiri di kantor → klik "Gunakan Lokasi Saya Sekarang" → atur radius (mis. 0,5 km) → Simpan. Berlaku untuk semua perangkat.</p>
+        </div>
+      ) : (
+        <p className="mt-2 text-xs text-slate-400">Hanya admin yang bisa mengubah lokasi kantor.</p>
+      )}
+    </details>
   );
 }

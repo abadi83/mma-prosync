@@ -44,6 +44,8 @@ const SYNC_KEYS = [
   // Penjualan
   'mma_penjualan_transaksi',
   'mma_penjualan_lain',
+  // Absensi face: lokasi kantor (dibuat admin → berlaku semua perangkat)
+  'mma_office_location',
   // Kepegawaian — TIDAK di-sync via /api/data lagi.
   // Sumber kebenaran pegawai = PostgreSQL (app/api/pegawai).
   // localStorage hanya cache lokal; sync dilakukan di halaman kepegawaian.
