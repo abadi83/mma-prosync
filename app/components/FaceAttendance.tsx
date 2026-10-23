@@ -28,6 +28,7 @@ interface AbsensiFaceRecord {
   jenis: 'masuk' | 'pulang';
   lokasi: GeoPosition;
   confidence: number;
+  updatedAt?: number; // timestamp edit — dipakai merge sinkronisasi antar perangkat
 }
 
 // Koordinat kantor — dapat diatur admin (tersinkron antar perangkat via sync).
@@ -444,9 +445,11 @@ function FaceAbsensi({ pegawai, onBack }: {
     const reload = () => setTodayRecords(loadAbsensiFace().filter(r => r.tanggal === todayLocal()));
     window.addEventListener('face-absensi-updated', reload);
     window.addEventListener('storage', reload);
+    window.addEventListener('shared-data-updated', reload);
     return () => {
       window.removeEventListener('face-absensi-updated', reload);
       window.removeEventListener('storage', reload);
+      window.removeEventListener('shared-data-updated', reload);
     };
   }, []);
 
@@ -592,6 +595,7 @@ function FaceAbsensi({ pegawai, onBack }: {
           jenis,
           lokasi: geoPos!,
           confidence,
+          updatedAt: Date.now(),
         });
         const saved = records.slice(0, 50);
         saveAbsensiFace(saved);
@@ -742,7 +746,16 @@ function RiwayatAbsensiFace({ onBack }: { onBack: () => void }) {
   const [records, setRecords] = useState<AbsensiFaceRecord[]>([]);
 
   useEffect(() => {
-    setRecords(loadAbsensiFace());
+    const reload = () => setRecords(loadAbsensiFace());
+    reload();
+    window.addEventListener('face-absensi-updated', reload);
+    window.addEventListener('storage', reload);
+    window.addEventListener('shared-data-updated', reload);
+    return () => {
+      window.removeEventListener('face-absensi-updated', reload);
+      window.removeEventListener('storage', reload);
+      window.removeEventListener('shared-data-updated', reload);
+    };
   }, []);
 
   return (

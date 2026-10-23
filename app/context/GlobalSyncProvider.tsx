@@ -53,6 +53,8 @@ const SYNC_KEYS = [
   'mma_izin_records',
   'mma_gaji_records',
   'mma_face_data',
+  // Riwayat face absensi — biar rekap terlihat di semua perangkat (HP → komputer admin)
+  'mma_absensi_face',
   // Akuntansi
   'mma_coa',
   'mma_jurnal_umum',
