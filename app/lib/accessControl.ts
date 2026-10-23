@@ -20,7 +20,8 @@ export const PAGE_ROLE_MAP: PageRoleRule[] = [
   // Role ini diberikan per-akun di menu Kepegawaian → edit pegawai.
   { prefix: '/data-master', roles: ['masterdata'], label: 'Data Master' },
   { prefix: '/data-entry', roles: ['warehouse', 'logistik', 'inventory', 'sales', 'finance', 'purchasing'], label: 'Data Entry' },
-  { prefix: '/kepegawaian', roles: ['hr'], label: 'Kepegawaian' },
+  // Kepegawaian: terbuka untuk semua user login — menu di dalamnya dibatasi
+  // per role (admin/hr lihat semua, pegawai hanya Face Absensi + rekap pribadi).
 ];
 
 export function canAccessPath(roles: string[], pathname: string): boolean {

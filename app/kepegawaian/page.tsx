@@ -108,10 +108,8 @@ const TABS_ADMIN: { key: Tab; label: string; icon: string }[] = [
 ];
 
 const TABS_PEGAWAI: { key: Tab; label: string; icon: string }[] = [
-  { key: 'absensi', label: 'Absensi Saya', icon: '📋' },
-  { key: 'izin', label: 'Izin / Cuti', icon: '📝' },
-  { key: 'face', label: 'Face Absensi', icon: '🤳' },
-  { key: 'kpi', label: 'KPI Saya', icon: '🎯' },
+  { key: 'face', label: 'Absensi Saya', icon: '🤳' },
+  { key: 'rekap', label: 'Rekap Absensi Saya', icon: '📊' },
 ];
 
 /* ── Mock Data ── */
@@ -200,7 +198,7 @@ const STATUS_PEGAWAI: Record<string, string> = {
 export default function KepegawaianPage() {
   const user = useUser();
   const isAdmin = hasRole(user, 'admin', 'hr');
-  const [tab, setTab] = useState<Tab>(isAdmin ? 'daftar' : 'absensi');
+  const [tab, setTab] = useState<Tab>(isAdmin ? 'daftar' : 'face');
   const [pegawai, setPegawai] = useState<Pegawai[]>(() => {
     // localStorage hanya cache. Kalau kosong → biarkan []; daftar asli diambil
     // dari DB (/api/pegawai). JANGAN fallback ke MOCK — dulu mock demo malah
@@ -458,7 +456,7 @@ export default function KepegawaianPage() {
         {tab === 'daftar' && isAdmin && <DaftarPegawai pegawai={pegawai} setPegawai={setPegawai} />}
         {tab === 'aktivitas' && isAdmin && <AktivitasSkuTab />}
         {tab === 'absensi' && <AbsensiHarian pegawai={isAdmin ? pegawai : myPegawai} absensi={myAbsensi} isAdmin={isAdmin} />}
-        {tab === 'rekap' && isAdmin && <RekapAbsensi pegawai={pegawai} absensi={absensiDenganFace} />}
+        {tab === 'rekap' && <RekapAbsensi pegawai={isAdmin ? pegawai : myPegawai} absensi={isAdmin ? absensiDenganFace : myAbsensi} />}
         {tab === 'approval' && isAdmin && <ApprovalIzin izinList={izinList} setIzinList={setIzinList} pegawai={pegawai} />}
         {tab === 'gaji' && isAdmin && <GajiTab pegawai={pegawai} />}
         {tab === 'izin' && !isAdmin && <FormIzin pegawai={myPegawai[0]} izinList={myIzin} setIzinList={setIzinList} />}
