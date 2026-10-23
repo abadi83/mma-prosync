@@ -2,7 +2,7 @@
 import { todayLocal } from '@/app/lib/dateLocal';
 
 import React, { useState, useMemo, useEffect } from 'react';
-import FaceAttendance from '@/app/components/FaceAttendance';
+import FaceAttendance, { resetRekapAbsensi } from '@/app/components/FaceAttendance';
 import { useUser, hasRole } from '@/app/hooks/useUser';
 import { pushToDataServer } from '@/app/lib/dataApi';
 
@@ -297,6 +297,32 @@ export default function KepegawaianPage() {
   }, [isAdmin, user.pegawaiId, user.nama, pegawai]);
 
   // ── Auto Alfa: hari kerja tanpa absensi + tanpa izin disetujui = Alfa ──
+  // Tanggal mulai rekap baru (setelah reset) — hari sebelumnya tidak dihitung Alfa
+  const [resetAt, setResetAt] = useState<string>(() => {
+    if (typeof window === 'undefined') return '';
+    try {
+      const raw = localStorage.getItem('mma_absensi_reset_at');
+      return raw ? String(JSON.parse(raw)) : '';
+    } catch { return ''; }
+  });
+  useEffect(() => {
+    const load = () => {
+      try {
+        const raw = localStorage.getItem('mma_absensi_reset_at');
+        setResetAt(raw ? String(JSON.parse(raw)) : '');
+      } catch { setResetAt(''); }
+    };
+    load();
+    window.addEventListener('shared-data-updated', load);
+    window.addEventListener('storage', load);
+    window.addEventListener('global-data-reset', load);
+    return () => {
+      window.removeEventListener('shared-data-updated', load);
+      window.removeEventListener('storage', load);
+      window.removeEventListener('global-data-reset', load);
+    };
+  }, []);
+
   const absensiWithAlfa = useMemo(() => {
     const today = new Date();
     const result = [...absensi];
@@ -309,6 +335,7 @@ export default function KepegawaianPage() {
         date.setDate(date.getDate() - d);
         if (date.getDay() === 0) continue; // skip Minggu
         const tgl = date.toISOString().slice(0, 10);
+        if (resetAt && tgl < resetAt) continue; // sebelum reset rekap → jangan dihitung
         const key = p.id + '|' + tgl;
         if (existingDates.has(key)) continue; // sudah ada record
 
@@ -333,7 +360,7 @@ export default function KepegawaianPage() {
       }
     }
     return result;
-  }, [absensi, pegawai, izinList]);
+  }, [absensi, pegawai, izinList, resetAt]);
 
   // ── Gabung catatan Face Absensi ke rekap (otomatis terekam) ──
   const [faceAbsen, setFaceAbsen] = useState<Record<string, unknown>[]>(() => {
@@ -456,7 +483,7 @@ export default function KepegawaianPage() {
         {tab === 'daftar' && isAdmin && <DaftarPegawai pegawai={pegawai} setPegawai={setPegawai} />}
         {tab === 'aktivitas' && isAdmin && <AktivitasSkuTab />}
         {tab === 'absensi' && <AbsensiHarian pegawai={isAdmin ? pegawai : myPegawai} absensi={myAbsensi} isAdmin={isAdmin} />}
-        {tab === 'rekap' && <RekapAbsensi pegawai={isAdmin ? pegawai : myPegawai} absensi={isAdmin ? absensiDenganFace : myAbsensi} />}
+        {tab === 'rekap' && <RekapAbsensi pegawai={isAdmin ? pegawai : myPegawai} absensi={isAdmin ? absensiDenganFace : myAbsensi} canReset={isAdmin} resetAt={resetAt} />}
         {tab === 'approval' && isAdmin && <ApprovalIzin izinList={izinList} setIzinList={setIzinList} pegawai={pegawai} />}
         {tab === 'gaji' && isAdmin && <GajiTab pegawai={pegawai} />}
         {tab === 'izin' && !isAdmin && <FormIzin pegawai={myPegawai[0]} izinList={myIzin} setIzinList={setIzinList} />}
@@ -1099,9 +1126,36 @@ function AbsensiHarian({ pegawai, absensi, isAdmin = true }: { pegawai: Pegawai[
 /* ═══════════════════════════════════════════════════════════════════ */
 /* REKAP ABSENSI                                                     */
 /* ═══════════════════════════════════════════════════════════════════ */
-function RekapAbsensi({ pegawai, absensi }: { pegawai: Pegawai[]; absensi: AbsensiRecord[] }) {
+function RekapAbsensi({ pegawai, absensi, canReset = false, resetAt = '' }: {
+  pegawai: Pegawai[];
+  absensi: AbsensiRecord[];
+  canReset?: boolean;
+  resetAt?: string;
+}) {
   const [bulan, setBulan] = useState(() => new Date().toISOString().slice(0, 7));
   const [viewMode, setViewMode] = useState<'semua' | 'per-pegawai'>('semua');
+  const [resetting, setResetting] = useState(false);
+  const [resetMsg, setResetMsg] = useState('');
+
+  const handleReset = async () => {
+    if (!window.confirm(
+      'Reset rekap absensi?\n\n' +
+      '• Riwayat absen masuk/pulang akan DIHAPUS di semua perangkat.\n' +
+      '• Data wajah terdaftar TIDAK dihapus — karyawan tetap bisa langsung absen.\n' +
+      '• Rekap dimulai ulang dari hari ini.'
+    )) return;
+    setResetting(true);
+    setResetMsg('');
+    try {
+      await resetRekapAbsensi();
+      setResetMsg('✅ Rekap absensi berhasil direset. Data wajah tetap tersimpan.');
+    } catch {
+      setResetMsg('⚠️ Gagal mereset rekap. Coba lagi.');
+    } finally {
+      setResetting(false);
+      setTimeout(() => setResetMsg(''), 5000);
+    }
+  };
 
   const absenBulan = absensi.filter(a => a.tanggal.startsWith(bulan));
   const pegawaiAktif = pegawai.filter(p => p.status === 'Aktif');
@@ -1136,13 +1190,30 @@ function RekapAbsensi({ pegawai, absensi }: { pegawai: Pegawai[]; absensi: Absen
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-bold text-slate-800 sm:text-xl">📊 Rekap Absensi</h2>
-          <p className="mt-1 text-sm text-slate-500">Ringkasan kehadiran bulanan seluruh pegawai.</p>
+          <p className="mt-1 text-sm text-slate-500">
+            {resetAt
+              ? <>Rekap dihitung mulai <b>{resetAt}</b>. Hari sebelum itu tidak dihitung.</>
+              : 'Ringkasan kehadiran bulanan seluruh pegawai.'}
+          </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {canReset && (
+            <button
+              onClick={handleReset}
+              disabled={resetting}
+              className="rounded-xl bg-red-50 border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-100 transition disabled:opacity-50"
+              title="Hapus riwayat absen (masuk/pulang) dan mulai rekap baru. Data wajah terdaftar TIDAK dihapus."
+            >
+              {resetting ? '⏳ Mereset…' : '🔄 Reset Rekap'}
+            </button>
+          )}
           <input type="month" value={bulan} onChange={e => setBulan(e.target.value)}
             className="rounded-xl border px-3 py-1.5 text-xs font-semibold text-slate-600 focus:border-purple-500 focus:outline-none" />
         </div>
       </div>
+      {resetMsg && (
+        <p className={`mt-2 rounded-lg px-3 py-2 text-sm ${resetMsg.startsWith('✅') ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>{resetMsg}</p>
+      )}
 
       {/* Ringkasan bulanan */}
       <div className="mt-4 grid grid-cols-6 gap-2">

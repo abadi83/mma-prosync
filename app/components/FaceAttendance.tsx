@@ -104,6 +104,22 @@ function saveAbsensiFace(records: AbsensiFaceRecord[]) {
   window.dispatchEvent(new Event('face-absensi-updated'));
 }
 
+/** Reset rekap absensi: hapus riwayat absen (masuk/pulang) di SEMUA perangkat
+ *  (tombstone server + hapus lokal), TANPA menyentuh data wajah terdaftar.
+ *  Rekap dimulai ulang dari hari ini (auto-Alfa tidak menghitung hari sebelumnya). */
+export async function resetRekapAbsensi(): Promise<void> {
+  try {
+    await fetch(`/api/data?key=${ABSENSI_FACE_KEY}`, { method: 'DELETE' });
+  } catch { /* offline — tetap lanjut hapus lokal */ }
+  try { localStorage.setItem('mma_absensi_reset_at', JSON.stringify(todayLocal())); } catch {}
+  try {
+    localStorage.removeItem(ABSENSI_FACE_KEY);
+    window.dispatchEvent(new Event('face-absensi-updated'));
+    window.dispatchEvent(new CustomEvent('global-data-reset', { detail: { key: ABSENSI_FACE_KEY } }));
+    window.dispatchEvent(new Event('shared-data-updated'));
+  } catch {}
+}
+
 /* ── face-api.js CDN ── */
 const FACEAPI_CDN = 'https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js';
 const MODEL_BASE = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/weights';
@@ -198,7 +214,7 @@ export default function FaceAttendance({ pegawai, isAdmin = true }: Props) {
       )}
 
       {mode === 'riwayat' && (
-        <RiwayatAbsensiFace onBack={() => setMode('menu')} />
+        <RiwayatAbsensiFace onBack={() => setMode('menu')} isAdmin={isAdmin} />
       )}
     </div>
   );
@@ -742,7 +758,7 @@ function FaceAbsensi({ pegawai, onBack }: {
 /* ═══════════════════════════════════════════════════════════════════ */
 /* RIWAYAT ABSENSI FACE                                              */
 /* ═══════════════════════════════════════════════════════════════════ */
-function RiwayatAbsensiFace({ onBack }: { onBack: () => void }) {
+function RiwayatAbsensiFace({ onBack, isAdmin = false }: { onBack: () => void; isAdmin?: boolean }) {
   const [records, setRecords] = useState<AbsensiFaceRecord[]>([]);
 
   useEffect(() => {
@@ -762,8 +778,13 @@ function RiwayatAbsensiFace({ onBack }: { onBack: () => void }) {
     <div className="mt-5">
       <div className="flex items-center justify-between mb-4">
         <button onClick={onBack} className="text-sm text-purple-600 hover:text-purple-800 font-semibold">← Kembali</button>
-        {records.length > 0 && (
-          <button onClick={() => { saveAbsensiFace([]); setRecords([]); }}
+        {isAdmin && records.length > 0 && (
+          <button onClick={async () => {
+            if (window.confirm('Hapus semua riwayat absen di semua perangkat?\nData wajah terdaftar TIDAK dihapus.\nRekap dimulai ulang dari hari ini.')) {
+              await resetRekapAbsensi();
+              setRecords([]);
+            }
+          }}
             className="text-xs text-red-400 hover:text-red-600">Hapus Semua</button>
         )}
       </div>

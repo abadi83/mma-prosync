@@ -55,6 +55,7 @@ const SYNC_KEYS = [
   'mma_face_data',
   // Riwayat face absensi — biar rekap terlihat di semua perangkat (HP → komputer admin)
   'mma_absensi_face',
+  'mma_absensi_reset_at', // tanggal mulai rekap baru (hari sebelumnya tidak dihitung Alfa)
   // Akuntansi
   'mma_coa',
   'mma_jurnal_umum',
