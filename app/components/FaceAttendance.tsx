@@ -1,7 +1,7 @@
 'use client';
 import { todayLocal } from '@/app/lib/dateLocal';
 
-import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 
 /* ── Types ── */
 interface FaceData {
@@ -193,12 +193,7 @@ export default function FaceAttendance({ pegawai, isAdmin = true }: Props) {
       )}
 
       {mode === 'absensi' && (
-        <FaceAbsensi
-          pegawai={pegawai}
-          selectedPegawai={selectedPegawai}
-          onSelectPegawai={setSelectedPegawai}
-          onBack={() => setMode('menu')}
-        />
+        <FaceAbsensi pegawai={pegawai} onBack={() => setMode('menu')} />
       )}
 
       {mode === 'riwayat' && (
@@ -429,10 +424,8 @@ function FaceRegister({ pegawai, selectedPegawai, onSelectPegawai, onBack }: {
 /* ═══════════════════════════════════════════════════════════════════ */
 /* FACE ABSENSI (Recognize + Geo)                                    */
 /* ═══════════════════════════════════════════════════════════════════ */
-function FaceAbsensi({ pegawai, selectedPegawai, onSelectPegawai, onBack }: {
+function FaceAbsensi({ pegawai, onBack }: {
   pegawai: PegawaiSimple[];
-  selectedPegawai: string;
-  onSelectPegawai: (id: string) => void;
   onBack: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -443,16 +436,22 @@ function FaceAbsensi({ pegawai, selectedPegawai, onSelectPegawai, onBack }: {
   const [result, setResult] = useState<{ nama: string; confidence: number; jam: string; jenis: 'masuk' | 'pulang'; lokasi: GeoPosition } | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
-  const selected = pegawai.find(p => p.id === selectedPegawai);
-
-  // Cek apakah sudah absen masuk hari ini
-  const todayRecords = useMemo(() => {
-    const today = todayLocal();
-    return loadAbsensiFace().filter(r => r.tanggal === today);
+  // Rekap absen hari ini — semua pegawai (identitas dikenali lewat wajah saat scan)
+  const [todayRecords, setTodayRecords] = useState<AbsensiFaceRecord[]>(() =>
+    loadAbsensiFace().filter(r => r.tanggal === todayLocal())
+  );
+  useEffect(() => {
+    const reload = () => setTodayRecords(loadAbsensiFace().filter(r => r.tanggal === todayLocal()));
+    window.addEventListener('face-absensi-updated', reload);
+    window.addEventListener('storage', reload);
+    return () => {
+      window.removeEventListener('face-absensi-updated', reload);
+      window.removeEventListener('storage', reload);
+    };
   }, []);
 
-  const sudahMasuk = todayRecords.some(r => r.jenis === 'masuk' && r.pegawaiId === selectedPegawai);
-  const sudahPulang = todayRecords.some(r => r.jenis === 'pulang' && r.pegawaiId === selectedPegawai);
+  const masukCount = todayRecords.filter(r => r.jenis === 'masuk').length;
+  const pulangCount = todayRecords.filter(r => r.jenis === 'pulang').length;
 
   useEffect(() => {
     return () => {
@@ -554,22 +553,49 @@ function FaceAbsensi({ pegawai, selectedPegawai, onSelectPegawai, onBack }: {
         const jam = new Date().toLocaleTimeString('id-ID');
         const matchedFace = faces.find(f => f.nama === bestMatch.label);
 
-        // Simpan ke riwayat
-        if (matchedFace) {
-          const records = loadAbsensiFace();
-          records.unshift({
-            id: `face-${Date.now()}`,
-            pegawaiId: matchedFace.pegawaiId,
-            nama: matchedFace.nama,
-            nik: matchedFace.nik,
-            tanggal: todayLocal(),
-            jam,
-            jenis,
-            lokasi: geoPos!,
-            confidence,
-          });
-          saveAbsensiFace(records.slice(0, 50));
+        if (!matchedFace) {
+          setError('Wajah dikenali tetapi data pegawai tidak ditemukan. Hubungi admin.');
+          setState('error');
+          return;
         }
+
+        // Validasi per orang yang dikenali (bukan per pegawai terpilih)
+        const today = todayLocal();
+        const todayAll = loadAbsensiFace().filter(r => r.tanggal === today);
+        const myMasuk = todayAll.find(r => r.pegawaiId === matchedFace.pegawaiId && r.jenis === 'masuk');
+        const myPulang = todayAll.find(r => r.pegawaiId === matchedFace.pegawaiId && r.jenis === 'pulang');
+        if (jenis === 'masuk' && myMasuk) {
+          setError(`Anda sudah absen MASUK hari ini jam ${myMasuk.jam}.`);
+          setState('error');
+          return;
+        }
+        if (jenis === 'pulang' && !myMasuk) {
+          setError('Anda belum absen MASUK hari ini. Silakan absen masuk dulu.');
+          setState('error');
+          return;
+        }
+        if (jenis === 'pulang' && myPulang) {
+          setError(`Anda sudah absen PULANG hari ini jam ${myPulang.jam}.`);
+          setState('error');
+          return;
+        }
+
+        // Simpan ke riwayat
+        const records = loadAbsensiFace();
+        records.unshift({
+          id: `face-${Date.now()}`,
+          pegawaiId: matchedFace.pegawaiId,
+          nama: matchedFace.nama,
+          nik: matchedFace.nik,
+          tanggal: today,
+          jam,
+          jenis,
+          lokasi: geoPos!,
+          confidence,
+        });
+        const saved = records.slice(0, 50);
+        saveAbsensiFace(saved);
+        setTodayRecords(saved.filter(r => r.tanggal === today));
 
         setResult({
           nama: bestMatch.label,
@@ -586,7 +612,7 @@ function FaceAbsensi({ pegawai, selectedPegawai, onSelectPegawai, onBack }: {
       setError(e.message || 'Gagal mengakses kamera');
       setState('error');
     }
-  }, [selectedPegawai]);
+  }, []);
 
   const stopCamera = () => {
     if (streamRef.current) {
@@ -625,45 +651,29 @@ function FaceAbsensi({ pegawai, selectedPegawai, onSelectPegawai, onBack }: {
 
             {/* Status hari ini */}
             <div className="flex gap-2 text-xs">
-              {sudahMasuk ? (
-                <span className="rounded-full bg-emerald-500/80 px-3 py-1 text-white">✅ Sudah Masuk</span>
-              ) : (
-                <span className="rounded-full bg-slate-500/60 px-3 py-1 text-white">⬜ Belum Masuk</span>
-              )}
-              {sudahPulang ? (
-                <span className="rounded-full bg-orange-500/80 px-3 py-1 text-white">✅ Sudah Pulang</span>
-              ) : (
-                <span className="rounded-full bg-slate-500/60 px-3 py-1 text-white">⬜ Belum Pulang</span>
-              )}
+              <span className={`rounded-full px-3 py-1 text-white ${masukCount > 0 ? 'bg-emerald-500/80' : 'bg-slate-500/60'}`}>✅ Masuk: {masukCount}</span>
+              <span className={`rounded-full px-3 py-1 text-white ${pulangCount > 0 ? 'bg-orange-500/80' : 'bg-slate-500/60'}`}>🟠 Pulang: {pulangCount}</span>
             </div>
 
             <div className="flex gap-3">
               <button
                 onClick={() => startScanning('masuk')}
-                disabled={sudahMasuk}
-                className={`rounded-xl px-6 py-3 text-white font-bold text-lg transition shadow-lg ${
-                  sudahMasuk
-                    ? 'bg-slate-400 cursor-not-allowed opacity-50'
-                    : 'bg-emerald-500 hover:bg-emerald-600'
-                }`}
+                className="rounded-xl px-6 py-3 text-white font-bold text-lg transition shadow-lg bg-emerald-500 hover:bg-emerald-600"
               >
                 🟢 Absen Masuk
               </button>
               <button
                 onClick={() => startScanning('pulang')}
-                disabled={sudahPulang || !sudahMasuk}
-                className={`rounded-xl px-6 py-3 text-white font-bold text-lg transition shadow-lg ${
-                  sudahPulang || !sudahMasuk
-                    ? 'bg-slate-400 cursor-not-allowed opacity-50'
-                    : 'bg-orange-500 hover:bg-orange-600'
-                }`}
+                className="rounded-xl px-6 py-3 text-white font-bold text-lg transition shadow-lg bg-orange-500 hover:bg-orange-600"
               >
                 🟠 Absen Pulang
               </button>
             </div>
-            {!sudahMasuk && (
-              <p className="text-xs text-white/60">Absen Masuk dulu sebelum bisa Absen Pulang.</p>
-            )}
+            <p className="text-xs text-white/60">
+              {masukCount === 0
+                ? 'Absen Masuk dulu sebelum bisa Absen Pulang.'
+                : 'Identitas dicek lewat wajah saat scan — validasi otomatis per orang.'}
+            </p>
           </div>
         )}
         {state === 'loading' && (
