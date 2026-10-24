@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useUser, hasRole } from '@/app/hooks/useUser';
 import { storageRemove } from '@/app/lib/idbStorage';
 
-type Tab = 'profil' | 'password' | 'toko' | 'akun' | 'data';
+type Tab = 'profil' | 'password' | 'toko' | 'akun' | 'data' | 'history';
 
 const TABS = [
   { key: 'profil' as const, label: 'Profil', icon: '👤' },
@@ -12,20 +12,24 @@ const TABS = [
   { key: 'password' as const, label: 'Ubah Password', icon: '🔒' },
   { key: 'toko' as const, label: 'Info Toko', icon: '🏪' },
   { key: 'data' as const, label: 'Reset Data', icon: '🗑️' },
+  { key: 'history' as const, label: 'History Aplikasi', icon: '📜' },
 ];
 
 export default function PengaturanPage() {
   const user = useUser();
-  const [tab, setTab] = useState<Tab>('akun');
+  const isAdmin = hasRole(user, 'admin');
+  // Non-admin hanya boleh melihat menu History jika diberi role khusus 'changelog'
+  const canViewHistory = isAdmin || user.roles.includes('changelog');
+  const [tab, setTab] = useState<Tab>(isAdmin ? 'akun' : 'history');
 
-  // 🔒 Pengaturan khusus Admin saja
-  if (!hasRole(user, 'admin')) {
+  // 🔒 Pengaturan khusus Admin — kecuali menu History yang bisa dilihat user ber-role 'changelog'
+  if (!canViewHistory) {
     return (
       <main className="mx-auto flex min-h-screen max-w-2xl flex-col items-center justify-center gap-4 px-4 py-16 text-center">
         <div className="text-6xl">🔒</div>
         <h1 className="text-2xl font-bold text-slate-800">Akses Ditolak</h1>
         <p className="max-w-sm text-sm text-slate-500">
-          Halaman Pengaturan hanya bisa diakses oleh <strong>Admin</strong>.
+          Halaman Pengaturan hanya bisa diakses oleh <strong>Admin</strong> atau pengguna dengan izin khusus.
           Silakan hubungi administrator toko Anda.
         </p>
         <a href="/" className="rounded-xl bg-brand-500 px-5 py-2 text-sm font-semibold text-white no-underline hover:bg-brand-700 transition">← Kembali ke Beranda</a>
@@ -33,15 +37,17 @@ export default function PengaturanPage() {
     );
   }
 
+  const visibleTabs = isAdmin ? TABS : TABS.filter(t => t.key === 'history');
+
   return (
     <main className="mx-auto flex min-h-screen max-w-2xl flex-col gap-5 px-4 py-6 sm:px-6">
       <header className="rounded-3xl bg-gradient-to-br from-brand-700 via-brand-500 to-brand-300 p-5 text-white shadow-lg sm:p-7">
         <p className="text-xs font-semibold uppercase tracking-[0.25em] text-brand-100 sm:text-sm">Pengaturan</p>
-        <h1 className="mt-2 text-2xl font-bold sm:text-3xl">Pengaturan</h1>
+        <h1 className="mt-2 text-2xl font-bold sm:text-3xl">{isAdmin ? 'Pengaturan' : 'History Aplikasi'}</h1>
       </header>
 
       <nav className="flex gap-1 overflow-x-auto rounded-2xl bg-white p-1 shadow-sm" role="tablist">
-        {TABS.map((t) => (
+        {visibleTabs.map((t) => (
           <button key={t.key} role="tab" aria-selected={tab === t.key} onClick={() => setTab(t.key)}
             className={`flex shrink-0 items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold transition sm:px-5 sm:text-sm ${tab === t.key ? 'bg-brand-500 text-white shadow' : 'text-slate-600 hover:bg-brand-50 hover:text-brand-700'}`}>
             <span className="text-base sm:text-lg">{t.icon}</span><span className="hidden sm:inline">{t.label}</span>
@@ -55,6 +61,7 @@ export default function PengaturanPage() {
         {tab === 'password' && <PasswordTab />}
         {tab === 'toko' && <TokoTab />}
         {tab === 'data' && <DataTab />}
+        {tab === 'history' && <HistoryAppTab isAdmin={isAdmin} />}
       </section>
     </main>
   );
@@ -604,6 +611,139 @@ function DataTab() {
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════ */
+/* HISTORY APLIKASI — changelog fitur/perbaikan/update                  */
+/* Admin: lihat + tambah entri. Role 'changelog': lihat saja.           */
+/* ═══════════════════════════════════════════════════════════════════ */
+
+interface AppUpdateItem {
+  id: string; versi: string; tipe: string; judul: string; deskripsi: string;
+  oleh: string; tanggal: string;
+}
+
+const TIPE_META: Record<string, { label: string; icon: string; badge: string }> = {
+  fitur: { label: 'Fitur Baru', icon: '🆕', badge: 'bg-emerald-100 text-emerald-700' },
+  perbaikan: { label: 'Perbaikan', icon: '🔧', badge: 'bg-amber-100 text-amber-700' },
+  update: { label: 'Update', icon: '⬆️', badge: 'bg-sky-100 text-sky-700' },
+};
+
+function fmtTanggal(iso: string): string {
+  if (!iso) return '-';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '-';
+  return d.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+}
+
+function HistoryAppTab({ isAdmin }: { isAdmin: boolean }) {
+  const [items, setItems] = useState<AppUpdateItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState('');
+  const [showForm, setShowForm] = useState(false);
+  const [f, setF] = useState({ versi: '', tipe: 'fitur', judul: '', deskripsi: '', oleh: '' });
+  const [saving, setSaving] = useState(false);
+
+  const load = async () => {
+    setLoading(true); setErr('');
+    try {
+      const res = await fetch('/api/app-update-history');
+      if (res.status === 403) { setErr('Kamu tidak punya izin melihat history aplikasi.'); setItems([]); return; }
+      if (!res.ok) throw new Error('gagal');
+      const data = await res.json();
+      setItems(Array.isArray(data) ? data : []);
+    } catch {
+      setErr('Gagal memuat history aplikasi. Coba lagi.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const addEntry = async () => {
+    if (!f.judul.trim()) { setErr('Judul wajib diisi.'); return; }
+    setSaving(true); setErr('');
+    try {
+      const res = await fetch('/api/app-update-history', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(f),
+      });
+      const json = await res.json();
+      if (!res.ok) { setErr(json?.error || 'Gagal menyimpan.'); return; }
+      if (json?.item) setItems(prev => [json.item, ...prev]);
+      setF({ versi: '', tipe: 'fitur', judul: '', deskripsi: '', oleh: '' });
+      setShowForm(false);
+    } catch {
+      setErr('Gagal menyimpan. Coba lagi.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div>
+      <div className="mb-1 h-1 w-16 rounded-full bg-gradient-to-r from-brand-500 to-brand-300" />
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <h2 className="text-lg font-bold text-slate-800 sm:text-xl">📜 History Aplikasi</h2>
+          <p className="mt-1 text-sm text-slate-500">Catatan penambahan fitur, perbaikan, dan update aplikasi ini.</p>
+        </div>
+        {isAdmin && (
+          <button onClick={() => { setShowForm(!showForm); setErr(''); }} className="shrink-0 rounded-xl bg-brand-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-700">
+            {showForm ? '✕ Tutup' : '+ Tambah'}
+          </button>
+        )}
+      </div>
+      {!isAdmin && <p className="mt-1 text-xs text-purple-500">👁️ Mode lihat saja — hubungi admin untuk perubahan.</p>}
+
+      {err && <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600" role="alert">{err}</p>}
+
+      {/* ── Form tambah entri (khusus admin) ── */}
+      {isAdmin && showForm && (
+        <div className="mt-3 rounded-2xl border border-brand-200 bg-white p-4 space-y-3">
+          <div className="grid grid-cols-2 gap-2">
+            <label className="flex flex-col gap-1"><span className="text-xs font-semibold text-slate-600">Versi</span><input value={f.versi} onChange={e => setF({ ...f, versi: e.target.value })} placeholder="cth: v1.4.2" className="rounded-xl border px-2 py-1.5 text-sm focus:border-brand-500 focus:outline-none" /></label>
+            <label className="flex flex-col gap-1"><span className="text-xs font-semibold text-slate-600">Tipe</span><select value={f.tipe} onChange={e => setF({ ...f, tipe: e.target.value })} className="rounded-xl border px-2 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
+              <option value="fitur">🆕 Fitur Baru</option>
+              <option value="perbaikan">🔧 Perbaikan</option>
+              <option value="update">⬆️ Update</option>
+            </select></label>
+          </div>
+          <label className="flex flex-col gap-1"><span className="text-xs font-semibold text-slate-600">Judul *</span><input value={f.judul} onChange={e => setF({ ...f, judul: e.target.value })} placeholder="cth: Fitur X baru" className="rounded-xl border px-2 py-1.5 text-sm focus:border-brand-500 focus:outline-none" /></label>
+          <label className="flex flex-col gap-1"><span className="text-xs font-semibold text-slate-600">Deskripsi</span><textarea value={f.deskripsi} onChange={e => setF({ ...f, deskripsi: e.target.value })} rows={3} placeholder="Penjelasan singkat fitur/perbaikan..." className="rounded-xl border px-2 py-1.5 text-sm focus:border-brand-500 focus:outline-none" /></label>
+          <label className="flex flex-col gap-1"><span className="text-xs font-semibold text-slate-600">Oleh (opsional)</span><input value={f.oleh} onChange={e => setF({ ...f, oleh: e.target.value })} placeholder="cth: Tim MMA" className="rounded-xl border px-2 py-1.5 text-sm focus:border-brand-500 focus:outline-none" /></label>
+          <div className="flex justify-end"><button onClick={addEntry} disabled={saving} className="rounded-xl bg-brand-500 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-50">{saving ? '⏳ Menyimpan...' : 'Simpan'}</button></div>
+        </div>
+      )}
+
+      {/* ── Daftar history ── */}
+      {loading ? (
+        <p className="mt-4 text-center text-sm text-slate-400">⏳ Memuat history...</p>
+      ) : items.length === 0 ? (
+        <p className="mt-4 text-center text-sm text-slate-400">Belum ada catatan history.</p>
+      ) : (
+        <div className="mt-4 space-y-3">
+          {items.map(item => {
+            const meta = TIPE_META[item.tipe] || TIPE_META.update;
+            return (
+              <div key={item.id} className="rounded-2xl border border-slate-200 bg-white p-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${meta.badge}`}>{meta.icon} {meta.label}</span>
+                  {item.versi && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600">{item.versi}</span>}
+                  <span className="ml-auto text-[10px] text-slate-400">{fmtTanggal(item.tanggal)}</span>
+                </div>
+                <p className="mt-2 text-sm font-bold text-slate-800">{item.judul}</p>
+                {item.deskripsi && <p className="mt-1 text-xs leading-relaxed text-slate-500">{item.deskripsi}</p>}
+                {item.oleh && <p className="mt-2 text-[10px] text-slate-400">👤 {item.oleh}</p>}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
