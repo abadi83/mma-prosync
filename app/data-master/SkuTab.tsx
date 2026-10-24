@@ -163,15 +163,36 @@ export function SkuTab() {
     });
   };
 
-  const [calc, setCalc] = useState({ potonganMarketplace: '', biayaTetap: '1250', ekspetasiKeuntungan: '' });
+  const [calc, setCalc] = useState({ potonganMarketplace: '', biayaTetap: '1250', ekspetasiKeuntungan: '', diskon: '' });
   const [showCalc, setShowCalc] = useState(false);
+  const [hasilCalc, setHasilCalc] = useState<null | { baseHj: number; hj: number; hargaDiskon: number; profitTurun: number }>(null);
 
   const hitungHargaJual = () => {
-    const hb = +f.hargaBaru || 0; const pm = +calc.potonganMarketplace || 0; const bt = +calc.biayaTetap || 0; const ek = +calc.ekspetasiKeuntungan || 0;
+    const hb = +f.hargaBaru || 0; const pm = +calc.potonganMarketplace || 0; const bt = +calc.biayaTetap || 0; const ek = +calc.ekspetasiKeuntungan || 0; const d = +calc.diskon || 0;
     if (!hb || !pm || !ek) { setFerr('Isi Harga Baru, Potongan Marketplace %, dan Ekspetasi Keuntungan % terlebih dahulu.'); return; }
     if (pm >= 100) { setFerr('Potongan Marketplace tidak boleh ≥ 100%.'); return; }
-    const hj = Math.round((hb * (1 + ek / 100) + bt) / (1 - pm / 100));
-    setHargaJual(String(hj)); setFerr('');
+    if (d < 0 || d >= 100) { setFerr('Diskon harus antara 0–99%.'); return; }
+
+    // HJ lama: harga efektif yang menghasilkan keuntungan target TANPA diskon
+    const baseHj = Math.round((hb * (1 + ek / 100) + bt) / (1 - pm / 100));
+    // HJ baru: dinaikkan supaya setelah diskon d%, harga efektif = baseHj (keuntungan tetap target)
+    const hj = d > 0 ? Math.round(baseHj / (1 - d / 100)) : baseHj;
+    const hargaDiskon = d > 0 ? Math.round(hj * (1 - d / 100)) : 0;
+
+    // Kalau HJ TIDAK dinaikkan lalu tetap dikasih diskon → keuntungan bersih efektif turun jadi berapa %
+    const pEff = Math.round(baseHj * (1 - d / 100));
+    const profitEfektif = pEff * (1 - pm / 100) - bt - hb;
+    const profitTurun = hb > 0 ? Math.round((profitEfektif / hb) * 1000) / 10 : 0;
+
+    setF(p => ({
+      ...p,
+      hargaJual: String(hj),
+      diskonPersen: d > 0 ? String(d) : p.diskonPersen,
+      hargaDiskon: d > 0 ? String(hargaDiskon) : p.hargaDiskon,
+    }));
+    if (d > 0) hargaDiskonManual.current = false;
+    setHasilCalc({ baseHj, hj, hargaDiskon, profitTurun });
+    setFerr('');
   };
 
   /* ── Pilih & proses foto SKU ── */
@@ -574,15 +595,22 @@ export function SkuTab() {
               <span className="text-xs font-bold text-amber-700">🧮 Kalkulator Harga Jual</span>
               <span className="text-xs text-amber-500">{showCalc ? '▲ Sembunyikan' : '▼ Buka'}</span>
             </button>
-            {showCalc && <div className="mt-3 grid grid-cols-3 gap-2">
+            {showCalc && <div className="mt-3 grid grid-cols-4 gap-2">
               <label className="flex flex-col gap-1"><span className="text-[11px] font-semibold text-slate-500">Potongan Marketplace (%)</span><input type="number" step="0.1" value={calc.potonganMarketplace} onChange={e => setCalc({ ...calc, potonganMarketplace: e.target.value })} placeholder="cth: 10" className="rounded-lg border border-amber-200 bg-white px-2 py-1 text-xs focus:border-brand-500 focus:outline-none" /></label>
               <label className="flex flex-col gap-1"><span className="text-[11px] font-semibold text-slate-500">Biaya Tetap (Rp)</span><input type="number" value={calc.biayaTetap} onChange={e => setCalc({ ...calc, biayaTetap: e.target.value })} className="rounded-lg border border-amber-200 bg-white px-2 py-1 text-xs focus:border-brand-500 focus:outline-none" /></label>
-              <label className="flex flex-col gap-1"><span className="text-[11px] font-semibold text-slate-500">Keuntungan Bersih (%)</span><input type="number" step="0.1" value={calc.ekspetasiKeuntungan} onChange={e => setCalc({ ...calc, ekspetasiKeuntungan: e.target.value })} placeholder="cth: 20" className="rounded-lg border border-amber-200 bg-white px-2 py-1 text-xs focus:border-brand-500 focus:outline-none" /></label>
-              <div className="col-span-3 flex items-end gap-2">
+              <label className="flex flex-col gap-1"><span className="text-[11px] font-semibold text-slate-500">Keuntungan Bersih (%)</span><input type="number" step="0.1" value={calc.ekspetasiKeuntungan} onChange={e => setCalc({ ...calc, ekspetasiKeuntungan: e.target.value })} placeholder="cth: 30" className="rounded-lg border border-amber-200 bg-white px-2 py-1 text-xs focus:border-brand-500 focus:outline-none" /></label>
+              <label className="flex flex-col gap-1"><span className="text-[11px] font-semibold text-slate-500">Diskon (%)</span><input type="number" step="0.1" value={calc.diskon} onChange={e => setCalc({ ...calc, diskon: e.target.value })} placeholder="cth: 20" className="rounded-lg border border-amber-200 bg-white px-2 py-1 text-xs focus:border-brand-500 focus:outline-none" /></label>
+              <div className="col-span-4 flex items-end gap-2">
                 <button type="button" onClick={hitungHargaJual} className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-bold text-white hover:bg-amber-600">🪄 Hitung Harga Jual</button>
-                {f.hargaJual && <span className="text-xs text-slate-400">Hasil: <strong className="text-brand-600">Rp {(+f.hargaJual).toLocaleString('id-ID')}</strong></span>}
+                {hasilCalc && <span className="text-xs text-slate-400">Hasil: <strong className="text-brand-600">Rp {hasilCalc.hj.toLocaleString('id-ID')}</strong></span>}
               </div>
-              <div className="col-span-3 text-[10px] text-slate-400 leading-relaxed">Rumus: HJ = (Harga Baru × (1 + Keuntungan%) + Biaya Tetap) ÷ (1 − Potongan Marketplace%)</div>
+              {hasilCalc && (+calc.diskon || 0) > 0 && (
+                <div className="col-span-4 space-y-1 rounded-lg border border-emerald-200 bg-white p-2 text-[11px] leading-relaxed">
+                  <p className="font-semibold text-emerald-700">✅ Harga Jual dinaikkan: Rp {hasilCalc.hj.toLocaleString('id-ID')} → setelah diskon {+calc.diskon}% pembeli bayar <strong>Rp {hasilCalc.hargaDiskon.toLocaleString('id-ID')}</strong>, keuntungan bersih tetap ±{+calc.ekspetasiKeuntungan || 0}%.</p>
+                  <p className="text-slate-500">⚠️ Kalau Harga Jual <strong>tidak</strong> dinaikkan (tetap Rp {hasilCalc.baseHj.toLocaleString('id-ID')}) lalu dikasih diskon {+calc.diskon}%, keuntungan bersih efektif turun jadi <strong className={hasilCalc.profitTurun < 0 ? 'text-red-500' : 'text-amber-600'}>{hasilCalc.profitTurun}%</strong>.</p>
+                </div>
+              )}
+              <div className="col-span-4 text-[10px] text-slate-400 leading-relaxed">{+calc.diskon > 0 ? 'Rumus dengan diskon: HJ = (Harga Baru × (1 + Keuntungan%) + Biaya Tetap) ÷ ((1 − Potongan Marketplace%) × (1 − Diskon%))' : 'Rumus: HJ = (Harga Baru × (1 + Keuntungan%) + Biaya Tetap) ÷ (1 − Potongan Marketplace%)'}</div>
             </div>}
           </div>
 
