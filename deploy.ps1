@@ -37,7 +37,7 @@ Write-Host "      Pushed OK" -ForegroundColor Green
 Write-Host "[2/4] SSH ke VPS (ketik password root kalau diminta)..." -ForegroundColor Yellow
 Write-Host "      Menunggu password SSH..." -ForegroundColor DarkGray
 
-$remoteCmd = "set -e; cd $VPS_PATH; git pull origin main; npm install --no-audit --no-fund; rm -rf .next; npm run build; pm2 restart $APP_NAME; pm2 save; pm2 status"
+$remoteCmd = "set -e; cd $VPS_PATH; git pull origin main; npm install --no-audit --no-fund; node scripts/run-migrations.js; rm -rf .next; npm run build; pm2 restart $APP_NAME; pm2 save; pm2 status"
 
 ssh $VPS_HOST $remoteCmd
 if ($LASTEXITCODE -ne 0) { Write-Host "SSH gagal." -ForegroundColor Red; exit 1 }

@@ -103,11 +103,12 @@ export function SkuTab() {
   useEffect(() => {
     fetch('/api/marketplace-toko').then(r => r.ok ? r.json() : []).then(d => setTokoList(Array.isArray(d) ? d : [])).catch(() => {});
   }, []);
-  const [f, setF] = useState({ sku: '', nama: '', grade: '', kodeSupplierVarian: '', statusEditGambar: '', statusUploadToko: '', supplier: '', kategori: '', satuan: 'pcs', hargaModalLama: '', hargaBaru: '', hargaJual: '', minStok: '', aktif: 1, videoKonten: false, gambarToko: '' });
+  const [f, setF] = useState({ sku: '', nama: '', grade: '', kodeSupplierVarian: '', statusEditGambar: '', statusUploadToko: '', supplier: '', kategori: '', satuan: 'pcs', hargaModalLama: '', hargaBaru: '', hargaJual: '', diskonPersen: '', hargaDiskon: '', minStok: '', aktif: 1, videoKonten: false, gambarToko: '' });
   const [ferr, setFerr] = useState('');
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const hargaBaruManual = useRef(false);
+  const hargaDiskonManual = useRef(false);
 
   /* ── Foto SKU (compress + background dihapus otomatis) ── */
   const [foto, setFoto] = useState('');
@@ -138,6 +139,30 @@ export function SkuTab() {
     setF(p => ({ ...p, hargaBaru: val }));
   };
 
+  /* ── Harga Discount: % auto-hitung dari Harga Jual, bisa di-override manual ── */
+  const hitungDiskon = (hargaJual: number, persen: number) => Math.max(0, Math.round(hargaJual * (100 - persen) / 100));
+  const setDiskonPersen = (val: string) => {
+    setF(p => {
+      const next = { ...p, diskonPersen: val };
+      const persen = +val || 0;
+      if (!hargaDiskonManual.current && p.hargaJual && persen > 0) next.hargaDiskon = String(hitungDiskon(+p.hargaJual, persen));
+      else if (!hargaDiskonManual.current && (!persen || persen <= 0)) next.hargaDiskon = '';
+      return next;
+    });
+  };
+  const setHargaDiskon = (val: string) => {
+    hargaDiskonManual.current = true;
+    setF(p => ({ ...p, hargaDiskon: val }));
+  };
+  const setHargaJual = (val: string) => {
+    setF(p => {
+      const next = { ...p, hargaJual: val };
+      const persen = +p.diskonPersen || 0;
+      if (!hargaDiskonManual.current && val && persen > 0) next.hargaDiskon = String(hitungDiskon(+val, persen));
+      return next;
+    });
+  };
+
   const [calc, setCalc] = useState({ potonganMarketplace: '', biayaTetap: '1250', ekspetasiKeuntungan: '' });
   const [showCalc, setShowCalc] = useState(false);
 
@@ -146,7 +171,7 @@ export function SkuTab() {
     if (!hb || !pm || !ek) { setFerr('Isi Harga Baru, Potongan Marketplace %, dan Ekspetasi Keuntungan % terlebih dahulu.'); return; }
     if (pm >= 100) { setFerr('Potongan Marketplace tidak boleh ≥ 100%.'); return; }
     const hj = Math.round((hb * (1 + ek / 100) + bt) / (1 - pm / 100));
-    setF(p => ({ ...p, hargaJual: String(hj) })); setFerr('');
+    setHargaJual(String(hj)); setFerr('');
   };
 
   /* ── Pilih & proses foto SKU ── */
@@ -219,11 +244,11 @@ export function SkuTab() {
 
   const goPage = (p: number) => setPage(Math.max(1, Math.min(totalPages, p)));
 
-  const blank = () => ({ sku: '', nama: '', grade: '', kodeSupplierVarian: '', statusEditGambar: '', statusUploadToko: '', supplier: '', kategori: '', satuan: 'pcs', hargaModalLama: '', hargaBaru: '', hargaJual: '', minStok: '', aktif: 1, videoKonten: false, gambarToko: '' });
-  const openAdd = () => { setF(blank()); setFerr(''); setShowForm(true); setEditId(null); hargaBaruManual.current = false; setFoto(''); setFotoDirty(false); };
+  const blank = () => ({ sku: '', nama: '', grade: '', kodeSupplierVarian: '', statusEditGambar: '', statusUploadToko: '', supplier: '', kategori: '', satuan: 'pcs', hargaModalLama: '', hargaBaru: '', hargaJual: '', diskonPersen: '', hargaDiskon: '', minStok: '', aktif: 1, videoKonten: false, gambarToko: '' });
+  const openAdd = () => { setF(blank()); setFerr(''); setShowForm(true); setEditId(null); hargaBaruManual.current = false; hargaDiskonManual.current = false; setFoto(''); setFotoDirty(false); };
   const openEdit = async (i: SkuItem) => {
-    setF({ sku: i.sku, nama: i.nama, grade: i.grade, kodeSupplierVarian: i.kodeSupplierVarian, statusEditGambar: i.statusEditGambar, statusUploadToko: i.statusUploadToko, supplier: i.supplier, kategori: i.kategori, satuan: i.satuan, hargaModalLama: i.hargaModalLama ? String(i.hargaModalLama) : '', hargaBaru: String(i.hargaBaru), hargaJual: String(i.hargaJual), minStok: String(i.minStok), aktif: i.aktif, videoKonten: !!i.videoKonten, gambarToko: i.gambarToko || '' });
-    setFerr(''); setEditId(i.id); setShowForm(true);
+    setF({ sku: i.sku, nama: i.nama, grade: i.grade, kodeSupplierVarian: i.kodeSupplierVarian, statusEditGambar: i.statusEditGambar, statusUploadToko: i.statusUploadToko, supplier: i.supplier, kategori: i.kategori, satuan: i.satuan, hargaModalLama: i.hargaModalLama ? String(i.hargaModalLama) : '', hargaBaru: String(i.hargaBaru), hargaJual: String(i.hargaJual), diskonPersen: i.diskonPersen ? String(i.diskonPersen) : '', hargaDiskon: i.hargaDiskon ? String(i.hargaDiskon) : '', minStok: String(i.minStok), aktif: i.aktif, videoKonten: !!i.videoKonten, gambarToko: i.gambarToko || '' });
+    setFerr(''); setEditId(i.id); setShowForm(true); hargaDiskonManual.current = false;
     // Muat foto existing
     setFoto(''); setFotoDirty(false); setGambarLoading(true);
     try {
@@ -271,9 +296,15 @@ export function SkuTab() {
 
     const oldHargaJual = oldItem ? oldItem.hargaJual : 0;
 
+    // ── Harga Discount: validasi % lalu pakai nilai manual, atau auto-hitung dari Harga Jual ──
+    const diskonP = +f.diskonPersen || 0;
+    if (diskonP < 0 || diskonP > 100) { setFerr('Diskon (%) harus antara 0–100.'); return; }
+    const hargaDiskonFinal = f.hargaDiskon ? +f.hargaDiskon : (diskonP > 0 ? hitungDiskon(+f.hargaJual || 0, diskonP) : 0);
+
     const item: Omit<SkuItem, 'id'> = {
       sku: f.sku, nama: f.nama, grade: f.grade, kodeSupplierVarian: f.kodeSupplierVarian, statusEditGambar: f.statusEditGambar, statusUploadToko: f.statusUploadToko,
       supplier: f.supplier, kategori: f.kategori, satuan: f.satuan || 'pcs', hargaModalLama: hargaModalFinal, hargaBaru: hargaBaruFinal, hargaJual: +f.hargaJual || 0,
+      diskonPersen: diskonP, hargaDiskon: hargaDiskonFinal,
       stok: oldItem?.stok ?? 0, minStok: +f.minStok || 0, aktif: f.aktif, perubahanHargaBeli: pct,
       videoKonten: !!f.videoKonten, gambarToko: f.gambarToko || '',
     };
@@ -306,9 +337,9 @@ export function SkuTab() {
       aksi: editId ? 'ubah' : 'tambah',
       sku: f.sku, nama: f.nama,
       detail: editId ? {
-        sebelum: { hargaModalLama: oldItem?.hargaModalLama ?? 0, hargaBaru: oldItem?.hargaBaru ?? 0, hargaJual: oldItem?.hargaJual ?? 0 },
-        sesudah: { hargaModalLama: hargaModalFinal, hargaBaru: hargaBaruFinal, hargaJual: +f.hargaJual || 0 },
-      } : { hargaBaru: hargaBaruFinal, hargaJual: +f.hargaJual || 0 },
+        sebelum: { hargaModalLama: oldItem?.hargaModalLama ?? 0, hargaBaru: oldItem?.hargaBaru ?? 0, hargaJual: oldItem?.hargaJual ?? 0, hargaDiskon: oldItem?.hargaDiskon ?? 0 },
+        sesudah: { hargaModalLama: hargaModalFinal, hargaBaru: hargaBaruFinal, hargaJual: +f.hargaJual || 0, hargaDiskon: hargaDiskonFinal },
+      } : { hargaBaru: hargaBaruFinal, hargaJual: +f.hargaJual || 0, hargaDiskon: hargaDiskonFinal },
     }]);
 
     // ── Rekam aktivitas konten: update gambar per toko & video konten ──
@@ -372,10 +403,12 @@ export function SkuTab() {
         hargaModalLama: +String(row[9] ?? '').replace(/[^0-9.-]/g, '') || 0,
         hargaBaru: +String(row[10] ?? '').replace(/[^0-9.-]/g, '') || 0,
         hargaJual: +String(row[11] ?? '').replace(/[^0-9.-]/g, '') || 0,
-        stok: +String(row[12] ?? '').replace(/[^0-9.-]/g, '') || 0,
-        minStok: +String(row[13] ?? '').replace(/[^0-9.-]/g, '') || 0,
-        aktif: +String(row[14] ?? '1').replace(/[^0-9]/g, '') || 1,
-        perubahanHargaBeli: String(row[15] ?? '').trim(),
+        diskonPersen: +String(row[12] ?? '').replace(/[^0-9.-]/g, '') || 0,
+        hargaDiskon: +String(row[13] ?? '').replace(/[^0-9.-]/g, '') || 0,
+        stok: +String(row[14] ?? '').replace(/[^0-9.-]/g, '') || 0,
+        minStok: +String(row[15] ?? '').replace(/[^0-9.-]/g, '') || 0,
+        aktif: +String(row[16] ?? '1').replace(/[^0-9]/g, '') || 1,
+        perubahanHargaBeli: String(row[17] ?? '').trim(),
         videoKonten: false,
         gambarToko: '',
       };
@@ -553,7 +586,9 @@ export function SkuTab() {
             </div>}
           </div>
 
-          <label className="flex flex-col gap-1"><span className="text-xs font-semibold text-slate-600">Harga Jual {f.hargaJual && <span className="text-emerald-500">✓ Auto</span>}</span><input type="number" value={f.hargaJual} onChange={e => setF({ ...f, hargaJual: e.target.value })} className="rounded-xl border px-2 py-1.5 text-sm focus:border-brand-500 focus:outline-none" /></label>
+          <label className="flex flex-col gap-1"><span className="text-xs font-semibold text-slate-600">Harga Jual {f.hargaJual && <span className="text-emerald-500">✓ Auto</span>}</span><input type="number" value={f.hargaJual} onChange={e => setHargaJual(e.target.value)} className="rounded-xl border px-2 py-1.5 text-sm focus:border-brand-500 focus:outline-none" /></label>
+          <label className="flex flex-col gap-1"><span className="text-xs font-semibold text-slate-600">Diskon (%)</span><input type="number" min="0" max="100" step="0.1" value={f.diskonPersen} onChange={e => setDiskonPersen(e.target.value)} placeholder="cth: 20" className="rounded-xl border px-2 py-1.5 text-sm focus:border-brand-500 focus:outline-none" /></label>
+          <label className="flex flex-col gap-1"><span className="text-xs font-semibold text-slate-600">Harga Discount {f.hargaDiskon && +f.hargaDiskon > 0 && <span className={`text-[10px] ${hargaDiskonManual.current ? 'text-slate-400' : 'text-emerald-500'}`}>{hargaDiskonManual.current ? '✏️ Manual' : `✓ Auto = Harga Jual − ${+f.diskonPersen || 0}%`}</span>}</span><input type="number" value={f.hargaDiskon} onChange={e => setHargaDiskon(e.target.value)} className="rounded-xl border border-emerald-200 px-2 py-1.5 text-sm focus:border-brand-500 focus:outline-none" /></label>
           <label className="flex flex-col gap-1"><span className="text-xs font-semibold text-slate-600">Min Stok</span><input type="number" value={f.minStok} onChange={e => setF({ ...f, minStok: e.target.value })} className="rounded-xl border px-2 py-1.5 text-sm focus:border-brand-500 focus:outline-none" /></label>
           <label className="flex flex-col gap-1"><span className="text-xs font-semibold text-slate-600">Status Edit Gambar</span><input value={f.statusEditGambar} onChange={e => setF({ ...f, statusEditGambar: e.target.value })} className="rounded-xl border px-2 py-1.5 text-sm focus:border-brand-500 focus:outline-none" /></label>
           <label className="flex flex-col gap-1 col-span-2"><span className="text-xs font-semibold text-slate-600">Status Upload Toko</span><input value={f.statusUploadToko} onChange={e => setF({ ...f, statusUploadToko: e.target.value })} placeholder="Shopee — Nama Toko | Lazada — Nama Toko" className="rounded-xl border px-2 py-1.5 text-sm focus:border-brand-500 focus:outline-none" /></label>
@@ -593,7 +628,7 @@ export function SkuTab() {
       {detailItem && (<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 overflow-y-auto py-8"><div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl mx-4">
         <div className="flex items-center justify-between"><p className="text-lg font-bold text-slate-800">📋 Detail SKU</p><button onClick={() => setDetailId(null)} className="text-slate-400 hover:text-slate-600 text-xl">✕</button></div>
         <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-          {[['SKU', detailItem.sku], ['Nama', detailItem.nama], ['Grade', detailItem.grade], ['Kategori', detailItem.kategori], ['Satuan', detailItem.satuan], ['Supplier', detailItem.supplier || '-'], ['Kode Supplier Varian', detailItem.kodeSupplierVarian || '-'], ['Status Edit Gambar', detailItem.statusEditGambar || '-'], ['Harga Modal Lama', detailItem.hargaModalLama ? `Rp ${detailItem.hargaModalLama.toLocaleString('id-ID')}` : '⚠ Belum ada'], ['Harga Baru', `Rp ${detailItem.hargaBaru.toLocaleString('id-ID')}`], ['Harga Jual', `Rp ${detailItem.hargaJual.toLocaleString('id-ID')}`], ['Stok', String(detailItem.stok)], ['Min Stok', String(detailItem.minStok)], ['Aktif', detailItem.aktif === 1 ? '✅ Ya' : '❌ Tidak'], ['Perubahan Harga Beli', detailItem.perubahanHargaBeli || '-']].map(([label, val]) => (<div key={label} className="flex flex-col"><span className="text-xs text-slate-400">{label}</span><span className="font-medium text-slate-800">{val}</span></div>))}
+          {[['SKU', detailItem.sku], ['Nama', detailItem.nama], ['Grade', detailItem.grade], ['Kategori', detailItem.kategori], ['Satuan', detailItem.satuan], ['Supplier', detailItem.supplier || '-'], ['Kode Supplier Varian', detailItem.kodeSupplierVarian || '-'], ['Status Edit Gambar', detailItem.statusEditGambar || '-'], ['Harga Modal Lama', detailItem.hargaModalLama ? `Rp ${detailItem.hargaModalLama.toLocaleString('id-ID')}` : '⚠ Belum ada'], ['Harga Baru', `Rp ${detailItem.hargaBaru.toLocaleString('id-ID')}`], ['Harga Jual', `Rp ${detailItem.hargaJual.toLocaleString('id-ID')}`], ['Diskon', detailItem.diskonPersen ? `${detailItem.diskonPersen}%` : '-'], ['Harga Discount', detailItem.hargaDiskon > 0 ? `Rp ${detailItem.hargaDiskon.toLocaleString('id-ID')}` : '-'], ['Stok', String(detailItem.stok)], ['Min Stok', String(detailItem.minStok)], ['Aktif', detailItem.aktif === 1 ? '✅ Ya' : '❌ Tidak'], ['Perubahan Harga Beli', detailItem.perubahanHargaBeli || '-']].map(([label, val]) => (<div key={label} className="flex flex-col"><span className="text-xs text-slate-400">{label}</span><span className="font-medium text-slate-800">{val}</span></div>))}
         </div>
         <div className="mt-3"><span className="text-xs text-slate-400">Status Upload Toko</span><div className="mt-1 flex flex-wrap gap-1">{extractMarketplaces(detailItem.statusUploadToko).length > 0 ? extractMarketplaces(detailItem.statusUploadToko).map((mp, i) => <span key={i} className={`rounded-full px-2 py-0.5 text-xs font-semibold ${mp.color}`}>{mp.name}</span>) : <span className="text-sm text-slate-400">-</span>}</div></div>
 
@@ -624,7 +659,7 @@ export function SkuTab() {
 
       {/* ── Tabel utama ── */}
       <div className="mt-4 overflow-x-auto rounded-xl border border-slate-100">
-        <table className="w-full table-fixed text-left text-xs" style={{ minWidth: '800px' }}>
+        <table className="w-full table-fixed text-left text-xs" style={{ minWidth: '980px' }}>
           <thead><tr className="bg-brand-50 text-[11px] uppercase text-brand-500">
             <th className="px-1.5 py-2 font-semibold w-[80px]">SKU</th>
             <th className="px-1.5 py-2 font-semibold w-[180px]">Nama</th>
@@ -632,13 +667,15 @@ export function SkuTab() {
             <th className="px-1.5 py-2 font-semibold w-[70px]">Kategori</th>
             <th className="px-1.5 py-2 font-semibold w-[80px]">Harga Baru</th>
             <th className="px-1.5 py-2 font-semibold w-[80px]">Harga Jual</th>
+            <th className="px-1.5 py-2 font-semibold w-[52px]">Diskon</th>
+            <th className="px-1.5 py-2 font-semibold w-[88px]">Hrg Diskon</th>
             <th className="px-1.5 py-2 font-semibold w-[50px]">Stok</th>
             <th className="px-1.5 py-2 font-semibold w-[110px]">Upload Toko</th>
             <th className="px-1.5 py-2 font-semibold w-[56px]">Δ Harga</th>
             <th className="px-1.5 py-2 font-semibold w-[56px]">Aksi</th>
           </tr></thead>
           <tbody className="divide-y divide-slate-50 bg-white">
-            {paginated.length === 0 ? <tr><td colSpan={10} className="py-10 text-center text-slate-400">{hppFilter !== 'semua' ? 'Tidak ada SKU yang cocok dengan filter ini. 🎉' : 'Tidak ada SKU. Upload file Excel atau tambah manual.'}</td></tr>
+            {paginated.length === 0 ? <tr><td colSpan={12} className="py-10 text-center text-slate-400">{hppFilter !== 'semua' ? 'Tidak ada SKU yang cocok dengan filter ini. 🎉' : 'Tidak ada SKU. Upload file Excel atau tambah manual.'}</td></tr>
               : paginated.map((item, i) => (<tr
                 key={item.id}
                 className={`${i % 2 === 0 ? 'bg-white' : 'bg-slate-50/30'} ${item.stok < item.minStok ? 'border-l-4 border-l-red-400' : ''} cursor-pointer hover:bg-brand-50/50`}
@@ -653,6 +690,8 @@ export function SkuTab() {
                 <td className="px-1.5 py-1.5 text-[10px] text-slate-600 truncate" title={item.kategori}>{item.kategori || '-'}</td>
                 <td className="px-1.5 py-1.5 text-[11px] whitespace-nowrap">{item.hargaBaru > 0 ? `Rp ${item.hargaBaru.toLocaleString('id-ID')}` : <span className="rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-600">⚠ 0</span>}</td>
                 <td className="px-1.5 py-1.5 text-[11px] font-semibold text-brand-700 whitespace-nowrap">Rp {item.hargaJual.toLocaleString('id-ID')}</td>
+                <td className="px-1.5 py-1.5 text-[11px] whitespace-nowrap">{item.diskonPersen > 0 ? <span className="rounded-full bg-rose-100 px-1.5 py-0.5 text-[10px] font-bold text-rose-600">−{item.diskonPersen}%</span> : <span className="text-slate-300">-</span>}</td>
+                <td className="px-1.5 py-1.5 text-[11px] font-semibold text-rose-600 whitespace-nowrap">{item.hargaDiskon > 0 ? `Rp ${item.hargaDiskon.toLocaleString('id-ID')}` : <span className="text-slate-300">-</span>}</td>
                 <td className="px-1.5 py-1.5"><span className={`text-[11px] font-semibold ${item.stok < item.minStok ? 'text-red-500' : item.stok === 0 ? 'text-slate-400' : 'text-slate-700'}`}>{item.stok}{item.stok < item.minStok && ' ⚠'}</span></td>
                 <td className="px-1.5 py-1.5"><div className="flex flex-wrap gap-0.5">{(() => { const mps = mpCache.get(item.id) || []; return <>{mps.slice(0, 2).map((mp, j) => <span key={j} className={`rounded-full px-1 py-0.5 text-[10px] font-semibold leading-none ${mp.color}`}>{mp.name}</span>)}{mps.length > 2 && <span className="text-[10px] text-slate-400">+{mps.length - 2}</span>}</>; })()}</div></td>
                 <td className={`px-1.5 py-1.5 text-[10px] font-semibold whitespace-nowrap ${perubahanColor(item.perubahanHargaBeli)}`}>{item.perubahanHargaBeli || '-'}</td>

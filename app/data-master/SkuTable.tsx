@@ -4,7 +4,7 @@ export function SkuTable({ data, onEdit, onDelete }: { data: SkuItem[]; onEdit: 
   return (
     <div className="mt-4 overflow-x-auto rounded-xl border border-slate-100">
       <table className="w-full text-left text-sm">
-        <thead><tr className="bg-brand-50 text-xs uppercase text-brand-500">{['SKU','Nama','Grade','Kategori','Harga Beli','Harga Jual','Stok','Aksi'].map(c => <th key={c} className="px-3 py-3 font-semibold whitespace-nowrap">{c}</th>)}</tr></thead>
+        <thead><tr className="bg-brand-50 text-xs uppercase text-brand-500">{['SKU','Nama','Grade','Kategori','Harga Beli','Harga Jual','Diskon','Harga Discount','Stok','Aksi'].map(c => <th key={c} className="px-3 py-3 font-semibold whitespace-nowrap">{c}</th>)}</tr></thead>
         <tbody className="divide-y divide-slate-50 bg-white">
           {data.map((item, i) => (
             <tr key={item.id} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50/30'}>
@@ -14,11 +14,13 @@ export function SkuTable({ data, onEdit, onDelete }: { data: SkuItem[]; onEdit: 
               <td className="px-3 py-2 text-slate-600">{item.kategori || '-'}</td>
               <td className="px-3 py-2">Rp {item.hargaBaru.toLocaleString('id-ID')}</td>
               <td className="px-3 py-2 font-semibold text-brand-700">Rp {item.hargaJual.toLocaleString('id-ID')}</td>
+              <td className="px-3 py-2">{item.diskonPersen > 0 ? <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[11px] font-bold text-rose-600">−{item.diskonPersen}%</span> : '-'}</td>
+              <td className="px-3 py-2 font-semibold text-rose-600">{item.hargaDiskon > 0 ? `Rp ${item.hargaDiskon.toLocaleString('id-ID')}` : '-'}</td>
               <td className="px-3 py-2"><span className={`text-xs font-semibold ${item.stok < item.minStok ? 'text-red-500' : 'text-slate-700'}`}>{item.stok}{item.stok < item.minStok && ' ⚠'}</span></td>
               <td className="px-3 py-2"><div className="flex gap-1"><button onClick={() => onEdit(item)} className="rounded-lg bg-brand-100 px-2 py-1 text-xs font-semibold text-brand-700 hover:bg-brand-200">✏️</button><button onClick={() => onDelete(item.id)} className="rounded-lg bg-red-100 px-2 py-1 text-xs font-semibold text-red-600 hover:bg-red-200">🗑️</button></div></td>
             </tr>
           ))}
-          {data.length === 0 && <tr><td colSpan={8} className="py-10 text-center text-slate-400">Tidak ada SKU.</td></tr>}
+          {data.length === 0 && <tr><td colSpan={10} className="py-10 text-center text-slate-400">Tidak ada SKU.</td></tr>}
         </tbody>
       </table>
     </div>

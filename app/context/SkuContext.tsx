@@ -6,6 +6,7 @@ export interface SkuItem {
   id: string; sku: string; nama: string; grade: string; kodeSupplierVarian: string;
   statusEditGambar: string; statusUploadToko: string; supplier: string; kategori: string;
   satuan: string; hargaModalLama: number; hargaBaru: number; hargaJual: number;
+  diskonPersen: number; hargaDiskon: number;
   stok: number; minStok: number; aktif: number; perubahanHargaBeli: string;
   videoKonten: boolean; gambarToko: string;
 }
