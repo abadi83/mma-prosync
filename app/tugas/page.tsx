@@ -4,13 +4,15 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useUser } from '@/app/hooks/useUser';
 import { TugasItem, TugasProgressItem, TugasStatus, TugasPrioritas } from '@/app/services/tugasService';
 import { buildGantt, shortDate, todayMidnight } from '@/app/lib/gantt';
+import RndTab from './RndTab';
 
-type Tab = 'daftar' | 'gantt' | 'laporan';
+type Tab = 'daftar' | 'gantt' | 'laporan' | 'rnd';
 
 const TABS: { key: Tab; label: string; icon: string }[] = [
   { key: 'daftar', label: 'Daftar Tugas', icon: '📋' },
   { key: 'gantt', label: 'Gantt Chart', icon: '📊' },
   { key: 'laporan', label: 'Laporan Selesai', icon: '📝' },
+  { key: 'rnd', label: 'R&D', icon: '🧪' },
 ];
 
 const STATUS_LABEL: Record<TugasStatus, string> = { todo: 'Todo', proses: 'Proses', review: 'Review', selesai: 'Selesai' };
@@ -73,6 +75,7 @@ export default function TugasPage() {
         {tab === 'daftar' && <DaftarTugasTab />}
         {tab === 'gantt' && <GanttTab />}
         {tab === 'laporan' && <LaporanTab />}
+        {tab === 'rnd' && <RndTab />}
       </section>
     </main>
   );
