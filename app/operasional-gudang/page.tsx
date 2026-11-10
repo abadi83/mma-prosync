@@ -2537,29 +2537,35 @@ function LogistikPO({ fleet, pegawai }: { fleet: any[]; pegawai: { id: string; n
     // Update HPP data
     void updateHppData(noPO, { pickupStatus: 'sampai' });
 
-    // Push ke inventory checklist — langsung tersinkron ke Barang Masuk + stok naik
-    // (anti-dobel via flag synced; checklist di Inventory tinggal verifikasi)
+    // Kedatangan PO hanya membuat/memperbarui daftar pemeriksaan fisik.
+    // Tidak ada Barang Masuk atau penambahan stok sampai SKU dikonfirmasi satu per satu di Inventory.
     try {
       const existing = JSON.parse(localStorage.getItem('mma_po_inventory_check') || '[]');
-      const items = po.items.map((item: any) => ({
-        sku: item.sku,
-        nama: item.namaSku,
-        qty: item.qty,
-        noPO: po.noPO,
-        supplier: po.supplierNama,
-        sampaiAt: new Date().toISOString(),
-        checked: true,
-        synced: false,
-        petugas: po.petugasLogistik || '-',
-        kendaraan: po.kendaraanNama ? `${po.kendaraanNama} (${po.platNomor || '-'})` : '-',
-      }));
-      // Hapus duplikat noPO lama
+      const priorBySku = new Map<string, any>(
+        existing.filter((e: any) => e.noPO === noPO).map((e: any) => [e.sku, e]),
+      );
+      const items = po.items.map((item: any) => {
+        const prior = priorBySku.get(item.sku);
+        return {
+          sku: item.sku,
+          nama: item.namaSku,
+          qty: item.qty,
+          noPO: po.noPO,
+          supplier: po.supplierNama,
+          sampaiAt: prior?.sampaiAt || new Date().toISOString(),
+          // Kedatangan bukan konfirmasi fisik; pertahankan hasil lama bila sudah diperiksa.
+          checked: !!prior?.checked || !!prior?.synced,
+          synced: !!prior?.synced,
+          petugas: po.petugasLogistik || '-',
+          kendaraan: po.kendaraanNama ? `${po.kendaraanNama} (${po.platNomor || '-'})` : '-',
+        };
+      });
+      // Ganti snapshot PO ini sambil mempertahankan SKU yang sudah masuk stok.
       const filtered = existing.filter((e: any) => e.noPO !== noPO);
       const checklist = [...filtered, ...items];
       localStorage.setItem('mma_po_inventory_check', JSON.stringify(checklist));
       window.dispatchEvent(new CustomEvent('shared-data-updated', { detail: { key: 'mma_po_inventory_check' } }));
-      // Checklist dengan checked:true + synced:false akan otomatis di-sync ke
-      // Barang Masuk + stok naik oleh Inventory (PoChecklist) — satu sumber stok.
+      // SKU tetap belum diperiksa; petugas Inventory harus konfirmasi fisik per SKU.
     } catch {}
 
     void reloadFromStorage();

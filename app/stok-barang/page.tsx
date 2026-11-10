@@ -1045,7 +1045,9 @@ function PoChecklist() {
           noPO: d.noPO || d.poNo || '',
           supplier: d.supplier || d.supplierNama || '',
           sampaiAt: d.sampaiAt || d.completedAt || '',
-          checked: !!d.checked,
+          // Data lama sempat auto-checked saat PO tiba; anggap belum diperiksa
+          // kecuali sudah tercatat di Barang Masuk (synced).
+          checked: !!d.synced,
           petugas: d.petugas || '',
           kendaraan: d.kendaraan || '',
           synced: !!d.synced,
@@ -1058,7 +1060,11 @@ function PoChecklist() {
   /* ── Auto-sync ke Barang Masuk: POST /api/barang-masuk → mutasi_stok DB ── */
   const updateStokRef = useRef(updateStok);
   useEffect(() => { updateStokRef.current = updateStok; }, [updateStok]);
-  const syncToBarangMasuk = useCallback(async (item: PoCheckItem) => {
+  const syncInFlightRef = useRef<Set<string>>(new Set());
+  const syncToBarangMasuk = useCallback(async (item: PoCheckItem): Promise<boolean> => {
+    const key = `${item.noPO}|${item.sku}`;
+    if (item.synced || syncInFlightRef.current.has(key)) return false;
+    syncInFlightRef.current.add(key);
     try {
       const res = await fetch('/api/barang-masuk', {
         method: 'POST',
@@ -1071,111 +1077,48 @@ function PoChecklist() {
         }),
       });
       if (res.ok) {
-        // ✅ Stok naik di sini — saat barang berhasil di-checklist (bukan saat PO dibuat)
+        // Satu-satunya jalur mutasi stok untuk checklist PO.
         void updateStokRef.current(item.sku, item.qty);
-        setItems(prev => prev.map(i => (i.noPO === item.noPO && i.sku === item.sku) ? { ...i, synced: true } : i));
+        setItems(prev => prev.map(i => (i.noPO === item.noPO && i.sku === item.sku)
+          ? { ...i, checked: true, synced: true }
+          : i));
+        return true;
       }
-    } catch {}
+      return false;
+    } catch { return false; } finally {
+      syncInFlightRef.current.delete(key);
+    }
   }, []);
 
   const toggleCheck = (idx: number) => {
     const item = items[idx];
-    if (!item) return;
+    if (!item || item.synced) return; // sudah masuk Barang Masuk: status final, tidak bisa diubah/konfirmasi ulang
     const willCheck = !item.checked;
     setItems(prev => prev.map((it, i) => i === idx ? { ...it, checked: willCheck } : it));
-    // Centang = barang fisik diterima → catat OTOMATIS ke Barang Masuk (sekali saja, anti dobel via flag synced)
-    if (willCheck && !item.synced) void syncToBarangMasuk(item);
-  };
-
-  /* ── Sinkronkan semua item yang checked tapi belum synced (manual, sekali klik).
-     Berguna untuk PO lama yang "Sampai di Gudang" sebelum fitur auto-sync ada. ── */
-  const [syncingAll, setSyncingAll] = useState(false);
-  const [syncFeedback, setSyncFeedback] = useState('');
-  const syncAllPending = async () => {
-    setSyncingAll(true);
-    setSyncFeedback('');
-    try {
-      const raw = localStorage.getItem('mma_po_inventory_check');
-      const data: PoCheckItem[] = raw ? JSON.parse(raw) : [];
-      const pending = data.filter(i => i.checked && !i.synced);
-      if (pending.length === 0) {
-        setSyncFeedback('✅ Semua barang sudah tercatat ke Barang Masuk.');
-        return;
-      }
-      let okCount = 0;
-      for (const p of pending) {
-        try {
-          const res = await fetch('/api/barang-masuk', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              produk: p.nama,
-              jumlah: p.qty,
-              supplier: p.supplier || '-',
-              tanggal: todayLocal(),
-            }),
-          });
-          if (res.ok) {
-            void updateStok(p.sku, p.qty);
-            okCount++;
-            setItems(prev => prev.map(i => (i.noPO === p.noPO && i.sku === p.sku) ? { ...i, synced: true } : i));
-          }
-        } catch {}
-      }
-      setSyncFeedback(`✅ ${okCount} item dicatat ke Barang Masuk${pending.length - okCount > 0 ? `, ${pending.length - okCount} gagal` : ''}.`);
-    } finally {
-      setSyncingAll(false);
+    // Centang per SKU = konfirmasi fisik; hanya setelah sukses baru masuk Barang Masuk/stok.
+    if (willCheck) {
+      setSyncFeedback(`Menyimpan ${item.sku} ke Barang Masuk…`);
+      void syncToBarangMasuk(item).then(ok => {
+        if (!ok) {
+          setItems(prev => prev.map((it, i) => i === idx && !it.synced ? { ...it, checked: false } : it));
+        }
+        setSyncFeedback(ok
+          ? `✅ ${item.sku} terkonfirmasi dan sudah dicatat ke Barang Masuk.`
+          : `⚠️ Gagal mencatat ${item.sku}. Tidak ditandai diperiksa; silakan centang ulang untuk mencoba lagi.`);
+      });
+    } else {
+      setSyncFeedback('');
     }
   };
 
-  /* ── Auto-sync: item yang sudah "checked" tapi belum synced (mis. dikirim otomatis
-     oleh Logistik saat PO "Sampai di Gudang") → langsung dicatat ke Barang Masuk
-     + stok naik, tanpa perlu centang manual lagi. ──
-     Guard memakai ref supaya item yang sama tidak di-sync berulang (hindari loop UI). */
-  const syncedGuardRef = useRef<Set<string>>(new Set());
-  const autoSyncPending = useCallback(() => {
-    try {
-      const raw = localStorage.getItem('mma_po_inventory_check');
-      const data: PoCheckItem[] = raw ? JSON.parse(raw) : [];
-      const pending = data.filter(i => i.checked && !i.synced);
-      for (const p of pending) {
-        const gk = `${p.noPO}|${p.sku}`;
-        if (syncedGuardRef.current.has(gk)) continue;
-        syncedGuardRef.current.add(gk);
-        void syncToBarangMasuk(p);
-      }
-    } catch {}
-  }, [syncToBarangMasuk]);
+  const [syncFeedback, setSyncFeedback] = useState('');
 
-  useEffect(() => { autoSyncPending(); }, [autoSyncPending]);
-  // Dengarkan perubahan checklist dari perangkat lain — TANPA menimpa state items
-  // secara penuh (cukup panggil auto-sync pending; menimpa state = flicker/loop).
-  useEffect(() => {
-    const onShared = (e: Event) => {
-      const detail = (e as CustomEvent).detail as { key?: string } | undefined;
-      if (detail?.key && detail.key !== 'mma_po_inventory_check') return;
-      autoSyncPending();
-    };
-    window.addEventListener('shared-data-updated', onShared);
-    window.addEventListener('storage', onShared);
-    return () => {
-      window.removeEventListener('shared-data-updated', onShared);
-      window.removeEventListener('storage', onShared);
-    };
-  }, [autoSyncPending]);
-
-  const checkAll = () => {
-    const targets = items.filter(i => !i.checked);
-    setItems(prev => prev.map(item => ({ ...item, checked: true })));
-    for (const t of targets) if (!t.synced) void syncToBarangMasuk(t);
-  };
-  const checkAllInPO = (noPO: string) => {
-    const targets = items.filter(i => i.noPO === noPO && !i.checked);
-    setItems(prev => prev.map(item => item.noPO === noPO ? { ...item, checked: true } : item));
-    for (const t of targets) if (!t.synced) void syncToBarangMasuk(t);
-  };
+  // Tidak ada auto-sync saat checklist dimuat. Penambahan stok hanya dipicu
+  // oleh konfirmasi manual per SKU melalui toggleCheck di atas.
+  const removableCheckedCount = items.filter(i => i.checked && !i.synced).length;
   const clearChecked = () => {
-    const remaining = items.filter(i => !i.checked);
+    // Pertahankan item synced sebagai bukti permanen bahwa SKU sudah masuk Barang Masuk.
+    const remaining = items.filter(i => i.synced || !i.checked);
     setItems(remaining);
     try { localStorage.setItem('mma_po_inventory_check', JSON.stringify(remaining)); } catch {}
   };
@@ -1260,7 +1203,7 @@ function PoChecklist() {
     <div>
       <div className="mb-1 h-1 w-16 rounded-full bg-gradient-to-r from-brand-500 to-brand-300" />
       <h2 className="text-lg font-bold text-slate-800 sm:text-xl">✅ PO Checklist</h2>
-      <p className="mt-1 text-sm text-slate-500">Cek barang yang datang dari Logistik per No PO. Centang SKU yang sudah diverifikasi — stok & Barang Masuk otomatis tercatat.</p>
+      <p className="mt-1 text-sm text-slate-500">PO yang tiba hanya masuk daftar pemeriksaan. Periksa fisik tiap SKU, lalu centang hanya barang yang benar-benar diterima; setelah konfirmasi, Barang Masuk dan stok akan tercatat.</p>
       <div className="mt-8 text-center py-12 text-slate-400">
         <p className="text-4xl mb-2">📋</p>
         <p className="font-semibold">Belum ada PO yang perlu dicek.</p>
@@ -1278,9 +1221,7 @@ function PoChecklist() {
           <p className="text-sm text-slate-500">{grouped.length} PO • {totalItems} SKU • {checkedItems} dicek</p>
         </div>
         <div className="flex gap-2">
-          <button onClick={syncAllPending} disabled={syncingAll} className="rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-600 disabled:opacity-50">{syncingAll ? 'Menyinkronkan…' : '🔄 Sinkronkan Stok'}</button>
-          <button onClick={checkAll} className="rounded-lg bg-brand-100 px-3 py-1.5 text-xs font-semibold text-brand-700 hover:bg-brand-200">☑ Cek Semua</button>
-          <button onClick={clearChecked} disabled={checkedItems === 0} className="rounded-lg bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-100 disabled:opacity-50">🗑 Hapus Dicek</button>
+          <button onClick={clearChecked} disabled={removableCheckedCount === 0} className="rounded-lg bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-100 disabled:opacity-50">🗑 Hapus Dicek Non-Stok</button>
         </div>
       </div>
       {syncFeedback && <p className="mt-2 text-xs font-semibold text-emerald-700">{syncFeedback}</p>}
@@ -1336,9 +1277,6 @@ function PoChecklist() {
                   <div className="h-full rounded-full bg-emerald-400 transition-all" style={{ width: `${poProgress}%` }} />
                 </div>
                 <span className="text-[10px] text-slate-400">{g.checkedQty}/{g.totalQty} pcs</span>
-                {!isComplete && (
-                  <button onClick={() => checkAllInPO(g.noPO)} className="text-[10px] text-brand-500 hover:text-brand-700 font-semibold">Cek Semua</button>
-                )}
               </div>
 
               {/* SKU Checklist */}
@@ -1348,15 +1286,17 @@ function PoChecklist() {
                   return (
                     <label
                       key={`${item.noPO}-${item.sku}-${idx}`}
-                      className={`flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition ${
-                        item.checked ? 'bg-emerald-50' : 'bg-white border border-slate-100 hover:bg-slate-50'
+                      className={`flex items-center gap-2 px-3 py-2 rounded-lg transition ${
+                        item.synced ? 'cursor-default bg-emerald-50' : item.checked ? 'cursor-pointer bg-emerald-50' : 'cursor-pointer bg-white border border-slate-100 hover:bg-slate-50'
                       }`}
                     >
                       <input
                         type="checkbox"
                         checked={item.checked}
+                        disabled={!!item.synced}
                         onChange={() => toggleCheck(globalIdx)}
-                        className="rounded accent-emerald-500 w-4 h-4 shrink-0"
+                        title={item.synced ? 'Sudah tercatat di Barang Masuk; tidak bisa dikonfirmasi ulang' : 'Konfirmasi barang diterima untuk mencatat ke Barang Masuk'}
+                        className="rounded accent-emerald-500 w-4 h-4 shrink-0 disabled:cursor-not-allowed disabled:opacity-70"
                       />
                       <span className="font-mono text-xs text-indigo-600 w-20 shrink-0">{item.sku}</span>
                       <span className={`text-xs flex-1 ${item.checked ? 'text-slate-400 line-through' : 'text-slate-700 font-medium'}`}>
