@@ -22,7 +22,7 @@ export async function GET(request: Request) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { produk, jumlah, supplier, tanggal } = body;
+    const { produk, jumlah, supplier, tanggal, noPO } = body;
 
     const error = runValidations(
       validateRequired({ produk, jumlah, supplier, tanggal }),
@@ -32,13 +32,15 @@ export async function POST(request: NextRequest) {
     if (error) return apiBadRequest(error);
 
     const tokoId = body.toko_id ?? DEFAULT_TOKO;
-    const entry = await addBarangMasuk(tokoId, { produk, jumlah, supplier, tanggal });
+    const entry = await addBarangMasuk(tokoId, { produk, jumlah, supplier, tanggal, noPO: noPO || '' });
 
     // Rekam aktivitas user (KPI) — identitas dari cookie login
     try {
       const username = request.cookies.get('user_pegawai_id')?.value || request.cookies.get('user_name')?.value || 'unknown';
       const namaUser = request.cookies.get('user_name')?.value || username;
-      await recordActivities([{ modul: 'stok', aksi: 'barang-masuk', refLabel: produk, detail: { jumlah, supplier, tanggal } }], { username, namaUser });
+      if (!entry.duplicate) {
+        await recordActivities([{ modul: 'stok', aksi: 'barang-masuk', refLabel: produk, detail: { jumlah, supplier, tanggal, noPO: noPO || '' } }], { username, namaUser });
+      }
     } catch {}
 
     return apiCreated(entry);

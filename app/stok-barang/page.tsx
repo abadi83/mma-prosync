@@ -625,10 +625,11 @@ function BarangMasuk() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(entry),
-    }).then(res => {
+    }).then(async res => {
       if (res.ok) {
-        // Stok SKU (sku_master) ikut naik
-        void updateStok(entry.sku, entry.jumlah);
+        const result = await res.json();
+        // Idempotent PO retry: record lama tidak boleh menaikkan stok lokal lagi.
+        if (!result.duplicate) void updateStok(entry.sku, entry.jumlah);
         fetchData();
       }
     }).catch(() => {});
@@ -653,6 +654,7 @@ function BarangMasuk() {
               <th className="pb-2 pr-3 font-semibold">Produk</th>
               <th className="pb-2 pr-3 font-semibold">Jumlah</th>
               <th className="pb-2 pr-3 font-semibold">Supplier</th>
+              <th className="pb-2 pr-3 font-semibold">No. PO</th>
               <th className="pb-2 font-semibold">Tanggal</th>
             </tr>
           </thead>
@@ -662,6 +664,7 @@ function BarangMasuk() {
                 <td className="py-2.5 pr-3 font-medium text-slate-800">{item.produk}</td>
                 <td className="py-2.5 pr-3 font-semibold text-brand-600">+{item.jumlah}</td>
                 <td className="py-2.5 pr-3 text-slate-600">{item.supplier}</td>
+                <td className="py-2.5 pr-3 font-mono text-xs font-semibold text-indigo-700">{item.noPO || '—'}</td>
                 <td className="py-2.5 text-slate-500">{item.tanggal}</td>
               </tr>
             ))}
@@ -1073,12 +1076,14 @@ function PoChecklist() {
           produk: item.nama,
           jumlah: item.qty,
           supplier: item.supplier || '-',
+          noPO: item.noPO,
           tanggal: todayLocal(),
         }),
       });
       if (res.ok) {
-        // Satu-satunya jalur mutasi stok untuk checklist PO.
-        void updateStokRef.current(item.sku, item.qty);
+        const result = await res.json();
+        // API mengembalikan duplicate=true jika No. PO + SKU sudah tercatat sebelumnya.
+        if (!result.duplicate) void updateStokRef.current(item.sku, item.qty);
         setItems(prev => prev.map(i => (i.noPO === item.noPO && i.sku === item.sku)
           ? { ...i, checked: true, synced: true }
           : i));

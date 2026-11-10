@@ -7,6 +7,8 @@ export interface BarangMasukItem {
   jumlah: number;
   supplier: string;
   tanggal: string;
+  noPO?: string;
+  duplicate?: boolean;
 }
 
 const DEFAULT_TOKO = 'a0a0a0a0-0000-0000-0000-000000000001';
@@ -14,7 +16,7 @@ const DEFAULT_TOKO = 'a0a0a0a0-0000-0000-0000-000000000001';
 export async function getBarangMasuk(tokoId?: string): Promise<BarangMasukItem[]> {
   const { rows } = await query(
     `SELECT ms.id, p.nama AS produk, ms.jumlah, COALESCE(ms.keterangan, '') AS supplier,
-            to_char(ms.tanggal, 'YYYY-MM-DD') AS tanggal
+            to_char(ms.tanggal, 'YYYY-MM-DD') AS tanggal, COALESCE(ms.no_po, '') AS "noPO"
      FROM mutasi_stok ms
      JOIN produk p ON ms.produk_id = p.id
      WHERE ms.toko_id = $1 AND ms.tipe = 'masuk'
@@ -41,18 +43,55 @@ export async function addBarangMasuk(
     produkId = created.length > 0 ? created[0].id : null;
   }
 
-  const { rows } = await query(
-    `INSERT INTO mutasi_stok (produk_id, toko_id, tipe, jumlah, keterangan, tanggal)
-     VALUES ($1, $2, 'masuk', $3, $4, $5::date)
-     RETURNING id, (SELECT nama FROM produk WHERE id = $1) AS produk, jumlah`,
-    [produkId, tid, entry.jumlah, entry.supplier || 'Barang masuk', entry.tanggal || todayLocal()]
-  );
+  const noPO = String(entry.noPO || '').trim();
+  if (noPO) {
+    // Idempotent per PO + produk: retry / double click tidak boleh membuat mutasi kedua.
+    const { rows: existing } = await query(
+      `SELECT ms.id, p.nama AS produk, ms.jumlah,
+              COALESCE(ms.keterangan, '') AS supplier,
+              to_char(ms.tanggal, 'YYYY-MM-DD') AS tanggal,
+              COALESCE(ms.no_po, '') AS "noPO"
+       FROM mutasi_stok ms
+       JOIN produk p ON p.id = ms.produk_id
+       WHERE ms.toko_id = $1 AND ms.produk_id = $2 AND ms.tipe = 'masuk' AND ms.no_po = $3
+       ORDER BY ms.tanggal ASC LIMIT 1`,
+      [tid, produkId, noPO],
+    );
+    if (existing[0]) return { ...existing[0], jumlah: Number(existing[0].jumlah), duplicate: true };
+  }
 
-  return {
-    id: rows[0].id,
-    produk: entry.produk,
-    jumlah: entry.jumlah,
-    supplier: entry.supplier,
-    tanggal: entry.tanggal || todayLocal(),
-  };
+  try {
+    const { rows } = await query(
+      `INSERT INTO mutasi_stok (produk_id, toko_id, tipe, jumlah, keterangan, tanggal, no_po)
+       VALUES ($1, $2, 'masuk', $3, $4, $5::date, $6)
+       RETURNING id, (SELECT nama FROM produk WHERE id = $1) AS produk, jumlah,
+                 COALESCE(no_po, '') AS "noPO"`,
+      [produkId, tid, entry.jumlah, entry.supplier || 'Barang masuk', entry.tanggal || todayLocal(), noPO || null]
+    );
+
+    return {
+      id: rows[0].id,
+      produk: entry.produk,
+      jumlah: entry.jumlah,
+      supplier: entry.supplier,
+      tanggal: entry.tanggal || todayLocal(),
+      noPO,
+    };
+  } catch (error: any) {
+    // Dua perangkat bisa konfirmasi PO/SKU bersamaan; unique index memastikan hanya satu stok masuk.
+    if (noPO && error?.code === '23505') {
+      const { rows: existing } = await query(
+        `SELECT ms.id, p.nama AS produk, ms.jumlah,
+                COALESCE(ms.keterangan, '') AS supplier,
+                to_char(ms.tanggal, 'YYYY-MM-DD') AS tanggal,
+                COALESCE(ms.no_po, '') AS "noPO"
+         FROM mutasi_stok ms JOIN produk p ON p.id = ms.produk_id
+         WHERE ms.toko_id = $1 AND ms.produk_id = $2 AND ms.tipe = 'masuk' AND ms.no_po = $3
+         LIMIT 1`,
+        [tid, produkId, noPO],
+      );
+      if (existing[0]) return { ...existing[0], jumlah: Number(existing[0].jumlah), duplicate: true };
+    }
+    throw error;
+  }
 }

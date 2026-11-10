@@ -53,6 +53,7 @@ describe('BarangMasukForm', () => {
     fireEvent.click(screen.getByText('KN-001'));
     fireEvent.change(screen.getByPlaceholderText('0'), { target: { value: '25' } });
     fireEvent.change(screen.getByPlaceholderText('Nama supplier'), { target: { value: 'PT Kabel Dunia' } });
+    fireEvent.change(screen.getByPlaceholderText('Contoh: PO-261110-025'), { target: { value: 'PO-261110-025' } });
 
     fireEvent.click(screen.getByRole('button', { name: /tambah barang masuk/i }));
 
@@ -62,6 +63,7 @@ describe('BarangMasukForm', () => {
     expect(entry.produk).toBe('Kabel NYM 2x1.5');
     expect(entry.jumlah).toBe(25);
     expect(entry.supplier).toBe('PT Kabel Dunia');
+    expect(entry.noPO).toBe('PO-261110-025');
     expect(entry).toHaveProperty('id');
     expect(entry).toHaveProperty('tanggal');
   });

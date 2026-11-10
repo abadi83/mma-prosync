@@ -12,6 +12,7 @@ export interface BarangMasukEntry {
   jumlah: number;
   supplier: string;
   tanggal: string;
+  noPO?: string;
 }
 
 interface Props {
@@ -23,6 +24,7 @@ export function BarangMasukForm({ onAdd }: Props) {
   const [sku, setSku] = useState('');
   const [jumlah, setJumlah] = useState('');
   const [supplier, setSupplier] = useState('');
+  const [noPO, setNoPO] = useState('');
   const [tanggal, setTanggal] = useState(todayLocal());
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
@@ -34,6 +36,7 @@ export function BarangMasukForm({ onAdd }: Props) {
     setSku('');
     setJumlah('');
     setSupplier('');
+    setNoPO('');
     setTanggal(todayLocal());
     setError('');
   };
@@ -57,6 +60,7 @@ export function BarangMasukForm({ onAdd }: Props) {
       jumlah: jml,
       supplier: supplier.trim(),
       tanggal,
+      noPO: noPO.trim(),
     });
 
     setSuccess(true);
@@ -79,7 +83,7 @@ export function BarangMasukForm({ onAdd }: Props) {
         </p>
       )}
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <label className="flex flex-col gap-1">
           <span className="text-xs font-semibold text-slate-600">Produk</span>
           <SkuPicker skus={katalog} value={sku} onChange={setSku} />
@@ -104,6 +108,17 @@ export function BarangMasukForm({ onAdd }: Props) {
             value={supplier}
             onChange={(e) => setSupplier(e.target.value)}
             placeholder="Nama supplier"
+            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
+          />
+        </label>
+
+        <label className="flex flex-col gap-1">
+          <span className="text-xs font-semibold text-slate-600">No. PO (opsional)</span>
+          <input
+            type="text"
+            value={noPO}
+            onChange={(e) => setNoPO(e.target.value)}
+            placeholder="Contoh: PO-261110-025"
             className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
           />
         </label>
