@@ -1971,18 +1971,53 @@ function LogistikTab() {
   const { allRows } = useAgregasi();
   const [subTab, setSubTab] = useState<LogistikSubTab>('handover');
 
-  const fleet = useMemo(() => {
-    if (typeof window === 'undefined') return [];
-    try { const r = localStorage.getItem('mma_fleet_master'); return r ? JSON.parse(r) : []; } catch { return []; }
+  /* ── Kendaraan: sumber utama DB (master Fleet), fallback cache localStorage ── */
+  const [fleetDb, setFleetDb] = useState<any[]>([]);
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const res = await fetch('/api/fleet', { cache: 'no-store' });
+        if (res.ok && active) {
+          const data = await res.json();
+          if (Array.isArray(data) && data.length > 0) { setFleetDb(data); return; }
+        }
+      } catch {}
+      // Fallback: cache lokal (kalau API belum tersedia)
+      if (active && typeof window !== 'undefined') {
+        try { const r = localStorage.getItem('mma_fleet_master'); if (r) setFleetDb(JSON.parse(r)); } catch {}
+      }
+    })();
+    return () => { active = false; };
   }, []);
-  const availableFleet = fleet.filter((f: any) => f.status === 'Tersedia');
+
+  /* ── Driver: sumber DB Kepegawaian (pegawai aktif) ── */
+  const [pegawai, setPegawai] = useState<{ id: string; nama: string; jabatan?: string; status?: string }[]>([]);
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const res = await fetch('/api/pegawai', { cache: 'no-store' });
+        if (res.ok && active) {
+          const data = await res.json();
+          if (Array.isArray(data)) {
+            setPegawai(data.filter((p: any) => !p.status || p.status === 'Aktif'));
+          }
+        }
+      } catch {}
+    })();
+    return () => { active = false; };
+  }, []);
+
+  const fleet = fleetDb;
+  const availableFleet = fleet.filter((f: any) => (f.status || 'Tersedia') === 'Tersedia');
 
   return (
     <div>
       <div className="mb-1 h-1 w-16 rounded-full bg-gradient-to-r from-brand-500 to-brand-300" />
       <h2 className="text-lg font-bold text-slate-800 sm:text-xl">🚛 Logistik</h2>
       <p className="mt-1 text-sm text-slate-500">
-        Handover, pengantaran penjualan offline & penjemputan PO • {availableFleet.length} kendaraan tersedia
+        Handover, pengantaran penjualan offline & penjemputan PO • {availableFleet.length} kendaraan tersedia • {pegawai.length} driver (pegawai aktif)
       </p>
 
       <div className="mt-4 flex gap-1 rounded-2xl bg-slate-100 p-1 w-fit">
@@ -1999,8 +2034,8 @@ function LogistikTab() {
       </div>
 
       {subTab === 'handover' && <LogistikHandover allRows={allRows} />}
-      {subTab === 'pengantaran' && <LogistikPengantaran fleet={availableFleet} />}
-      {subTab === 'po' && <LogistikPO fleet={availableFleet} />}
+      {subTab === 'pengantaran' && <LogistikPengantaran fleet={availableFleet} pegawai={pegawai} />}
+      {subTab === 'po' && <LogistikPO fleet={availableFleet} pegawai={pegawai} />}
     </div>
   );
 }
@@ -2335,20 +2370,26 @@ function LogistikHandover({ allRows }: { allRows: AgregasiRow[] }) {
   );
 }
 
-function LogistikPengantaran({ fleet }: { fleet: any[] }) {
+function LogistikPengantaran({ fleet, pegawai }: { fleet: any[]; pegawai: { id: string; nama: string; jabatan?: string }[] }) {
   const [entries, setEntries] = useState<any[]>(() => {
     if (typeof window === 'undefined') return [];
     try { const r = localStorage.getItem('mma_pengantaran_offline'); return r ? JSON.parse(r) : []; } catch { return []; }
   });
-  const [form, setForm] = useState({ noNota: '', penerima: '', alamat: '', noHp: '', kendaraanId: '', catatan: '' });
+  const [form, setForm] = useState({ noNota: '', penerima: '', alamat: '', noHp: '', kendaraanId: '', driverId: '', catatan: '' });
   const [err, setErr] = useState('');
   const [success, setSuccess] = useState(false);
 
   const save = () => {
     if (!form.noNota.trim() || !form.penerima.trim()) { setErr('No Nota & Penerima wajib.'); return; }
     const k = fleet.find((f: any) => f.id === form.kendaraanId);
-    setEntries((prev: any[]) => [{ id: `del-${Date.now()}`, ...form, kendaraan: k?.nama || '-', platNomor: k?.platNomor || '-', tanggal: todayLocal(), jam: new Date().toLocaleTimeString('id-ID'), status: 'Diantar' }, ...prev]);
-    setForm({ noNota: '', penerima: '', alamat: '', noHp: '', kendaraanId: '', catatan: '' });
+    const d = pegawai.find((p: any) => p.id === form.driverId);
+    setEntries((prev: any[]) => [{
+      id: `del-${Date.now()}`, ...form,
+      kendaraan: k?.nama || '-', platNomor: k?.platNomor || '-',
+      driverId: form.driverId || '', driver: d?.nama || '-',
+      tanggal: todayLocal(), jam: new Date().toLocaleTimeString('id-ID'), status: 'Diantar',
+    }, ...prev]);
+    setForm({ noNota: '', penerima: '', alamat: '', noHp: '', kendaraanId: '', driverId: '', catatan: '' });
     setErr(''); setSuccess(true); setTimeout(() => setSuccess(false), 3000);
   };
 
@@ -2365,8 +2406,12 @@ function LogistikPengantaran({ fleet }: { fleet: any[] }) {
           <input value={form.noHp} onChange={e => setForm({ ...form, noHp: e.target.value })} placeholder="No HP Penerima" className="rounded-xl border px-3 py-2 text-sm focus:border-brand-500 focus:outline-none" />
           <input value={form.alamat} onChange={e => setForm({ ...form, alamat: e.target.value })} placeholder="Alamat Pengantaran" className="rounded-xl border px-3 py-2 text-sm focus:border-brand-500 focus:outline-none" />
           <select value={form.kendaraanId} onChange={e => setForm({ ...form, kendaraanId: e.target.value })} className="rounded-xl border px-3 py-2 text-sm bg-white focus:border-brand-500 focus:outline-none">
-            <option value="">Pilih Kendaraan</option>
+            <option value="">Pilih Kendaraan (Master Fleet)</option>
             {fleet.map((f: any) => <option key={f.id} value={f.id}>{f.nama} ({f.platNomor})</option>)}
+          </select>
+          <select value={form.driverId} onChange={e => setForm({ ...form, driverId: e.target.value })} className="rounded-xl border px-3 py-2 text-sm bg-white focus:border-brand-500 focus:outline-none">
+            <option value="">Pilih Driver (Kepegawaian)</option>
+            {pegawai.map((p: any) => <option key={p.id} value={p.id}>{p.nama}{p.jabatan ? ` — ${p.jabatan}` : ''}</option>)}
           </select>
           <input value={form.catatan} onChange={e => setForm({ ...form, catatan: e.target.value })} placeholder="Catatan (opsional)" className="rounded-xl border px-3 py-2 text-sm focus:border-brand-500 focus:outline-none" />
         </div>
@@ -2375,12 +2420,12 @@ function LogistikPengantaran({ fleet }: { fleet: any[] }) {
       </div>
       {entries.length > 0 && (
         <div className="mt-4 overflow-x-auto rounded-xl border border-slate-100">
-          <table className="w-full text-left text-xs"><thead><tr className="bg-blue-50 text-xs uppercase text-blue-600">{['No Nota','Penerima','Alamat','Kendaraan','Tanggal','Jam','Status'].map(c => <th key={c} className="px-2 py-3 font-semibold whitespace-nowrap">{c}</th>)}</tr></thead>
-            <tbody className="divide-y divide-slate-50 bg-white">{entries.map((e: any) => (<tr key={e.id}><td className="px-2 py-2.5 font-mono font-semibold text-slate-700">{e.noNota}</td><td className="px-2 py-2.5">{e.penerima}</td><td className="px-2 py-2.5 text-slate-500 max-w-[120px] truncate">{e.alamat||'-'}</td><td className="px-2 py-2.5 text-[10px]">{e.kendaraan} <span className="text-slate-400">{e.platNomor}</span></td><td className="px-2 py-2.5">{e.tanggal}</td><td className="px-2 py-2.5">{e.jam}</td><td className="px-2 py-2.5"><span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">{e.status}</span></td></tr>))}</tbody></table></div>)}
+          <table className="w-full text-left text-xs"><thead><tr className="bg-blue-50 text-xs uppercase text-blue-600">{['No Nota','Penerima','Alamat','Kendaraan','Driver','Tanggal','Jam','Status'].map(c => <th key={c} className="px-2 py-3 font-semibold whitespace-nowrap">{c}</th>)}</tr></thead>
+            <tbody className="divide-y divide-slate-50 bg-white">{entries.map((e: any) => (<tr key={e.id}><td className="px-2 py-2.5 font-mono font-semibold text-slate-700">{e.noNota}</td><td className="px-2 py-2.5">{e.penerima}</td><td className="px-2 py-2.5 text-slate-500 max-w-[120px] truncate">{e.alamat||'-'}</td><td className="px-2 py-2.5 text-[10px]">{e.kendaraan} <span className="text-slate-400">{e.platNomor}</span></td><td className="px-2 py-2.5 text-[10px] font-semibold text-slate-600">{e.driver||'-'}</td><td className="px-2 py-2.5">{e.tanggal}</td><td className="px-2 py-2.5">{e.jam}</td><td className="px-2 py-2.5"><span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">{e.status}</span></td></tr>))}</tbody></table></div>)}
     </div>);
 }
 
-function LogistikPO({ fleet }: { fleet: any[] }) {
+function LogistikPO({ fleet, pegawai }: { fleet: any[]; pegawai: { id: string; nama: string; jabatan?: string }[] }) {
   const suppliers = useSuppliers();
 
   /* ── Group data HPP (IndexedDB) by noPO ── */
@@ -2469,13 +2514,15 @@ function LogistikPO({ fleet }: { fleet: any[] }) {
     } catch {}
   };
 
-  /* ── Assign kendaraan & petugas → pickupStatus: 'sedang' ── */
-  const mulaiPickup = (noPO: string, kendaraanId: string, petugas: string) => {
-    if (!petugas.trim()) return;
+  /* ── Assign kendaraan & petugas (driver dari Kepegawaian) → pickupStatus: 'sedang' ── */
+  const mulaiPickup = (noPO: string, kendaraanId: string, petugasId: string) => {
+    const d = pegawai.find((p: any) => p.id === petugasId);
+    if (!d) return;
     const k = fleet.find((f: any) => f.id === kendaraanId);
     void updateHppData(noPO, {
       pickupStatus: 'sedang',
-      petugasLogistik: petugas.trim(),
+      petugasLogistik: d.nama,
+      petugasId: d.id,
       kendaraanId: kendaraanId,
       kendaraanNama: k?.nama || '',
       platNomor: k?.platNomor || '',
@@ -2624,13 +2671,14 @@ function LogistikPO({ fleet }: { fleet: any[] }) {
                       </select>
                     </div>
                     <div className="flex gap-2">
-                      <input
-                        type="text"
+                      <select
                         value={selectedPO === po.noPO ? petugasInput : ''}
                         onChange={e => { setSelectedPO(po.noPO); setPetugasInput(e.target.value); }}
-                        placeholder="Nama petugas yang menjemput…"
                         className="flex-1 rounded-lg border px-2 py-1.5 text-xs bg-white focus:border-amber-500 focus:outline-none"
-                      />
+                      >
+                        <option value="">Pilih Driver (Kepegawaian)...</option>
+                        {pegawai.map((p: any) => <option key={p.id} value={p.id}>{p.nama}{p.jabatan ? ` — ${p.jabatan}` : ''}</option>)}
+                      </select>
                       <button
                         onClick={() => { mulaiPickup(po.noPO, kendaraanInput, petugasInput); setSelectedPO(null); setPetugasInput(''); setKendaraanInput(''); }}
                         disabled={!petugasInput.trim()}
