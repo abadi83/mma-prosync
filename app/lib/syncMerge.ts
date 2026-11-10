@@ -11,6 +11,32 @@ export function itemKey(key: string, item: any): string {
   return JSON.stringify(item);
 }
 
+/* Ranking workflow gudang — versi dengan status lebih maju TIDAK BOLEH ditimpa
+   versi lama dari perangkat lain (akar masalah "handover hilang" setelah sync). */
+const AGREGASI_STATUS_RANK: Record<string, number> = {
+  'Perlu Dikirim': 0,
+  'Dipicking': 1,
+  'DiQC': 2,
+  'Dipacking': 3,
+  'DiScanRunner': 4,
+  'Dikirim': 5,
+  'PendingPickup': 4,
+  'Dibatalkan': 6,
+};
+
+/** Status workflow yang lebih maju menang saat merge item agregasi yang sama. */
+function agregasiMenang(incoming: any, existing: any): boolean {
+  const rIn = AGREGASI_STATUS_RANK[incoming?.statusProses] ?? -1;
+  const rEx = AGREGASI_STATUS_RANK[existing?.statusProses] ?? -1;
+  if (rIn !== rEx) return rIn > rEx;
+  // Rank sama: yang punya handoverId menang, lalu yang terbaru berdasar updatedAt
+  if (!!incoming?.handoverId !== !!existing?.handoverId) return !!incoming?.handoverId;
+  const tsIn = Number(incoming?.updatedAt);
+  const tsEx = Number(existing?.updatedAt);
+  if (isFinite(tsIn) || isFinite(tsEx)) return isFinite(tsIn) && (!isFinite(tsEx) || tsIn >= tsEx);
+  return true; // default: lokal (incoming) menang
+}
+
 /**
  * Union dua array berdasarkan kunci unik tiap item.
  * a = sisi lokal/push (diproses terakhir → menang saat tanpa timestamp)
@@ -34,6 +60,12 @@ export function mergeUnion<T>(key: string, a: T[], b: T[], excluded?: Set<string
     const tsExisting = (existing as any)?.updatedAt;
     const itemHas = typeof tsItem === 'number' && isFinite(tsItem);
     const existingHas = typeof tsExisting === 'number' && isFinite(tsExisting);
+    if (key === 'mma_agregasi_rows') {
+      // Workflow gudang: status lebih maju / yang punya handover selalu menang,
+      // agar scan→handover dari perangkat A tidak ditimpa copy lama dari perangkat B.
+      if (agregasiMenang(item, existing)) map.set(k, item);
+      continue;
+    }
     if (itemHas || existingHas) {
       if (itemHas && (!existingHas || tsItem >= tsExisting)) map.set(k, item);
       // kalau existing lebih baru (atau satu-satunya yang punya timestamp) → biarkan existing

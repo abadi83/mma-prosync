@@ -2490,7 +2490,8 @@ function LogistikPO({ fleet }: { fleet: any[] }) {
     // Update HPP data
     void updateHppData(noPO, { pickupStatus: 'sampai' });
 
-    // Push ke inventory checklist
+    // Push ke inventory checklist — langsung tersinkron ke Barang Masuk + stok naik
+    // (anti-dobel via flag synced; checklist di Inventory tinggal verifikasi)
     try {
       const existing = JSON.parse(localStorage.getItem('mma_po_inventory_check') || '[]');
       const items = po.items.map((item: any) => ({
@@ -2500,13 +2501,18 @@ function LogistikPO({ fleet }: { fleet: any[] }) {
         noPO: po.noPO,
         supplier: po.supplierNama,
         sampaiAt: new Date().toISOString(),
-        checked: false,
+        checked: true,
+        synced: false,
         petugas: po.petugasLogistik || '-',
         kendaraan: po.kendaraanNama ? `${po.kendaraanNama} (${po.platNomor || '-'})` : '-',
       }));
       // Hapus duplikat noPO lama
       const filtered = existing.filter((e: any) => e.noPO !== noPO);
-      localStorage.setItem('mma_po_inventory_check', JSON.stringify([...filtered, ...items]));
+      const checklist = [...filtered, ...items];
+      localStorage.setItem('mma_po_inventory_check', JSON.stringify(checklist));
+      window.dispatchEvent(new CustomEvent('shared-data-updated', { detail: { key: 'mma_po_inventory_check' } }));
+      // Checklist dengan checked:true + synced:false akan otomatis di-sync ke
+      // Barang Masuk + stok naik oleh Inventory (PoChecklist) — satu sumber stok.
     } catch {}
 
     void reloadFromStorage();

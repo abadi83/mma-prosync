@@ -1084,6 +1084,44 @@ function PoChecklist() {
     // Centang = barang fisik diterima → catat OTOMATIS ke Barang Masuk (sekali saja, anti dobel via flag synced)
     if (willCheck && !item.synced) void syncToBarangMasuk(item);
   };
+
+  /* ── Auto-sync: item yang sudah "checked" tapi belum synced (mis. dikirim otomatis
+     oleh Logistik saat PO "Sampai di Gudang") → langsung dicatat ke Barang Masuk
+     + stok naik, tanpa perlu centang manual lagi. ── */
+  const autoSyncPending = useCallback(() => {
+    try {
+      const raw = localStorage.getItem('mma_po_inventory_check');
+      const data: PoCheckItem[] = raw ? JSON.parse(raw) : [];
+      const pending = data.filter(i => i.checked && !i.synced);
+      for (const p of pending) void syncToBarangMasuk(p);
+    } catch {}
+  }, [syncToBarangMasuk]);
+
+  useEffect(() => { autoSyncPending(); }, [autoSyncPending]);
+  useEffect(() => {
+    const onShared = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { key?: string } | undefined;
+      if (detail?.key && detail.key !== 'mma_po_inventory_check') return;
+      // Muat ulang checklist dari perangkat lain, lalu auto-sync yang belum synced
+      try {
+        const raw = localStorage.getItem('mma_po_inventory_check');
+        if (raw) setItems(JSON.parse(raw).map((d: any) => ({
+          sku: d.sku || '', nama: d.nama || d.namaSku || '', qty: d.qty || 0,
+          noPO: d.noPO || d.poNo || '', supplier: d.supplier || d.supplierNama || '',
+          sampaiAt: d.sampaiAt || d.completedAt || '', checked: !!d.checked,
+          petugas: d.petugas || '', kendaraan: d.kendaraan || '', synced: !!d.synced,
+        })));
+      } catch {}
+      autoSyncPending();
+    };
+    window.addEventListener('shared-data-updated', onShared);
+    window.addEventListener('storage', onShared);
+    return () => {
+      window.removeEventListener('shared-data-updated', onShared);
+      window.removeEventListener('storage', onShared);
+    };
+  }, [autoSyncPending]);
+
   const checkAll = () => {
     const targets = items.filter(i => !i.checked);
     setItems(prev => prev.map(item => ({ ...item, checked: true })));
