@@ -19,6 +19,7 @@ export interface AgregasiRow {
   dibuat: string;
   sla: string;
   statusProses?: 'Perlu Dikirim' | 'Dipicking' | 'DiQC' | 'Dipacking' | 'DiScanRunner' | 'Dikirim' | 'PendingPickup' | 'Dibatalkan'; // workflow gudang
+  updatedAt?: number;                          // timestamp perubahan terakhir (untuk merge sync agar tidak ditimpa data lama)
   jenisPaket?: 'Reguler' | 'Besar';          // ditentukan saat QC
   handoverId?: string;                        // ID serah terima dari Runner Scanner
   handoverAt?: string;                        // timestamp serah terima
@@ -74,6 +75,33 @@ function saveToStorage(rows: AgregasiRow[]) {
   } catch { /* storage full atau tidak tersedia */ }
 }
 
+/* Merge dua sumber baris agregasi: versi dengan status workflow lebih maju /
+   updatedAt lebih baru yang menang, agar scan picking/QC tidak ditimpa copy lama. */
+const AGREGASI_RANK: Record<string, number> = {
+  'Perlu Dikirim': 0, 'Dipicking': 1, 'DiQC': 2, 'Dipacking': 3,
+  'DiScanRunner': 4, 'PendingPickup': 4, 'Dikirim': 5, 'Dibatalkan': 6,
+};
+function rowMenang(incoming: AgregasiRow, existing: AgregasiRow): boolean {
+  const rIn = AGREGASI_RANK[incoming.statusProses || ''] ?? -1;
+  const rEx = AGREGASI_RANK[existing.statusProses || ''] ?? -1;
+  if (rIn !== rEx) return rIn > rEx;
+  if (!!incoming.handoverId !== !!existing.handoverId) return !!incoming.handoverId;
+  const tsIn = incoming.updatedAt ?? 0;
+  const tsEx = existing.updatedAt ?? 0;
+  if (tsIn || tsEx) return tsIn >= tsEx;
+  return true; // default: sumber terakhir (incoming) menang
+}
+function mergeRows(a: AgregasiRow[], b: AgregasiRow[]): AgregasiRow[] {
+  const map = new Map<string, AgregasiRow>();
+  for (const r of b) map.set(`${r.noPesanan}||${r.noResi}||${r.sku}`, r);
+  for (const r of a) {
+    const k = `${r.noPesanan}||${r.noResi}||${r.sku}`;
+    const ex = map.get(k);
+    if (!ex || rowMenang(r, ex)) map.set(k, r);
+  }
+  return Array.from(map.values());
+}
+
 export function AgregasiProvider({ children }: { children: React.ReactNode }) {
   const [allRows, setAllRows] = useState<AgregasiRow[]>([]);
   const [isHydrated, setIsHydrated] = useState(false);
@@ -84,12 +112,9 @@ export function AgregasiProvider({ children }: { children: React.ReactNode }) {
     const stored = loadFromStorage();
     if (stored.length > 0) {
       setAllRows(prev => {
-        // Merge: stored + prev (prev bisa sudah ada dari upload sebelum hydrate)
+        // Merge: stored + prev — versi workflow lebih maju / updatedAt lebih baru menang
         if (prev.length === 0) return stored;
-        const map = new Map<string, AgregasiRow>();
-        for (const r of stored) map.set(`${r.noPesanan}||${r.noResi}||${r.sku}`, r);
-        for (const r of prev) map.set(`${r.noPesanan}||${r.noResi}||${r.sku}`, r);
-        return Array.from(map.values());
+        return mergeRows(prev, stored);
       });
     }
     setIsHydrated(true);
@@ -105,12 +130,7 @@ export function AgregasiProvider({ children }: { children: React.ReactNode }) {
     const onSync = () => {
       const stored = loadFromStorage();
       if (stored.length > 0) {
-        setAllRows(prev => {
-          const map = new Map<string, AgregasiRow>();
-          for (const r of stored) map.set(`${r.noPesanan}||${r.noResi}||${r.sku}`, r);
-          for (const r of prev) map.set(`${r.noPesanan}||${r.noResi}||${r.sku}`, r);
-          return Array.from(map.values());
-        });
+        setAllRows(prev => mergeRows(prev, stored));
       }
     };
     window.addEventListener('storage', onSync);
@@ -172,7 +192,7 @@ export function AgregasiProvider({ children }: { children: React.ReactNode }) {
       if (matched) {
         updated++;
         if (!r.noResi && resiByOrder.get(r.noPesanan)) newResi = resiByOrder.get(r.noPesanan)!;
-        return { ...r, statusProses: 'Dipicking' as const, noResi: newResi };
+        return { ...r, statusProses: 'Dipicking' as const, noResi: newResi, updatedAt: Date.now() };
       }
       return r;
     }));
@@ -185,7 +205,7 @@ export function AgregasiProvider({ children }: { children: React.ReactNode }) {
     let count = 0;
     setAllRows(prev => prev.map(r => {
       const k = `${r.noPesanan}||${r.noResi}`;
-      if (keySet.has(k) && r.statusProses === 'Dipicking') { count++; return { ...r, statusProses: 'DiQC' as const }; }
+      if (keySet.has(k) && r.statusProses === 'Dipicking') { count++; return { ...r, statusProses: 'DiQC' as const, updatedAt: Date.now() }; }
       return r;
     }));
     return count;

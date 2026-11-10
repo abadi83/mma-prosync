@@ -430,7 +430,7 @@ function QCList() {
     // Advance single order to Dipacking + set jenisPaket
     setAllRows((prev: AgregasiRow[]) => prev.map((r: AgregasiRow) => {
       if (r.noPesanan === noPesanan && r.noResi === noResi && r.statusProses === 'DiQC') {
-        return { ...r, statusProses: 'Dipacking' as const, jenisPaket: jenis };
+        return { ...r, statusProses: 'Dipacking' as const, jenisPaket: jenis, updatedAt: Date.now() };
       }
       return r;
     }));
@@ -581,7 +581,7 @@ function PackingList() {
   const handleKirim = (noPesanan: string, noResi: string) => {
     setAllRows((prev: AgregasiRow[]) => prev.map((r: AgregasiRow) => {
       if (r.noPesanan === noPesanan && r.noResi === noResi && r.statusProses === 'Dipacking') {
-        return { ...r, statusProses: 'DiScanRunner' as const };
+        return { ...r, statusProses: 'DiScanRunner' as const, updatedAt: Date.now() };
       }
       return r;
     }));
@@ -939,7 +939,7 @@ function RunnerScan() {
       setAllRows((prev: AgregasiRow[]) => prev.map((r: AgregasiRow) => {
         const key = `${r.noPesanan}||${r.noResi}`;
         if (scannedSet.has(key) && r.statusProses === 'DiScanRunner') {
-          return { ...r, statusProses: 'Dikirim' as const, handoverId: hoId, handoverAt: now };
+          return { ...r, statusProses: 'Dikirim' as const, handoverId: hoId, handoverAt: now, updatedAt: Date.now() };
         }
         return r;
       }));
@@ -1554,7 +1554,7 @@ function RunnerScan() {
               setAllRows((prev: AgregasiRow[]) => prev.map((r: AgregasiRow) => {
                 const rk = `${r.noPesanan}||${r.noResi}`;
                 if (rk === key && r.statusProses === 'DiScanRunner') {
-                  return { ...r, statusProses: 'Dikirim' as const, handoverId: hoId, handoverAt: now };
+                  return { ...r, statusProses: 'Dikirim' as const, handoverId: hoId, handoverAt: now, updatedAt: Date.now() };
                 }
                 return r;
               }));
@@ -1567,7 +1567,7 @@ function RunnerScan() {
               setAllRows((prev: AgregasiRow[]) => prev.map((r: AgregasiRow) => {
                 const rk = `${r.noPesanan}||${r.noResi}`;
                 if (rk === key && r.statusProses === 'DiScanRunner') {
-                  return { ...r, statusProses: 'PendingPickup' as const };
+                  return { ...r, statusProses: 'PendingPickup' as const, updatedAt: Date.now() };
                 }
                 return r;
               }));
@@ -1583,7 +1583,7 @@ function RunnerScan() {
               setAllRows((prev: AgregasiRow[]) => prev.map((r: AgregasiRow) => {
                 const key = `${r.noPesanan}||${r.noResi}`;
                 if (keySet.has(key) && r.statusProses === 'DiScanRunner') {
-                  return { ...r, statusProses: 'Dikirim' as const, handoverId: hoId, handoverAt: now };
+                  return { ...r, statusProses: 'Dikirim' as const, handoverId: hoId, handoverAt: now, updatedAt: Date.now() };
                 }
                 return r;
               }));
@@ -1597,7 +1597,7 @@ function RunnerScan() {
               setAllRows((prev: AgregasiRow[]) => prev.map((r: AgregasiRow) => {
                 const key = `${r.noPesanan}||${r.noResi}`;
                 if (keySet.has(key) && r.statusProses === 'DiScanRunner') {
-                  return { ...r, statusProses: 'PendingPickup' as const };
+                  return { ...r, statusProses: 'PendingPickup' as const, updatedAt: Date.now() };
                 }
                 return r;
               }));
