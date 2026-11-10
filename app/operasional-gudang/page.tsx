@@ -1687,7 +1687,7 @@ function PickingList({ onGoBelanja }: { onGoBelanja?: () => void }) {
   const { skus } = useSkus();
   const picking = allRows.filter(r => r.statusProses === 'Dipicking');
 
-  /* Pesanan yang SKU-nya kosong/tidak ada di Inventory → ditahan dari picking */
+  /* Pesanan yang SKU-nya kosong/tidak ada di Inventory → ditandai "Harus Belanja" di picking */
   const belanjaSet = useMemo(() => new Set(computeBelanjaOrders(allRows, skus).map(o => o.key)), [allRows, skus]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirmed, setConfirmed] = useState<Set<string>>(new Set());
@@ -1717,9 +1717,10 @@ function PickingList({ onGoBelanja }: { onGoBelanja?: () => void }) {
   if (filterMp!=='semua') groupList = groupList.filter(([,g])=>g.marketplace===filterMp);
   if (filterToko!=='semua') groupList = groupList.filter(([,g])=>g.namaToko===filterToko);
 
-  /* Tahan pesanan yang SKU-nya kosong/tidak ada di Inventory — otomatis balik saat stok tersedia */
-  const heldCount = groupList.filter(([k]) => belanjaSet.has(k)).length;
-  groupList = groupList.filter(([k]) => !belanjaSet.has(k));
+  /* Resi yang SKU-nya kosong/tidak ada di Inventory → tetap tampil di Picking
+     dengan tanda "Harus Belanja" (tidak lagi disembunyikan), supaya alur scan→
+     handover→picking tetap jalan walau stok opname belum dilakukan. */
+  const belanjaCount = groupList.filter(([k]) => belanjaSet.has(k)).length;
 
   const toggleSelect = (key: string) => setSelected(p => { const n = new Set(p); n.has(key) ? n.delete(key) : n.add(key); return n; });
   const selectAll = () => setSelected(new Set(groupList.map(([k]) => k)));
@@ -1789,7 +1790,7 @@ function PickingList({ onGoBelanja }: { onGoBelanja?: () => void }) {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h2 className="text-lg font-bold text-slate-800 sm:text-xl">📋 Daftar Picking</h2>
-          <p className="mt-1 text-sm text-slate-500">{picking.length>0?`${groupList.length} resi • ${picking.length} item • ✅ ${confirmed.size} dikonfirmasi${heldCount>0?` • 🚦 ${heldCount} ditahan`:''}`:'Input manual / scanner'}</p>
+          <p className="mt-1 text-sm text-slate-500">{picking.length>0?`${groupList.length} resi • ${picking.length} item • ✅ ${confirmed.size} dikonfirmasi${belanjaCount>0?` • 🛒 ${belanjaCount} harus belanja`:''}`:'Input manual / scanner'}</p>
         </div>
         {picking.length>0 && (
         <div className="flex gap-2">
@@ -1801,11 +1802,11 @@ function PickingList({ onGoBelanja }: { onGoBelanja?: () => void }) {
         )}
       </div>
 
-      {/* Banner pesanan ditahan karena SKU kosong */}
-      {heldCount > 0 && (
+      {/* Banner info: resi yang harus belanja tetap ikut dipicking */}
+      {belanjaCount > 0 && (
         <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-700">
-          <span className="text-lg">🚦</span>
-          <p className="min-w-0 flex-1"><strong>{heldCount} pesanan ditahan</strong> — SKU kosong / tidak ada di Inventory. Otomatis masuk lagi ke daftar picking setelah stok tersedia.</p>
+          <span className="text-lg">🛒</span>
+          <p className="min-w-0 flex-1"><strong>{belanjaCount} resi perlu belanja</strong> — SKU kosong / tidak ada di Inventory. Tetap bisa diproses (scan → QC → packing) dan ditandai badge "Harus Belanja".</p>
           {onGoBelanja && <button onClick={onGoBelanja} className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-bold text-white hover:bg-amber-600 whitespace-nowrap">Lihat 🛒 Harus Belanja</button>}
         </div>
       )}
@@ -1882,11 +1883,12 @@ function PickingList({ onGoBelanja }: { onGoBelanja?: () => void }) {
             {groupList.map(([key, g], gi) => {
               const isSel = selected.has(key);
               const isConf = confirmed.has(key);
+              const needBelanja = belanjaSet.has(key);
               if (isConf) return null;
               return (
                 <tr key={key} className={`cursor-pointer transition ${gi%2===0?'bg-white':'bg-blue-50/20'} ${isSel?'ring-1 ring-brand-300':''} hover:bg-brand-50/50`} onClick={()=>setDetailKey(key)}>
                   <td className="px-2 py-2.5" onClick={e=>{e.stopPropagation();toggleSelect(key);}}><input type="checkbox" checked={isSel} onChange={()=>{}} className="rounded accent-brand-500 w-4 h-4 cursor-pointer" /></td>
-                  <td className="px-2 py-2.5 font-mono text-[11px] text-slate-600 font-semibold">{g.noResi}</td>
+                  <td className="px-2 py-2.5 font-mono text-[11px] text-slate-600 font-semibold">{g.noResi}{needBelanja && <span className="ml-1.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold text-amber-700 align-middle" title="SKU kosong / tidak ada di Inventory">🛒 Belanja</span>}</td>
                   <td className="px-2 py-2.5 font-mono text-xs text-slate-700">{g.noPesanan}</td>
                   <td className="px-2 py-2.5"><span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${g.marketplace==='Shopee'?'bg-orange-100 text-orange-700':g.marketplace==='TikTok Shop'?'bg-slate-200 text-slate-700':g.marketplace==='Lazada'?'bg-blue-100 text-blue-700':'bg-slate-100 text-slate-600'}`}>{g.marketplace}</span></td>
                   <td className="px-2 py-2.5 text-xs text-slate-600 max-w-[90px] truncate" title={g.namaToko}>{g.namaToko||'-'}</td>
