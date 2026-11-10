@@ -1056,6 +1056,8 @@ function PoChecklist() {
   });
 
   /* ── Auto-sync ke Barang Masuk: POST /api/barang-masuk → mutasi_stok DB ── */
+  const updateStokRef = useRef(updateStok);
+  useEffect(() => { updateStokRef.current = updateStok; }, [updateStok]);
   const syncToBarangMasuk = useCallback(async (item: PoCheckItem) => {
     try {
       const res = await fetch('/api/barang-masuk', {
@@ -1070,11 +1072,11 @@ function PoChecklist() {
       });
       if (res.ok) {
         // ✅ Stok naik di sini — saat barang berhasil di-checklist (bukan saat PO dibuat)
-        void updateStok(item.sku, item.qty);
+        void updateStokRef.current(item.sku, item.qty);
         setItems(prev => prev.map(i => (i.noPO === item.noPO && i.sku === item.sku) ? { ...i, synced: true } : i));
       }
     } catch {}
-  }, [updateStok]);
+  }, []);
 
   const toggleCheck = (idx: number) => {
     const item = items[idx];
@@ -1121,7 +1123,6 @@ function PoChecklist() {
         } catch {}
       }
       setSyncFeedback(`✅ ${okCount} item dicatat ke Barang Masuk${pending.length - okCount > 0 ? `, ${pending.length - okCount} gagal` : ''}.`);
-      autoSyncPending();
     } finally {
       setSyncingAll(false);
     }
@@ -1129,31 +1130,30 @@ function PoChecklist() {
 
   /* ── Auto-sync: item yang sudah "checked" tapi belum synced (mis. dikirim otomatis
      oleh Logistik saat PO "Sampai di Gudang") → langsung dicatat ke Barang Masuk
-     + stok naik, tanpa perlu centang manual lagi. ── */
+     + stok naik, tanpa perlu centang manual lagi. ──
+     Guard memakai ref supaya item yang sama tidak di-sync berulang (hindari loop UI). */
+  const syncedGuardRef = useRef<Set<string>>(new Set());
   const autoSyncPending = useCallback(() => {
     try {
       const raw = localStorage.getItem('mma_po_inventory_check');
       const data: PoCheckItem[] = raw ? JSON.parse(raw) : [];
       const pending = data.filter(i => i.checked && !i.synced);
-      for (const p of pending) void syncToBarangMasuk(p);
+      for (const p of pending) {
+        const gk = `${p.noPO}|${p.sku}`;
+        if (syncedGuardRef.current.has(gk)) continue;
+        syncedGuardRef.current.add(gk);
+        void syncToBarangMasuk(p);
+      }
     } catch {}
   }, [syncToBarangMasuk]);
 
   useEffect(() => { autoSyncPending(); }, [autoSyncPending]);
+  // Dengarkan perubahan checklist dari perangkat lain — TANPA menimpa state items
+  // secara penuh (cukup panggil auto-sync pending; menimpa state = flicker/loop).
   useEffect(() => {
     const onShared = (e: Event) => {
       const detail = (e as CustomEvent).detail as { key?: string } | undefined;
       if (detail?.key && detail.key !== 'mma_po_inventory_check') return;
-      // Muat ulang checklist dari perangkat lain, lalu auto-sync yang belum synced
-      try {
-        const raw = localStorage.getItem('mma_po_inventory_check');
-        if (raw) setItems(JSON.parse(raw).map((d: any) => ({
-          sku: d.sku || '', nama: d.nama || d.namaSku || '', qty: d.qty || 0,
-          noPO: d.noPO || d.poNo || '', supplier: d.supplier || d.supplierNama || '',
-          sampaiAt: d.sampaiAt || d.completedAt || '', checked: !!d.checked,
-          petugas: d.petugas || '', kendaraan: d.kendaraan || '', synced: !!d.synced,
-        })));
-      } catch {}
       autoSyncPending();
     };
     window.addEventListener('shared-data-updated', onShared);
