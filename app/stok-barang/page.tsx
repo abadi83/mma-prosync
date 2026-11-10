@@ -1085,6 +1085,48 @@ function PoChecklist() {
     if (willCheck && !item.synced) void syncToBarangMasuk(item);
   };
 
+  /* ── Sinkronkan semua item yang checked tapi belum synced (manual, sekali klik).
+     Berguna untuk PO lama yang "Sampai di Gudang" sebelum fitur auto-sync ada. ── */
+  const [syncingAll, setSyncingAll] = useState(false);
+  const [syncFeedback, setSyncFeedback] = useState('');
+  const syncAllPending = async () => {
+    setSyncingAll(true);
+    setSyncFeedback('');
+    try {
+      const raw = localStorage.getItem('mma_po_inventory_check');
+      const data: PoCheckItem[] = raw ? JSON.parse(raw) : [];
+      const pending = data.filter(i => i.checked && !i.synced);
+      if (pending.length === 0) {
+        setSyncFeedback('✅ Semua barang sudah tercatat ke Barang Masuk.');
+        return;
+      }
+      let okCount = 0;
+      for (const p of pending) {
+        try {
+          const res = await fetch('/api/barang-masuk', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              produk: p.nama,
+              jumlah: p.qty,
+              supplier: p.supplier || '-',
+              tanggal: todayLocal(),
+            }),
+          });
+          if (res.ok) {
+            void updateStok(p.sku, p.qty);
+            okCount++;
+            setItems(prev => prev.map(i => (i.noPO === p.noPO && i.sku === p.sku) ? { ...i, synced: true } : i));
+          }
+        } catch {}
+      }
+      setSyncFeedback(`✅ ${okCount} item dicatat ke Barang Masuk${pending.length - okCount > 0 ? `, ${pending.length - okCount} gagal` : ''}.`);
+      autoSyncPending();
+    } finally {
+      setSyncingAll(false);
+    }
+  };
+
   /* ── Auto-sync: item yang sudah "checked" tapi belum synced (mis. dikirim otomatis
      oleh Logistik saat PO "Sampai di Gudang") → langsung dicatat ke Barang Masuk
      + stok naik, tanpa perlu centang manual lagi. ── */
@@ -1236,10 +1278,12 @@ function PoChecklist() {
           <p className="text-sm text-slate-500">{grouped.length} PO • {totalItems} SKU • {checkedItems} dicek</p>
         </div>
         <div className="flex gap-2">
+          <button onClick={syncAllPending} disabled={syncingAll} className="rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-600 disabled:opacity-50">{syncingAll ? 'Menyinkronkan…' : '🔄 Sinkronkan Stok'}</button>
           <button onClick={checkAll} className="rounded-lg bg-brand-100 px-3 py-1.5 text-xs font-semibold text-brand-700 hover:bg-brand-200">☑ Cek Semua</button>
           <button onClick={clearChecked} disabled={checkedItems === 0} className="rounded-lg bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-100 disabled:opacity-50">🗑 Hapus Dicek</button>
         </div>
       </div>
+      {syncFeedback && <p className="mt-2 text-xs font-semibold text-emerald-700">{syncFeedback}</p>}
 
       {/* Progress bar */}
       <div className="mt-3 flex items-center gap-2">
