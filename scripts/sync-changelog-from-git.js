@@ -91,13 +91,19 @@ async function main() {
     const tipe = classify(c.subject);
     const deskripsi = (c.body || '').trim().slice(0, 1000);
     try {
-      const { rowCount } = await pool.query(
-        `INSERT INTO app_update_history (toko_id, versi, tipe, judul, deskripsi, oleh, otomatis, commit_hash)
-         VALUES ($1, $2, $3, $4, $5, 'Sistem (otomatis)', TRUE, $6)
-         ON CONFLICT (commit_hash) DO NOTHING`,
-        [tokoId, versi, tipe, judul, deskripsi, c.hash]
+      // Cek dulu (anti-duplikat), lalu insert.
+      const { rows: exist } = await pool.query(
+        'SELECT 1 FROM app_update_history WHERE commit_hash = $1 LIMIT 1',
+        [c.hash]
       );
-      if ((rowCount || 0) > 0) added++;
+      if (exist.length === 0) {
+        await pool.query(
+          `INSERT INTO app_update_history (toko_id, versi, tipe, judul, deskripsi, oleh, otomatis, commit_hash)
+           VALUES ($1, $2, $3, $4, $5, 'Sistem (otomatis)', TRUE, $6)`,
+          [tokoId, versi, tipe, judul, deskripsi, c.hash]
+        );
+        added++;
+      }
     } catch (e) {
       console.error(`Gagal catat ${c.hash}:`, e.message);
     }
