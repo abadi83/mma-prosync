@@ -52,10 +52,11 @@ async function main() {
   const repo = path.join(__dirname, '..');
   const marker = readMarker();
 
-  // Ambil log terbaru (max 50) dengan format: hash|subject|body
+  // Ambil log terbaru (max 50) dengan format: hash<NUL>subject<NUL>body
+  const fmt = '%H%x00%s%x00%b';
   const args = marker
-    ? ['log', `${marker}..HEAD`, '--pretty=format:%H%x1f%s%x1f%b', '--no-merges']
-    : ['log', '-50', '--pretty=format:%H%x1f%s%x1f%b', '--no-merges'];
+    ? ['log', `${marker}..HEAD`, `--pretty=format:${fmt}`, '--no-merges']
+    : ['log', '-50', `--pretty=format:${fmt}`, '--no-merges'];
 
   let out = '';
   try {
@@ -66,8 +67,12 @@ async function main() {
   }
 
   const commits = out.split('\n').filter(Boolean).map(line => {
-    const [hash, subject, ...body] = line.split('\x1f');
-    return { hash: hash.trim(), subject: subject.trim(), body: body.join('\x1f').trim() };
+    const [hash, subject, ...bodyParts] = line.split('\x00');
+    return {
+      hash: (hash || '').trim(),
+      subject: (subject || '').trim(),
+      body: (bodyParts.join('\x00') || '').trim(),
+    };
   }).filter(c => c.hash && c.subject);
 
   if (commits.length === 0) {
