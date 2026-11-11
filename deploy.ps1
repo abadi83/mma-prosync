@@ -4,7 +4,9 @@
 # ================================================================
 
 param(
-  [string]$Message = "deploy: update"
+  [string]$Message = "deploy: update",
+  [ValidateSet('patch','minor','major','')] [string]$Bump = '',
+  [string]$Changelog = ''
 )
 
 $ErrorActionPreference = "Stop"
@@ -18,6 +20,13 @@ Write-Host "==============================================" -ForegroundColor Cya
 Write-Host "  MMA ProSync - Deploy ke VPS" -ForegroundColor Cyan
 Write-Host "==============================================" -ForegroundColor Cyan
 Write-Host ""
+
+# --- 0. Bump version (opsional) ---
+if ($Bump) {
+  Write-Host "[0/4] Bump versi ($Bump)..." -ForegroundColor Yellow
+  node scripts/bump-version.js $Bump
+  if ($LASTEXITCODE -ne 0) { Write-Host "Gagal bump versi." -ForegroundColor Red; exit 1 }
+}
 
 # --- 1. Git: add, commit, push ---
 Write-Host "[1/4] Commit + push ke GitHub..." -ForegroundColor Yellow
@@ -37,7 +46,13 @@ Write-Host "      Pushed OK" -ForegroundColor Green
 Write-Host "[2/4] SSH ke VPS (ketik password root kalau diminta)..." -ForegroundColor Yellow
 Write-Host "      Menunggu password SSH..." -ForegroundColor DarkGray
 
-$remoteCmd = "set -e; cd $VPS_PATH; git pull origin main; npm install --no-audit --no-fund; node scripts/run-migrations.js; rm -rf .next; npm run build; pm2 restart $APP_NAME; pm2 save; pm2 status"
+$remoteCmd = "set -e; cd $VPS_PATH; git pull origin main; npm install --no-audit --no-fund; node scripts/run-migrations.js; rm -rf .next; npm run build; pm2 restart $APP_NAME; pm2 save"
+
+# Catat changelog otomatis bila diminta (setelah deploy sukses)
+if ($Changelog) {
+  $esc = $Changelog.Replace('"', '\"')
+  $remoteCmd += "; UPDATE_JUDUL=\"$esc\" node scripts/log-app-update.js update"
+}
 
 ssh $VPS_HOST $remoteCmd
 if ($LASTEXITCODE -ne 0) { Write-Host "SSH gagal." -ForegroundColor Red; exit 1 }
