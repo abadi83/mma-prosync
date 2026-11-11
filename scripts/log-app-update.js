@@ -1,13 +1,12 @@
 #!/usr/bin/env node
 /**
  * log-app-update.js — catat entri changelog OTOMATIS ke app_update_history.
- * Dipanggil saat deploy/rilis. Versi dibaca dari package.json; tipe/judul/deskripsi
- * bisa diisi lewat argumen CLI.
+ * Dipanggil saat deploy/rilis. Versi dibaca dari package.json.
  *
- * Usage:
- *   node scripts/log-app-update.js "fitur" "Judul update" "Deskripsi singkat"
- *   node scripts/log-app-update.js "perbaikan" "Fix bug X" "Detail"
- *   node scripts/log-app-update.js "update" "Update kecil" ""
+ * Usage (mode CLI, judul = gabungan argumen setelah tipe):
+ *   node scripts/log-app-update.js fitur Judul update yang panjang
+ * Usage (mode env, aman untuk judul/deskripsi dengan karakter khusus):
+ *   UPDATE_JUDUL="Judul update" UPDATE_DESKRIPSI="Detail" node scripts/log-app-update.js fitur
  */
 const fs = require('fs');
 const path = require('path');
@@ -28,10 +27,15 @@ function createPool() {
 }
 
 async function main() {
-  const [, , tipeRaw, judulRaw, deskripsiRaw] = process.argv;
+  const [, , tipeRaw, ...rest] = process.argv;
   const tipe = ['fitur', 'perbaikan', 'update'].includes(tipeRaw) ? tipeRaw : 'update';
-  const judul = (judulRaw || '').trim();
-  const deskripsi = (deskripsiRaw || '').trim();
+  // Dukungan dua mode: argumen CLI, atau lewat env UPDATE_* (untuk judul/deskripsi yang mengandung spasi).
+  let judul = (process.env.UPDATE_JUDUL || '').trim();
+  let deskripsi = (process.env.UPDATE_DESKRIPSI || '').trim();
+  if (!judul && rest.length > 0) {
+    // Mode CLI: semua argumen setelah tipe digabung jadi judul (deskripsi boleh lewat env).
+    judul = rest.join(' ').trim();
+  }
 
   if (!judul) {
     console.error('Judul update wajib diisi. Contoh: node scripts/log-app-update.js "fitur" "Judul update" "Deskripsi"');
