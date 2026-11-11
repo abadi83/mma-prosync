@@ -48,7 +48,10 @@ Write-Host "      Menunggu password SSH..." -ForegroundColor DarkGray
 
 $remoteCmd = "set -e; cd $VPS_PATH; git pull origin main; npm install --no-audit --no-fund; node scripts/run-migrations.js; rm -rf .next; npm run build; pm2 restart $APP_NAME; pm2 save"
 
-# Catat changelog otomatis bila diminta (setelah deploy sukses)
+# Catat changelog otomatis dari commit baru (selalu, tanpa perlu flag manual)
+$remoteCmd += "; set -a; . ./.env.local; set +a; node scripts/sync-changelog-from-git.js"
+
+# Catat changelog tambahan manual bila diminta (opsional)
 if ($Changelog) {
   $esc = $Changelog.Replace('"', '\"')
   $remoteCmd += "; UPDATE_JUDUL=\"$esc\" node scripts/log-app-update.js update"
