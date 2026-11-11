@@ -622,7 +622,7 @@ function DataTab() {
 
 interface AppUpdateItem {
   id: string; versi: string; tipe: string; judul: string; deskripsi: string;
-  oleh: string; tanggal: string;
+  oleh: string; tanggal: string; otomatis?: boolean;
 }
 
 const TIPE_META: Record<string, { label: string; icon: string; badge: string }> = {
@@ -734,6 +734,7 @@ function HistoryAppTab({ isAdmin }: { isAdmin: boolean }) {
                 <div className="flex flex-wrap items-center gap-2">
                   <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${meta.badge}`}>{meta.icon} {meta.label}</span>
                   {item.versi && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600">{item.versi}</span>}
+                  {item.otomatis && <span className="rounded-full bg-purple-100 px-2 py-0.5 text-[10px] font-bold text-purple-600" title="Dicatat otomatis oleh sistem">🤖 Otomatis</span>}
                   <span className="ml-auto text-[10px] text-slate-400">{fmtTanggal(item.tanggal)}</span>
                 </div>
                 <p className="mt-2 text-sm font-bold text-slate-800">{item.judul}</p>

@@ -2,12 +2,12 @@ import { query } from '@/lib/db';
 
 export interface AppUpdateHistoryItem {
   id: string; versi: string; tipe: string; judul: string; deskripsi: string;
-  oleh: string; tanggal: string;
+  oleh: string; tanggal: string; otomatis: boolean;
 }
 
 const DEFAULT_TOKO = process.env.DEFAULT_TOKO_ID || 'a0a0a0a0-0000-0000-0000-000000000001';
 
-const SELECT_SQL = `SELECT id, versi, tipe, judul, deskripsi, oleh, created_at
+const SELECT_SQL = `SELECT id, versi, tipe, judul, deskripsi, oleh, created_at, otomatis
   FROM app_update_history`;
 
 function mapRow(row: any): AppUpdateHistoryItem {
@@ -15,6 +15,7 @@ function mapRow(row: any): AppUpdateHistoryItem {
     id: row.id, versi: row.versi || '', tipe: row.tipe || 'update',
     judul: row.judul || '', deskripsi: row.deskripsi || '', oleh: row.oleh || '',
     tanggal: row.created_at ? new Date(row.created_at).toISOString() : '',
+    otomatis: !!row.otomatis,
   };
 }
 
