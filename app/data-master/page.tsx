@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { SkuTab } from './SkuTab';
+import { PaketBesarTab } from './PaketBesarTab';
 import { KontenSkuTab } from './KontenSkuTab';
 import { SupplierTab } from './SupplierTab';
 import { TokoTab } from './TokoTab';
@@ -9,10 +10,11 @@ import { PelangganTab } from './PelangganTab';
 import { FleetTab } from './FleetTab';
 import TaskHargaTab from '@/app/components/TaskHargaTab';
 
-type Tab = 'sku' | 'konten' | 'supplier' | 'toko' | 'taskharga' | 'pelanggan' | 'fleet';
+type Tab = 'sku' | 'paketbesar' | 'konten' | 'supplier' | 'toko' | 'taskharga' | 'pelanggan' | 'fleet';
 
 const TABS: { key: Tab; label: string; icon: string }[] = [
   { key: 'sku', label: 'SKU', icon: '📦' },
+  { key: 'paketbesar', label: 'Paket Besar', icon: '🚛' },
   { key: 'konten', label: 'Konten', icon: '📸' },
   { key: 'supplier', label: 'Supplier', icon: '🏭' },
   { key: 'toko', label: 'Toko Marketplace', icon: '🏬' },
@@ -41,6 +43,7 @@ export default function DataMasterPage() {
       </nav>
       <section className="rounded-3xl border border-brand-100 bg-gradient-to-br from-brand-50/70 to-white p-5 shadow-sm sm:p-6">
         {tab === 'sku' && <SkuTab />}
+        {tab === 'paketbesar' && <PaketBesarTab />}
         {tab === 'konten' && <KontenSkuTab />}
         {tab === 'supplier' && <SupplierTab />}
         {tab === 'toko' && <TokoTab />}
