@@ -9,6 +9,7 @@ export interface SkuItem {
   diskonPersen: number; hargaDiskon: number;
   stok: number; minStok: number; aktif: number; perubahanHargaBeli: string;
   videoKonten: boolean; gambarToko: string;
+  paketBesar: boolean;
 }
 
 const SYNC_INTERVAL = 60000; // 60 detik (sebelumnya 30s — hemat bandwidth 4700 SKU)

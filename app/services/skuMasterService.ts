@@ -7,13 +7,14 @@ export interface SkuItem {
   diskonPersen: number; hargaDiskon: number;
   stok: number; minStok: number; aktif: number; perubahanHargaBeli: string;
   videoKonten: boolean; gambarToko: string;
+  paketBesar: boolean;
 }
 
 const DEFAULT_TOKO = process.env.DEFAULT_TOKO_ID || 'a0a0a0a0-0000-0000-0000-000000000001';
 
 const SELECT_SQL = `SELECT id, sku, nama, grade, kode_supplier_varian, status_edit_gambar, status_upload_toko,
   supplier, kategori, satuan, harga_modal_lama, harga_beli_baru, harga_jual, diskon_persen, harga_diskon, stok, min_stok, aktif, perubahan_harga_beli,
-  video_konten, gambar_toko
+  video_konten, gambar_toko, paket_besar
   FROM sku_master`;
 
 function mapRow(row: any): SkuItem {
@@ -26,6 +27,7 @@ function mapRow(row: any): SkuItem {
     stok: row.stok || 0, minStok: row.min_stok || 0,
     aktif: row.aktif ?? 1, perubahanHargaBeli: row.perubahan_harga_beli || '',
     videoKonten: !!row.video_konten, gambarToko: row.gambar_toko || '',
+    paketBesar: !!row.paket_besar,
   };
 }
 
@@ -64,8 +66,8 @@ export async function createSku(data: Omit<SkuItem, 'id'>, tokoId?: string): Pro
   const { rows } = await query(
     `INSERT INTO sku_master (toko_id, sku, nama, grade, kode_supplier_varian, status_edit_gambar, status_upload_toko,
       supplier, kategori, satuan, harga_modal_lama, harga_beli_baru, harga_jual, diskon_persen, harga_diskon, stok, min_stok, aktif, perubahan_harga_beli,
-      video_konten, gambar_toko)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
+      video_konten, gambar_toko, paket_besar)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
      ON CONFLICT (toko_id, sku) DO UPDATE SET
        nama=EXCLUDED.nama, grade=EXCLUDED.grade, kode_supplier_varian=EXCLUDED.kode_supplier_varian,
        status_edit_gambar=EXCLUDED.status_edit_gambar, status_upload_toko=EXCLUDED.status_upload_toko,
@@ -74,13 +76,13 @@ export async function createSku(data: Omit<SkuItem, 'id'>, tokoId?: string): Pro
        harga_jual=EXCLUDED.harga_jual, diskon_persen=EXCLUDED.diskon_persen, harga_diskon=EXCLUDED.harga_diskon,
        stok=EXCLUDED.stok, min_stok=EXCLUDED.min_stok,
        aktif=EXCLUDED.aktif, perubahan_harga_beli=EXCLUDED.perubahan_harga_beli,
-       video_konten=EXCLUDED.video_konten, gambar_toko=EXCLUDED.gambar_toko, updated_at=NOW()
+       video_konten=EXCLUDED.video_konten, gambar_toko=EXCLUDED.gambar_toko, paket_besar=EXCLUDED.paket_besar, updated_at=NOW()
      RETURNING *`,
     [tokoId || DEFAULT_TOKO, data.sku, data.nama, data.grade, data.kodeSupplierVarian, data.statusEditGambar,
      data.statusUploadToko, data.supplier, data.kategori, data.satuan || 'pcs', data.hargaModalLama || 0,
      data.hargaBaru || 0, data.hargaJual || 0, data.diskonPersen || 0, data.hargaDiskon || 0,
      data.stok || 0, data.minStok || 0, data.aktif ?? 1, data.perubahanHargaBeli || '',
-     data.videoKonten ? true : false, data.gambarToko || '']
+     data.videoKonten ? true : false, data.gambarToko || '', data.paketBesar ? true : false]
   );
   return mapRow(rows[0]);
 }
@@ -100,6 +102,7 @@ export async function updateSku(id: string, data: Partial<SkuItem>, tokoId?: str
   if (data.stok !== undefined) add('stok', data.stok); if (data.minStok !== undefined) add('min_stok', data.minStok);
   if (data.aktif !== undefined) add('aktif', data.aktif); if (data.perubahanHargaBeli !== undefined) add('perubahan_harga_beli', data.perubahanHargaBeli);
   if (data.videoKonten !== undefined) add('video_konten', data.videoKonten); if (data.gambarToko !== undefined) add('gambar_toko', data.gambarToko);
+  if (data.paketBesar !== undefined) add('paket_besar', data.paketBesar);
   if (sets.length === 0) return mapRow(existing);
   vals.push(id);
   const { rows } = await query(`UPDATE sku_master SET ${sets.join(', ')}, updated_at=NOW() WHERE id = $${i} RETURNING *`, vals);

@@ -392,7 +392,15 @@ function getCookieUser(): string {
 
 function QCList() {
   const { allRows, setAllRows } = useAgregasi();
+  const { skus } = useSkus();
   const qcItems = allRows.filter(r => r.statusProses === 'DiQC');
+
+  // Map SKU → paketBesar (dari Master SKU) untuk deteksi otomatis
+  const paketBesarSkus = useMemo(() => {
+    const m = new Set<string>();
+    for (const s of skus) if (s.paketBesar && s.sku) m.add(s.sku.trim().toLowerCase());
+    return m;
+  }, [skus]);
 
   const grouped = new Map<string, { noPesanan: string; noResi: string; marketplace: string; namaToko: string; items: AgregasiRow[] }>();
   for (const r of qcItems) {
@@ -401,7 +409,7 @@ function QCList() {
     grouped.get(key)!.items.push(r);
   }
 
-  // State untuk jenis paket per pesanan
+  // State untuk jenis paket per pesanan (override manual; menang atas deteksi otomatis)
   const [paketTypes, setPaketTypes] = useState<Record<string, 'Reguler' | 'Besar'>>({});
 
   /* Toggle checklist QC — tersimpan ke row agregasi (sync antar perangkat) */
@@ -423,7 +431,10 @@ function QCList() {
   };
 
   const handleQCComplete = (noPesanan: string, noResi: string) => {
-    const jenis = paketTypes[`${noPesanan}||${noResi}`] || 'Reguler';
+    const orderKey = `${noPesanan}||${noResi}`;
+    const itemsOrder = allRows.filter(r => r.noPesanan === noPesanan && r.noResi === noResi);
+    const autoBesar = itemsOrder.some(r => r.sku && paketBesarSkus.has(r.sku.trim().toLowerCase()));
+    const jenis = paketTypes[orderKey] || (autoBesar ? 'Besar' : 'Reguler');
     const row = allRows.find(r => r.noPesanan === noPesanan && r.noResi === noResi);
     const chk = row?.qcChecklist || {} as any;
     const ringkas = QC_CHECKS.map(([k, label]) => `${label.split(' ')[0]} ${chk[k] ? '✓' : '✗'}`).join(' • ');
@@ -471,7 +482,9 @@ function QCList() {
           <tbody className="divide-y divide-slate-50 bg-white">
             {Array.from(grouped.values()).map((g, gi) => {
               const orderKey = `${g.noPesanan}||${g.noResi}`;
-              const selectedPaket = paketTypes[orderKey] || 'Reguler';
+              // Otomatis = ada SKU terdaftar paket besar; override manual menang bila sudah dipilih.
+              const autoBesar = g.items.some(it => it.sku && paketBesarSkus.has(it.sku.trim().toLowerCase()));
+              const selectedPaket = paketTypes[orderKey] || (autoBesar ? 'Besar' : 'Reguler');
               return (
               <React.Fragment key={orderKey}>
                 {g.items.map((item, ii) => (
@@ -578,14 +591,22 @@ function PackingList() {
     grouped.get(key)!.items.push(r);
   }
 
-  const handleKirim = (noPesanan: string, noResi: string) => {
+  // Checkbox video packing (wajib untuk paket besar) — per pesanan
+  const [packingVideo, setPackingVideo] = useState<Record<string, boolean>>({});
+
+  const handleKirim = (noPesanan: string, noResi: string, jenisPaket?: string) => {
+    const key = `${noPesanan}||${noResi}`;
+    if (jenisPaket === 'Besar' && !packingVideo[key]) {
+      alert('🎥 Paket Besar wajib diceklist "sudah di-video" sebelum diserahkan ke Runner.');
+      return;
+    }
     setAllRows((prev: AgregasiRow[]) => prev.map((r: AgregasiRow) => {
       if (r.noPesanan === noPesanan && r.noResi === noResi && r.statusProses === 'Dipacking') {
-        return { ...r, statusProses: 'DiScanRunner' as const, updatedAt: Date.now() };
+        return { ...r, statusProses: 'DiScanRunner' as const, packingVideoDone: !!packingVideo[key], updatedAt: Date.now() };
       }
       return r;
     }));
-    recordOpLog([{ noPesanan, noResi, jenis: 'proses', aksi: 'Packing Selesai', statusProses: 'DiScanRunner', keterangan: 'Diserahkan ke Runner' }]);
+    recordOpLog([{ noPesanan, noResi, jenis: 'proses', aksi: 'Packing Selesai', statusProses: 'DiScanRunner', keterangan: jenisPaket === 'Besar' ? 'Paket besar — sudah di-video' : 'Diserahkan ke Runner' }]);
     recordActivity([{ modul: 'operasional', aksi: 'packing', refLabel: noPesanan }]);
   };
 
@@ -666,8 +687,21 @@ function PackingList() {
                     )}
                     {ii === 0 && (
                       <td className="px-2 py-2.5" rowSpan={g.items.length}>
-                        <button onClick={() => handleKirim(g.noPesanan, g.noResi)}
-                          className="rounded-lg bg-indigo-500 px-2 py-1 text-xs font-semibold text-white hover:bg-indigo-600 whitespace-nowrap">
+                        {g.jenisPaket === 'Besar' && (
+                          <label className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold text-orange-700">
+                            <input
+                              type="checkbox"
+                              checked={!!packingVideo[key]}
+                              onChange={e => setPackingVideo(prev => ({ ...prev, [key]: e.target.checked }))}
+                              className="h-3.5 w-3.5 accent-orange-600"
+                            />
+                            🎥 Sudah di-video
+                          </label>
+                        )}
+                        <button onClick={() => handleKirim(g.noPesanan, g.noResi, g.jenisPaket)}
+                          disabled={g.jenisPaket === 'Besar' && !packingVideo[key]}
+                          className={`rounded-lg px-2 py-1 text-xs font-semibold whitespace-nowrap ${g.jenisPaket === 'Besar' && !packingVideo[key] ? 'cursor-not-allowed bg-slate-200 text-slate-400' : 'bg-indigo-500 text-white hover:bg-indigo-600'}`}
+                          title={g.jenisPaket === 'Besar' && !packingVideo[key] ? 'Centang video packing dulu' : ''}>
                           📱 Serahkan ke Runner
                         </button>
                       </td>

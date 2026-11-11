@@ -103,7 +103,7 @@ export function SkuTab() {
   useEffect(() => {
     fetch('/api/marketplace-toko').then(r => r.ok ? r.json() : []).then(d => setTokoList(Array.isArray(d) ? d : [])).catch(() => {});
   }, []);
-  const [f, setF] = useState({ sku: '', nama: '', grade: '', kodeSupplierVarian: '', statusEditGambar: '', statusUploadToko: '', supplier: '', kategori: '', satuan: 'pcs', hargaModalLama: '', hargaBaru: '', hargaJual: '', diskonPersen: '', hargaDiskon: '', minStok: '', aktif: 1, videoKonten: false, gambarToko: '' });
+  const [f, setF] = useState({ sku: '', nama: '', grade: '', kodeSupplierVarian: '', statusEditGambar: '', statusUploadToko: '', supplier: '', kategori: '', satuan: 'pcs', hargaModalLama: '', hargaBaru: '', hargaJual: '', diskonPersen: '', hargaDiskon: '', minStok: '', aktif: 1, videoKonten: false, gambarToko: '', paketBesar: false });
   const [ferr, setFerr] = useState('');
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -265,10 +265,10 @@ export function SkuTab() {
 
   const goPage = (p: number) => setPage(Math.max(1, Math.min(totalPages, p)));
 
-  const blank = () => ({ sku: '', nama: '', grade: '', kodeSupplierVarian: '', statusEditGambar: '', statusUploadToko: '', supplier: '', kategori: '', satuan: 'pcs', hargaModalLama: '', hargaBaru: '', hargaJual: '', diskonPersen: '', hargaDiskon: '', minStok: '', aktif: 1, videoKonten: false, gambarToko: '' });
+  const blank = () => ({ sku: '', nama: '', grade: '', kodeSupplierVarian: '', statusEditGambar: '', statusUploadToko: '', supplier: '', kategori: '', satuan: 'pcs', hargaModalLama: '', hargaBaru: '', hargaJual: '', diskonPersen: '', hargaDiskon: '', minStok: '', aktif: 1, videoKonten: false, gambarToko: '', paketBesar: false });
   const openAdd = () => { setF(blank()); setFerr(''); setShowForm(true); setEditId(null); hargaBaruManual.current = false; hargaDiskonManual.current = false; setFoto(''); setFotoDirty(false); };
   const openEdit = async (i: SkuItem) => {
-    setF({ sku: i.sku, nama: i.nama, grade: i.grade, kodeSupplierVarian: i.kodeSupplierVarian, statusEditGambar: i.statusEditGambar, statusUploadToko: i.statusUploadToko, supplier: i.supplier, kategori: i.kategori, satuan: i.satuan, hargaModalLama: i.hargaModalLama ? String(i.hargaModalLama) : '', hargaBaru: String(i.hargaBaru), hargaJual: String(i.hargaJual), diskonPersen: i.diskonPersen ? String(i.diskonPersen) : '', hargaDiskon: i.hargaDiskon ? String(i.hargaDiskon) : '', minStok: String(i.minStok), aktif: i.aktif, videoKonten: !!i.videoKonten, gambarToko: i.gambarToko || '' });
+    setF({ sku: i.sku, nama: i.nama, grade: i.grade, kodeSupplierVarian: i.kodeSupplierVarian, statusEditGambar: i.statusEditGambar, statusUploadToko: i.statusUploadToko, supplier: i.supplier, kategori: i.kategori, satuan: i.satuan, hargaModalLama: i.hargaModalLama ? String(i.hargaModalLama) : '', hargaBaru: String(i.hargaBaru), hargaJual: String(i.hargaJual), diskonPersen: i.diskonPersen ? String(i.diskonPersen) : '', hargaDiskon: i.hargaDiskon ? String(i.hargaDiskon) : '', minStok: String(i.minStok), aktif: i.aktif, videoKonten: !!i.videoKonten, gambarToko: i.gambarToko || '', paketBesar: !!i.paketBesar });
     setFerr(''); setEditId(i.id); setShowForm(true); hargaDiskonManual.current = false;
     // Muat foto existing
     setFoto(''); setFotoDirty(false); setGambarLoading(true);
@@ -328,6 +328,7 @@ export function SkuTab() {
       diskonPersen: diskonP, hargaDiskon: hargaDiskonFinal,
       stok: oldItem?.stok ?? 0, minStok: +f.minStok || 0, aktif: f.aktif, perubahanHargaBeli: pct,
       videoKonten: !!f.videoKonten, gambarToko: f.gambarToko || '',
+      paketBesar: !!f.paketBesar,
     };
 
     try {
@@ -432,6 +433,7 @@ export function SkuTab() {
         perubahanHargaBeli: String(row[17] ?? '').trim(),
         videoKonten: false,
         gambarToko: '',
+        paketBesar: false,
       };
     };
 
@@ -648,6 +650,7 @@ export function SkuTab() {
             </div>
           </div>
           <label className="flex items-center gap-2"><input type="checkbox" checked={f.aktif === 1} onChange={e => setF({ ...f, aktif: e.target.checked ? 1 : 0 })} className="rounded" /><span className="text-xs font-semibold text-slate-600">Aktif</span></label>
+          <label className="flex items-center gap-2"><input type="checkbox" checked={!!f.paketBesar} onChange={e => setF({ ...f, paketBesar: e.target.checked })} className="rounded accent-orange-500" /><span className="text-xs font-semibold text-orange-600">🚛 Paket Besar</span></label>
         </div>
         <div className="mt-5 flex justify-end gap-2"><button onClick={() => setShowForm(false)} className="rounded-xl bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-600">Batal</button><button onClick={save} className="rounded-xl bg-brand-500 px-4 py-2 text-sm font-semibold text-white">{editId ? 'Update' : 'Simpan'}</button></div>
       </div></div>)}

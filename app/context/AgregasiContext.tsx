@@ -21,6 +21,7 @@ export interface AgregasiRow {
   statusProses?: 'Perlu Dikirim' | 'Dipicking' | 'DiQC' | 'Dipacking' | 'DiScanRunner' | 'Dikirim' | 'PendingPickup' | 'Dibatalkan'; // workflow gudang
   updatedAt?: number;                          // timestamp perubahan terakhir (untuk merge sync agar tidak ditimpa data lama)
   jenisPaket?: 'Reguler' | 'Besar';          // ditentukan saat QC
+  packingVideoDone?: boolean;                 // wajib utk paket besar: sudah didokumentasikan video saat packing
   handoverId?: string;                        // ID serah terima dari Runner Scanner
   handoverAt?: string;                        // timestamp serah terima
   statusKeuangan?: 'Masuk Saldo';             // ditandai otomatis saat resi yang sama terupload di Input Keuangan
