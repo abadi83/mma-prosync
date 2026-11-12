@@ -14,6 +14,7 @@ import { storageGetRaw, setJSON } from '@/app/lib/idbStorage';
 import { ProduksiKardusTab } from '@/app/operasional-gudang/components/ProduksiKardusTab';
 import { playBeep } from '@/app/lib/beep';
 import { kurirBadge } from '@/app/lib/kurir';
+import { InstantAlert } from '@/app/components/InstantAlert';
 
 type Tab = 'agregasi' | 'picking' | 'qc' | 'packing' | 'runner' | 'logistik' | 'belanja' | 'produksi';
 
@@ -54,6 +55,7 @@ export default function OperasionalGudangPage() {
       <nav className="flex gap-1 overflow-x-auto rounded-2xl bg-white p-1 shadow-sm" role="tablist">
         {TABS.map(t=>(<button key={t.key} role="tab" aria-selected={tab===t.key} onClick={()=>setTab(t.key)} className={`flex shrink-0 items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold transition sm:px-5 sm:text-sm ${tab===t.key?'bg-brand-500 text-white shadow':t.key==='belanja'&&belanjaCount>0?'bg-red-50 text-red-600 hover:bg-red-100':'text-slate-600 hover:bg-brand-50 hover:text-brand-700'}`}><span className="text-base sm:text-lg">{t.icon}</span><span className="hidden sm:inline">{t.label}</span>{t.key==='belanja'&&belanjaCount>0&&<span className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${tab===t.key?'bg-white text-red-600':'bg-red-500 text-white'}`}>{belanjaCount}</span>}</button>))}
       </nav>
+      <InstantAlert />
       <section className="card-blue">
         {tab==='agregasi' && <AgregasiDashboard />}
         {tab==='picking' && <PickingList onGoBelanja={() => setTab('belanja')} />}
