@@ -13,6 +13,7 @@ import { syncSaldoKeOperasional } from '@/app/lib/saldoMarketplace';
 import { storageGetRaw, setJSON } from '@/app/lib/idbStorage';
 import { ProduksiKardusTab } from '@/app/operasional-gudang/components/ProduksiKardusTab';
 import { playBeep } from '@/app/lib/beep';
+import { kurirBadge } from '@/app/lib/kurir';
 
 type Tab = 'agregasi' | 'picking' | 'qc' | 'packing' | 'runner' | 'logistik' | 'belanja' | 'produksi';
 
@@ -1805,10 +1806,10 @@ function PickingList({ onGoBelanja }: { onGoBelanja?: () => void }) {
     return () => { if (scannerRef.current) scannerRef.current.stop().catch(() => {}); };
   }, []);
 
-  const grouped = new Map<string, { noPesanan: string; noResi: string; marketplace: string; namaToko: string; items: AgregasiRow[] }>();
+  const grouped = new Map<string, { noPesanan: string; noResi: string; marketplace: string; namaToko: string; kurir: string; items: AgregasiRow[] }>();
   for (const r of picking) {
     const key = `${r.noPesanan}||${r.noResi}`;
-    if (!grouped.has(key)) grouped.set(key, { noPesanan: r.noPesanan, noResi: r.noResi, marketplace: r.marketplace, namaToko: r.namaToko, items: [] });
+    if (!grouped.has(key)) grouped.set(key, { noPesanan: r.noPesanan, noResi: r.noResi, marketplace: r.marketplace, namaToko: r.namaToko, kurir: r.kurir || '', items: [] });
     grouped.get(key)!.items.push(r);
   }
 
@@ -2017,7 +2018,12 @@ function PickingList({ onGoBelanja }: { onGoBelanja?: () => void }) {
                   <td className="px-2 py-2.5" onClick={e=>{e.stopPropagation();toggleSelect(key);}}><input type="checkbox" checked={isSel} onChange={()=>{}} className="rounded accent-brand-500 w-4 h-4 cursor-pointer" /></td>
                   <td className="px-2 py-2.5 font-mono text-[11px] text-slate-600 font-semibold">{g.noResi}{needBelanja && <span className="ml-1.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold text-amber-700 align-middle" title="SKU kosong / tidak ada di Inventory">🛒 Belanja</span>}</td>
                   <td className="px-2 py-2.5 font-mono text-xs text-slate-700">{g.noPesanan}</td>
-                  <td className="px-2 py-2.5"><span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${g.marketplace==='Shopee'?'bg-orange-100 text-orange-700':g.marketplace==='TikTok Shop'?'bg-slate-200 text-slate-700':g.marketplace==='Lazada'?'bg-blue-100 text-blue-700':'bg-slate-100 text-slate-600'}`}>{g.marketplace}</span></td>
+                  <td className="px-2 py-2.5">
+                    <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${g.marketplace==='Shopee'?'bg-orange-100 text-orange-700':g.marketplace==='TikTok Shop'?'bg-slate-200 text-slate-700':g.marketplace==='Lazada'?'bg-blue-100 text-blue-700':'bg-slate-100 text-slate-600'}`}>{g.marketplace}</span>
+                    {kurirBadge(g.kurir) && (
+                      <span className={`ml-1 inline-block rounded-full border px-1.5 py-0.5 text-[9px] font-bold ${kurirBadge(g.kurir)!.cls}`}>{kurirBadge(g.kurir)!.icon} {kurirBadge(g.kurir)!.label}</span>
+                    )}
+                  </td>
                   <td className="px-2 py-2.5 text-xs text-slate-600 max-w-[90px] truncate" title={g.namaToko}>{g.namaToko||'-'}</td>
                   <td className="px-2 py-2.5"><span className="font-semibold text-brand-700">{g.items.length} SKU</span><span className="text-slate-400 ml-1 text-[10px]">🔍 klik</span></td>
                   <td className="px-2 py-2.5" onClick={e=>e.stopPropagation()}><button onClick={()=>confirmOne(key)} className="rounded-lg bg-emerald-500 px-2 py-1 text-xs font-semibold text-white hover:bg-emerald-600 whitespace-nowrap">✅ Selesai</button></td>
