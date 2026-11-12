@@ -2,6 +2,7 @@
 
 import React, { useMemo } from 'react';
 import { useAgregasi } from '@/app/context/AgregasiContext';
+import { isStatusAktif } from '@/app/lib/kurir';
 import Link from 'next/link';
 
 /* ── Helpers ── */
@@ -165,8 +166,12 @@ export default function AgregasiDashboard() {
     ];
     const gudangCounts = gudangStages.map(stage => {
       if (stage.key === 'Perlu Dikirim') {
-        // Perlu Dikirim = orders yang belum masuk workflow manapun
-        const count = orders.filter(o => !o.statusProses || o.statusProses === 'Perlu Dikirim').length;
+        // Perlu Dikirim = order AKTIF yang belum masuk workflow manapun.
+        // Kecualikan order yang statusPesanan-nya sudah terkirim/batal (data lama)
+        // supaya angkanya tidak membengkak.
+        const count = orders.filter(o =>
+          isStatusAktif(o) && (!o.statusProses || o.statusProses === 'Perlu Dikirim')
+        ).length;
         return { ...stage, count };
       }
       const count = orders.filter(o => o.statusProses === stage.key).length;

@@ -18,12 +18,15 @@ export function isKurirMendesak(kurir: string): boolean {
 }
 
 /** Status workflow yang berarti "masih berjalan" (belum selesai / dibatalkan / dikirim). */
-export const STATUS_SELESAI = new Set(['Dikirim', 'Dibatalkan', 'Selesai', 'delivered', 'cancelled', 'Batal']);
+export const STATUS_SELESAI = new Set(['Dikirim', 'Dibatalkan', 'Selesai', 'delivered', 'cancelled', 'Batal', 'Diterima', 'Retur']);
 export function isStatusAktif(row: { statusProses?: string; statusPesanan?: string }): boolean {
   const sp = row.statusProses || '';
   const st = row.statusPesanan || '';
   if (STATUS_SELESAI.has(sp)) return false;
-  if (/dibatalkan|cancelled|batal/i.test(st)) return false;
+  // statusPesanan dari marketplace beragam → cek kata kunci selesai/batal/retur/diterima/dikirim
+  const s = st.toLowerCase();
+  if (/dibatalkan|cancelled|batal/.test(s)) return false;
+  if (/selesai|delivered|diterima|retur|dikirim|shipped|completed/.test(s)) return false;
   return true;
 }
 
