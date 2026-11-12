@@ -1736,6 +1736,51 @@ function PickingList({ onGoBelanja }: { onGoBelanja?: () => void }) {
   const manualRef = useRef<HTMLInputElement>(null);
   const resiRef = useRef<HTMLInputElement>(null);
 
+  // Kamera scan (pakai html5-qrcode, sama seperti Runner Scan)
+  const [scanMode, setScanMode] = useState<'manual' | 'camera'>('manual');
+  const scannerRef = useRef<any>(null);
+
+  const processCameraScan = (decodedText: string) => {
+    const val = decodedText.trim();
+    if (!val) return;
+    // Masukkan ke field No. Resi lalu submit (scan resi/pesanan berupa teks tunggal).
+    setManualNoResi(val);
+    setManualNoPesanan('');
+    // Panggil logika submit langsung dengan nilai yang baru di-scan
+    const matches = val.split(/[\n,;]+/).map(l => l.trim()).filter(Boolean).map(r => ({ noPesanan: '', noResi: r }));
+    const result = updateStatusPicking(matches);
+    setManualMsg(`✅ ${result.updated} pesanan diupdate.${result.notFound > 0 ? ' ' + result.notFound + ' tidak ditemukan.' : ''}`);
+    setManualNoResi('');
+    setTimeout(() => setManualMsg(''), 4000);
+  };
+
+  const startCamera = async () => {
+    setScanMode('camera');
+    try {
+      const { Html5Qrcode } = await import('html5-qrcode');
+      const scanner = new Html5Qrcode('picking-scanner-view');
+      scannerRef.current = scanner;
+      await scanner.start(
+        { facingMode: 'environment' },
+        { fps: 10, qrbox: { width: 250, height: 250 } },
+        (decodedText: string) => { processCameraScan(decodedText); if (scannerRef.current) scannerRef.current.pause(); },
+        () => {}
+      );
+    } catch (e: any) {
+      alert('Gagal mengakses kamera: ' + (e.message || 'Unknown'));
+      setScanMode('manual');
+    }
+  };
+
+  const stopCamera = async () => {
+    if (scannerRef.current) { try { await scannerRef.current.stop(); scannerRef.current = null; } catch { /* ignore */ } }
+    setScanMode('manual');
+  };
+
+  useEffect(() => {
+    return () => { if (scannerRef.current) scannerRef.current.stop().catch(() => {}); };
+  }, []);
+
   const grouped = new Map<string, { noPesanan: string; noResi: string; marketplace: string; namaToko: string; items: AgregasiRow[] }>();
   for (const r of picking) {
     const key = `${r.noPesanan}||${r.noResi}`;
@@ -1882,9 +1927,21 @@ function PickingList({ onGoBelanja }: { onGoBelanja?: () => void }) {
           >
             ➕ Picking
           </button>
+          <button
+            onClick={() => { if (scanMode === 'camera') { stopCamera(); } else { setScanMode('camera'); setTimeout(startCamera, 100); } }}
+            className={`rounded-lg px-3 py-2 text-sm font-semibold transition whitespace-nowrap ${scanMode === 'camera' ? 'bg-red-500 text-white hover:bg-red-600' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
+          >
+            {scanMode === 'camera' ? '✕ Stop Kamera' : '📷 Scan Kamera'}
+          </button>
         </div>
         {manualMsg && (
           <p className={`mt-2 text-xs font-semibold ${manualMsg.startsWith('✅')?'text-emerald-600':'text-red-500'}`}>{manualMsg}</p>
+        )}
+        {scanMode === 'camera' && (
+          <div className="mt-3">
+            <div id="picking-scanner-view" className="w-full overflow-hidden rounded-xl" />
+            <p className="mt-1 text-center text-[11px] text-slate-400">Arahkan kamera ke barcode/QR No. Pesanan atau No. Resi.</p>
+          </div>
         )}
       </div>
 
