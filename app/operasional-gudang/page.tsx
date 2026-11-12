@@ -12,6 +12,7 @@ import { recordActivity } from '@/app/lib/recordActivity';
 import { syncSaldoKeOperasional } from '@/app/lib/saldoMarketplace';
 import { storageGetRaw, setJSON } from '@/app/lib/idbStorage';
 import { ProduksiKardusTab } from '@/app/operasional-gudang/components/ProduksiKardusTab';
+import { playBeep } from '@/app/lib/beep';
 
 type Tab = 'agregasi' | 'picking' | 'qc' | 'packing' | 'runner' | 'logistik' | 'belanja' | 'produksi';
 
@@ -1743,13 +1744,36 @@ function PickingList({ onGoBelanja }: { onGoBelanja?: () => void }) {
   const processCameraScan = (decodedText: string) => {
     const val = decodedText.trim();
     if (!val) return;
+
+    // Deteksi duplikat: apakah nilai ini sudah pernah discan (status sudah lewat Perlu Dikirim)?
+    const v = val.toLowerCase();
+    const sudahAda = allRows.some(r => {
+      if (r.statusProses && r.statusProses !== 'Perlu Dikirim') {
+        return (r.noResi && r.noResi.toLowerCase() === v) || (r.noPesanan && r.noPesanan.toLowerCase() === v);
+      }
+      return false;
+    });
+
+    if (sudahAda) {
+      playBeep('duplikat');
+      setManualMsg(`⚠️ "${val}" sudah pernah discan sebelumnya.`);
+      setTimeout(() => setManualMsg(''), 4000);
+      return;
+    }
+
     // Masukkan ke field No. Resi lalu submit (scan resi/pesanan berupa teks tunggal).
     setManualNoResi(val);
     setManualNoPesanan('');
-    // Panggil logika submit langsung dengan nilai yang baru di-scan
     const matches = val.split(/[\n,;]+/).map(l => l.trim()).filter(Boolean).map(r => ({ noPesanan: '', noResi: r }));
     const result = updateStatusPicking(matches);
-    setManualMsg(`✅ ${result.updated} pesanan diupdate.${result.notFound > 0 ? ' ' + result.notFound + ' tidak ditemukan.' : ''}`);
+
+    if (result.updated > 0) {
+      playBeep('sukses');
+      setManualMsg(`✅ ${result.updated} pesanan diupdate.${result.notFound > 0 ? ' ' + result.notFound + ' tidak ditemukan.' : ''}`);
+    } else {
+      playBeep('gagal');
+      setManualMsg(`❌ "${val}" tidak ditemukan di daftar pesanan.`);
+    }
     setManualNoResi('');
     setTimeout(() => setManualMsg(''), 4000);
   };
@@ -1824,7 +1848,13 @@ function PickingList({ onGoBelanja }: { onGoBelanja?: () => void }) {
       const lines = resi.split(/[\n,;]+/).map(l=>l.trim()).filter(Boolean);
       const matches = lines.map(r => ({ noPesanan: '', noResi: r }));
       const result = updateStatusPicking(matches);
-      setManualMsg(`✅ ${result.updated} pesanan diupdate.${result.notFound>0?' '+result.notFound+' tidak ditemukan.':''}`);
+      if (result.updated > 0) {
+        playBeep('sukses');
+        setManualMsg(`✅ ${result.updated} pesanan diupdate.${result.notFound>0?' '+result.notFound+' tidak ditemukan.':''}`);
+      } else {
+        playBeep('gagal');
+        setManualMsg(`❌ "${resi}" tidak ditemukan / sudah diproses.`);
+      }
       setManualNoPesanan(''); setManualNoResi('');
       setTimeout(() => setManualMsg(''), 4000);
       manualRef.current?.focus();
@@ -1839,7 +1869,13 @@ function PickingList({ onGoBelanja }: { onGoBelanja?: () => void }) {
       matches.push({ noPesanan: parts[0], noResi: parts[1] || resi || '' });
     }
     const result = updateStatusPicking(matches);
-    setManualMsg(`✅ ${result.updated} item diupdate ke "Dipicking".${result.notFound>0?' '+result.notFound+' tidak ditemukan.':''}`);
+    if (result.updated > 0) {
+      playBeep('sukses');
+      setManualMsg(`✅ ${result.updated} item diupdate ke "Dipicking".${result.notFound>0?' '+result.notFound+' tidak ditemukan.':''}`);
+    } else {
+      playBeep('gagal');
+      setManualMsg(`❌ Pesanan/resi tidak ditemukan / sudah diproses.`);
+    }
     setManualNoPesanan(''); setManualNoResi('');
     setTimeout(() => setManualMsg(''), 4000);
     manualRef.current?.focus();
