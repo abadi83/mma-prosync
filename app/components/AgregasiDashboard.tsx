@@ -2,7 +2,7 @@
 
 import React, { useMemo } from 'react';
 import { useAgregasi } from '@/app/context/AgregasiContext';
-import { isStatusAktif } from '@/app/lib/kurir';
+import { isStatusAktif, isPerluDikirim } from '@/app/lib/kurir';
 import Link from 'next/link';
 
 /* ── Helpers ── */
@@ -170,7 +170,7 @@ export default function AgregasiDashboard() {
         // Kecualikan order yang statusPesanan-nya sudah terkirim/batal (data lama)
         // supaya angkanya tidak membengkak.
         const count = orders.filter(o =>
-          isStatusAktif(o) && (!o.statusProses || o.statusProses === 'Perlu Dikirim')
+          isStatusAktif(o) && isPerluDikirim(o.statusProses)
         ).length;
         return { ...stage, count };
       }

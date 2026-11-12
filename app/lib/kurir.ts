@@ -18,15 +18,31 @@ export function isKurirMendesak(kurir: string): boolean {
 }
 
 /** Status workflow yang berarti "masih berjalan" (belum selesai / dibatalkan / dikirim). */
-export const STATUS_SELESAI = new Set(['Dikirim', 'Dibatalkan', 'Selesai', 'delivered', 'cancelled', 'Batal', 'Diterima', 'Retur']);
+export const STATUS_SELESAI = new Set(['dikirim', 'dibatalkan', 'selesai', 'delivered', 'cancelled', 'batal', 'diterima', 'retur']);
+
+/** Normalisasi status → huruf kecil, tanpa spasi ganda (Shopee "Perlu Dikirim" vs TikTok "Perlu dikirim"). */
+export function normStatus(s?: string): string {
+  return String(s || '').trim().toLowerCase();
+}
+
+/** Apakah statusProses ini berarti "belum diproses" (perlu picking)? case-insensitive. */
+export function isPerluDikirim(statusProses?: string): boolean {
+  const sp = normStatus(statusProses);
+  return sp === '' || sp === 'perlu dikirim';
+}
+
 export function isStatusAktif(row: { statusProses?: string; statusPesanan?: string }): boolean {
-  const sp = row.statusProses || '';
-  const st = row.statusPesanan || '';
+  const sp = normStatus(row.statusProses);
+  const st = normStatus(row.statusPesanan);
+
+  // Pesanan yang status gudangnya sudah selesai/dikirim/batal → tidak dihitung
   if (STATUS_SELESAI.has(sp)) return false;
-  // statusPesanan dari marketplace beragam → cek kata kunci selesai/batal/retur/diterima/dikirim
-  const s = st.toLowerCase();
-  if (/dibatalkan|cancelled|batal/.test(s)) return false;
-  if (/selesai|delivered|diterima|retur|dikirim|shipped|completed/.test(s)) return false;
+
+  // statusPesanan dari marketplace beragam → cek kata kunci
+  if (/dibatalkan|cancelled|batal/.test(st)) return false;
+  // CATATAN: "perlu dikirim" JUGA mengandung kata "dikirim" → kecualikan dulu.
+  if (/perlu\s*dikirim|to\s*ship|belum\s*dikirim|ready\s*to\s*ship/.test(st)) return true;
+  if (/selesai|delivered|diterima|retur|dikirim|shipped|completed/.test(st)) return false;
   return true;
 }
 

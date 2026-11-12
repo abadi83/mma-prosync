@@ -2,17 +2,21 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useAgregasi } from '@/app/context/AgregasiContext';
-import { isKurirMendesak, isStatusAktif } from '@/app/lib/kurir';
+import { isKurirMendesak, isStatusAktif, isPerluDikirim, normStatus } from '@/app/lib/kurir';
 import { speak } from '@/app/lib/speak';
 
 const TAHAP_LABEL: Record<string, string> = {
-  'Perlu Dikirim': 'belum dipicking',
-  'Dipicking': 'sedang dipicking',
-  'DiQC': 'menunggu QC',
-  'Dipacking': 'menunggu packing',
-  'DiScanRunner': 'menunggu scanner/runner',
-  'PendingPickup': 'menunggu pickup',
+  'perlu dikirim': 'belum dipicking',
+  'dipicking': 'sedang dipicking',
+  'diqc': 'menunggu QC',
+  'dipacking': 'menunggu packing',
+  'discanrunner': 'menunggu scanner/runner',
+  'pendingpickup': 'menunggu pickup',
 };
+
+function labelTahap(key: string): string {
+  return TAHAP_LABEL[key] || key;
+}
 
 /**
  * Panel pengendali notifikasi suara. Menghitung pesanan kurir mendesak
@@ -31,11 +35,11 @@ export function InstantAlert() {
     return allRows.filter(r => isStatusAktif(r) && isKurirMendesak(r.kurir));
   }, [allRows]);
 
-  // Kelompokkan per tahap workflow
+  // Kelompokkan per tahap workflow (case-insensitive: "Perlu Dikirim" = "Perlu dikirim")
   const perTahap = useMemo(() => {
     const m = new Map<string, number>();
     for (const r of mendesak) {
-      const key = r.statusProses || 'Perlu Dikirim';
+      const key = isPerluDikirim(r.statusProses) ? 'Perlu Dikirim' : normStatus(r.statusProses);
       m.set(key, (m.get(key) || 0) + 1);
     }
     return Array.from(m.entries());
@@ -49,7 +53,7 @@ export function InstantAlert() {
       speak('Tidak ada pesanan instant, same day, atau prioritas yang tertunda.');
       return;
     }
-    const detail = perTahap.map(([k, n]) => `${n} ${TAHAP_LABEL[k] || k}`).join(', ');
+    const detail = perTahap.map(([k, n]) => `${n} ${labelTahap(k)}`).join(', ');
     speak(`Perhatian. Ada ${totalMendesak} pesanan kurir mendesak yang masih berjalan. ${detail}.`);
   };
 
@@ -95,7 +99,7 @@ export function InstantAlert() {
       <div className="mt-2 flex flex-wrap gap-1.5">
         {perTahap.map(([k, n]) => (
           <span key={k} className="rounded-full bg-white border border-red-200 px-2 py-0.5 text-[11px] font-semibold text-red-600">
-            {TAHAP_LABEL[k] || k}: {n}
+            {labelTahap(k)}: {n}
           </span>
         ))}
       </div>
