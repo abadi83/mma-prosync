@@ -17,6 +17,16 @@ export function isKurirMendesak(kurir: string): boolean {
   return c === 'instant' || c === 'sameday' || c === 'prioritas';
 }
 
+/** Status workflow yang berarti "masih berjalan" (belum selesai / dibatalkan / dikirim). */
+export const STATUS_SELESAI = new Set(['Dikirim', 'Dibatalkan', 'Selesai', 'delivered', 'cancelled', 'Batal']);
+export function isStatusAktif(row: { statusProses?: string; statusPesanan?: string }): boolean {
+  const sp = row.statusProses || '';
+  const st = row.statusPesanan || '';
+  if (STATUS_SELESAI.has(sp)) return false;
+  if (/dibatalkan|cancelled|batal/i.test(st)) return false;
+  return true;
+}
+
 export function kurirBadge(kurir: string): { label: string; icon: string; cls: string } | null {
   const cat = kategoriKurir(kurir);
   if (cat === 'prioritas') return { label: '🔥 Prioritas', icon: '🔥', cls: 'bg-rose-100 text-rose-700 border-rose-200' };
