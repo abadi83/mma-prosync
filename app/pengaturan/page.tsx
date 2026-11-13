@@ -599,12 +599,24 @@ function DataTab() {
               </div>
               <button
                 onClick={() => handleReset(group)}
-                disabled={resetting}
-                className={`shrink-0 rounded-xl px-4 py-2 text-xs font-bold text-white transition ${group.dangerous ? 'bg-red-500 hover:bg-red-700' : 'bg-slate-500 hover:bg-slate-700'} disabled:opacity-50`}
+                disabled={resetting || (group.dangerous && confirmKey !== 'RESET')}
+                className={`shrink-0 rounded-xl px-4 py-2 text-xs font-bold text-white transition ${group.dangerous ? 'bg-red-500 hover:bg-red-700' : 'bg-slate-500 hover:bg-slate-700'} disabled:opacity-50 disabled:cursor-not-allowed`}
               >
                 {resetting ? '⏳' : 'Reset'}
               </button>
             </div>
+            {group.dangerous && (
+              <div className="mt-2 flex items-center gap-2">
+                <input
+                  type="text"
+                  value={confirmKey}
+                  onChange={e => setConfirmKey(e.target.value)}
+                  placeholder='Ketik "RESET" untuk mengaktifkan'
+                  className="w-full max-w-[240px] rounded-lg border border-red-300 bg-white px-2 py-1.5 text-xs font-bold text-red-700 placeholder:text-red-300 focus:border-red-500 focus:outline-none"
+                />
+                {confirmKey === 'RESET' && <span className="text-[10px] font-bold text-emerald-600">✅ siap</span>}
+              </div>
+            )}
           </div>
         ))}
       </div>
