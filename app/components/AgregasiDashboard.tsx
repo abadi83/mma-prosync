@@ -2,7 +2,7 @@
 
 import React, { useMemo } from 'react';
 import { useAgregasi } from '@/app/context/AgregasiContext';
-import { isStatusAktif, isPerluDikirim } from '@/app/lib/kurir';
+import { isPerluDikirim, isPerluProses, isDalamProsesGudang } from '@/app/lib/kurir';
 import Link from 'next/link';
 
 /* ── Helpers ── */
@@ -166,11 +166,11 @@ export default function AgregasiDashboard() {
     ];
     const gudangCounts = gudangStages.map(stage => {
       if (stage.key === 'Perlu Dikirim') {
-        // Perlu Dikirim = order AKTIF yang belum masuk workflow manapun.
-        // Kecualikan order yang statusPesanan-nya sudah terkirim/batal (data lama)
-        // supaya angkanya tidak membengkak.
+        // "Perlu diproses" = status marketplace masih menunggu diproses
+        // (Shopee "Perlu Dikirim", TikTok "Perlu dikirim", Lazada "ready_to_ship")
+        // DAN belum masuk workflow gudang (statusProses kosong/perlu dikirim).
         const count = orders.filter(o =>
-          isStatusAktif(o) && isPerluDikirim(o.statusProses)
+          isPerluProses(o.statusPesanan) && isPerluDikirim(o.statusProses)
         ).length;
         return { ...stage, count };
       }

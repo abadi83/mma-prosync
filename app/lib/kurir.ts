@@ -31,6 +31,27 @@ export function isPerluDikirim(statusProses?: string): boolean {
   return sp === '' || sp === 'perlu dikirim';
 }
 
+/** Apakah statusPesanan dari marketplace berarti "belum diproses operasional"?
+ *  Shopee: "Perlu Dikirim" | TikTok: "Perlu dikirim" | Lazada: "ready_to_ship". */
+export function isPerluProses(statusPesanan?: string): boolean {
+  const st = normStatus(statusPesanan).replace(/[^a-z0-9]/g, '');
+  if (!st) return false;
+  return (
+    st === 'perludikirim' ||
+    st === 'perludikrim' ||       // typo / variasi TikTok
+    st === 'readytoship' ||
+    st === 'toship' ||
+    st === 'belumdikirim'
+  );
+}
+
+/** Status "sudah diproses gudang" (sedang/telah masuk workflow, belum tentu selesai). */
+export function isDalamProsesGudang(statusProses?: string): boolean {
+  const sp = normStatus(statusProses);
+  if (!sp || sp === 'perlu dikirim') return false;
+  return !STATUS_SELESAI.has(sp);
+}
+
 export function isStatusAktif(row: { statusProses?: string; statusPesanan?: string }): boolean {
   const sp = normStatus(row.statusProses);
   const st = normStatus(row.statusPesanan);

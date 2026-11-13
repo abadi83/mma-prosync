@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useAgregasi } from '@/app/context/AgregasiContext';
-import { isKurirMendesak, isStatusAktif, isPerluDikirim, normStatus } from '@/app/lib/kurir';
+import { isKurirMendesak, isPerluProses, isDalamProsesGudang, isPerluDikirim, normStatus } from '@/app/lib/kurir';
 import { speak } from '@/app/lib/speak';
 
 const TAHAP_LABEL: Record<string, string> = {
@@ -30,9 +30,16 @@ export function InstantAlert() {
   const [intervalOn, setIntervalOn] = useState(false);
   const firstSpoken = useRef(false);
 
-  // Hanya pesanan mendesak yang masih aktif (belum selesai/batal)
+  // Pesanan mendesak yang masih berjalan:
+  //  - belum diproses (status marketplace masih "Perlu Dikirim"/"Perlu dikirim"/"ready_to_ship"), ATAU
+  //  - sudah masuk workflow gudang tapi belum handover.
   const mendesak = useMemo(() => {
-    return allRows.filter(r => isStatusAktif(r) && isKurirMendesak(r.kurir));
+    return allRows.filter(r => {
+      if (!isKurirMendesak(r.kurir)) return false;
+      const belumDiproses = isPerluProses(r.statusPesanan) && isPerluDikirim(r.statusProses);
+      const sedangDiproses = isDalamProsesGudang(r.statusProses);
+      return belumDiproses || sedangDiproses;
+    });
   }, [allRows]);
 
   // Kelompokkan per tahap workflow (case-insensitive: "Perlu Dikirim" = "Perlu dikirim")
