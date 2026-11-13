@@ -26,14 +26,22 @@ const AGREGASI_STATUS_RANK: Record<string, number> = {
 
 /** Status workflow yang lebih maju menang saat merge item agregasi yang sama. */
 function agregasiMenang(incoming: any, existing: any): boolean {
+  // Timestamp terbaru MENANG dulu — supaya aksi "reset workflow" (yang menurunkan
+  // status) tidak selalu kalah dari salinan lama yang statusnya lebih maju.
+  const tsIn = Number(incoming?.updatedAt);
+  const tsEx = Number(existing?.updatedAt);
+  const inHas = Number.isFinite(tsIn);
+  const exHas = Number.isFinite(tsEx);
+  if (inHas || exHas) {
+    if (inHas && (!exHas || tsIn > tsEx)) return true;
+    if (exHas && (!inHas || tsEx > tsIn)) return false;
+    // timestamp sama → lanjut ke aturan rank/handover di bawah
+  }
   const rIn = AGREGASI_STATUS_RANK[incoming?.statusProses] ?? -1;
   const rEx = AGREGASI_STATUS_RANK[existing?.statusProses] ?? -1;
   if (rIn !== rEx) return rIn > rEx;
-  // Rank sama: yang punya handoverId menang, lalu yang terbaru berdasar updatedAt
+  // Rank sama: yang punya handoverId menang
   if (!!incoming?.handoverId !== !!existing?.handoverId) return !!incoming?.handoverId;
-  const tsIn = Number(incoming?.updatedAt);
-  const tsEx = Number(existing?.updatedAt);
-  if (isFinite(tsIn) || isFinite(tsEx)) return isFinite(tsIn) && (!isFinite(tsEx) || tsIn >= tsEx);
   return true; // default: lokal (incoming) menang
 }
 
