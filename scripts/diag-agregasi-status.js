@@ -6,12 +6,11 @@ async function main() {
   const c = new Client({ connectionString: process.env.DATABASE_URL });
   await c.connect();
 
-  // Cari tabel penyimpanan data sync
+  // Cari tabel penyimpanan data sync (daftar semua tabel)
   const tables = await c.query(
-    `SELECT table_name FROM information_schema.tables
-     WHERE table_schema='public' AND table_name IN ('data_store','app_data','kv_store','sync_data')`
+    `SELECT table_name FROM information_schema.tables WHERE table_schema='public' ORDER BY table_name`
   );
-  console.log('tabel kandidat:', tables.rows.map(r => r.table_name));
+  console.log('tabel public:', tables.rows.map(r => r.table_name).join(', '));
 
   for (const t of tables.rows) {
     const name = t.table_name;
