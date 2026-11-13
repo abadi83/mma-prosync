@@ -481,7 +481,7 @@ function QCList() {
       <div className="mt-4 overflow-x-auto rounded-xl border border-slate-100">
         <table className="w-full text-left text-sm">
           <thead><tr className="bg-brand-50 text-xs uppercase text-brand-500">
-            {['No. Pesanan','No. Resi','MP','Toko','✅ Checklist QC','SKU','Nama Produk','Qty','Kondisi','Jenis Paket','Aksi'].map(c => <th key={c} className="px-2 py-3 font-semibold whitespace-nowrap">{c}</th>)}
+            {['No. Pesanan','No. Resi','MP','Toko','Kurir','✅ Checklist QC','SKU','Nama Produk','Qty','Kondisi','Jenis Paket','Aksi'].map(c => <th key={c} className="px-2 py-3 font-semibold whitespace-nowrap">{c}</th>)}
           </tr></thead>
           <tbody className="divide-y divide-slate-50 bg-white">
             {Array.from(grouped.values()).map((g, gi) => {
@@ -499,6 +499,7 @@ function QCList() {
                         <td className="px-2 py-2.5 font-mono text-[10px] text-slate-500" rowSpan={g.items.length}>{g.noResi}</td>
                         <td className="px-2 py-2.5" rowSpan={g.items.length}><span className="rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">{g.marketplace}</span></td>
                         <td className="px-2 py-2.5 text-xs text-slate-600 max-w-[80px] truncate" rowSpan={g.items.length} title={g.namaToko}>{g.namaToko || '-'}</td>
+                        <td className="px-2 py-2.5 text-[10px] text-slate-600 max-w-[90px] truncate" rowSpan={g.items.length} title={g.items[0]?.kurir}>{g.items[0]?.kurir || '-'}</td>
                         <td className="px-2 py-2.5 align-top" rowSpan={g.items.length}>
                           <div className="min-w-[170px] space-y-1">
                             {QC_CHECKS.map(([k, label]) => {
@@ -658,7 +659,7 @@ function PackingList() {
       <div className="mt-4 overflow-x-auto rounded-xl border border-slate-100">
         <table className="w-full text-left text-sm">
           <thead><tr className="bg-emerald-50 text-xs uppercase text-emerald-600">
-            {['No. Pesanan','No. Resi','MP','Toko','SKU','Nama Produk','Qty','Jenis Paket','Aksi'].map(c => (
+            {['No. Pesanan','No. Resi','MP','Toko','Kurir','SKU','Nama Produk','Qty','Jenis Paket','Aksi'].map(c => (
               <th key={c} className="px-2 py-3 font-semibold whitespace-nowrap">{c}</th>
             ))}
           </tr></thead>
@@ -675,6 +676,7 @@ function PackingList() {
                           <span className="rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">{g.marketplace}</span>
                         </td>
                         <td className="px-2 py-2.5 text-xs text-slate-600 max-w-[80px] truncate" rowSpan={g.items.length} title={g.namaToko}>{g.namaToko || '-'}</td>
+                        <td className="px-2 py-2.5 text-[10px] text-slate-600 max-w-[90px] truncate" rowSpan={g.items.length} title={item.kurir}>{item.kurir || '-'}</td>
                       </>
                     )}
                     <td className="px-2 py-2.5 font-mono text-xs text-brand-600">{item.sku || '-'}</td>
@@ -1808,12 +1810,23 @@ function PickingList({ onGoBelanja }: { onGoBelanja?: () => void }) {
     return () => { if (scannerRef.current) scannerRef.current.stop().catch(() => {}); };
   }, []);
 
-  const grouped = new Map<string, { noPesanan: string; noResi: string; marketplace: string; namaToko: string; kurir: string; items: AgregasiRow[] }>();
+  const grouped = new Map<string, { noPesanan: string; noResi: string; marketplace: string; namaToko: string; kurir: string; kurirManual: string; items: AgregasiRow[] }>();
   for (const r of picking) {
     const key = `${r.noPesanan}||${r.noResi}`;
-    if (!grouped.has(key)) grouped.set(key, { noPesanan: r.noPesanan, noResi: r.noResi, marketplace: r.marketplace, namaToko: r.namaToko, kurir: r.kurir || '', items: [] });
+    if (!grouped.has(key)) grouped.set(key, { noPesanan: r.noPesanan, noResi: r.noResi, marketplace: r.marketplace, namaToko: r.namaToko, kurir: r.kurir || '', kurirManual: r.kurirKategoriManual || '', items: [] });
     grouped.get(key)!.items.push(r);
   }
+
+  // Set kategori kurir manual (override deteksi otomatis)
+  const setKurirManual = (key: string, val: string) => {
+    const [noPesanan, noResi] = key.split('||');
+    setAllRows(prev => prev.map(r => {
+      if (r.noPesanan === noPesanan && r.noResi === noResi) {
+        return { ...r, kurirKategoriManual: (val || '') as any, updatedAt: Date.now() };
+      }
+      return r;
+    }));
+  };
 
   // Dapatkan daftar marketplace & toko unik
   const allMp = Array.from(new Set(picking.map(r=>r.marketplace)));
@@ -2007,7 +2020,7 @@ function PickingList({ onGoBelanja }: { onGoBelanja?: () => void }) {
       <div className="mt-3 overflow-x-auto rounded-xl border border-slate-100">
         <table className="w-full text-left text-sm">
           <thead><tr className="bg-brand-50 text-xs uppercase text-brand-500">
-            {['☑','No. Resi','No. Pesanan','MP','Toko','Item','Aksi'].map(c => <th key={c} className="px-2 py-3 font-semibold whitespace-nowrap">{c}</th>)}
+            {['☑','No. Resi','No. Pesanan','MP','Toko','Kurir','Item','Aksi'].map(c => <th key={c} className="px-2 py-3 font-semibold whitespace-nowrap">{c}</th>)}
           </tr></thead>
           <tbody className="divide-y divide-slate-50 bg-white">
             {groupList.map(([key, g], gi) => {
@@ -2022,11 +2035,25 @@ function PickingList({ onGoBelanja }: { onGoBelanja?: () => void }) {
                   <td className="px-2 py-2.5 font-mono text-xs text-slate-700">{g.noPesanan}</td>
                   <td className="px-2 py-2.5">
                     <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${g.marketplace==='Shopee'?'bg-orange-100 text-orange-700':g.marketplace==='TikTok Shop'?'bg-slate-200 text-slate-700':g.marketplace==='Lazada'?'bg-blue-100 text-blue-700':'bg-slate-100 text-slate-600'}`}>{g.marketplace}</span>
-                    {kurirBadge(g.kurir) && (
-                      <span className={`ml-1 inline-block rounded-full border px-1.5 py-0.5 text-[9px] font-bold ${kurirBadge(g.kurir)!.cls}`}>{kurirBadge(g.kurir)!.icon} {kurirBadge(g.kurir)!.label}</span>
+                    {kurirBadge(g.kurir, g.kurirManual) && (
+                      <span className={`ml-1 inline-block rounded-full border px-1.5 py-0.5 text-[9px] font-bold ${kurirBadge(g.kurir, g.kurirManual)!.cls}`}>{kurirBadge(g.kurir, g.kurirManual)!.icon} {kurirBadge(g.kurir, g.kurirManual)!.label}</span>
                     )}
                   </td>
                   <td className="px-2 py-2.5 text-xs text-slate-600 max-w-[90px] truncate" title={g.namaToko}>{g.namaToko||'-'}</td>
+                  <td className="px-2 py-2.5" onClick={e=>e.stopPropagation()}>
+                    <span className="text-[10px] text-slate-600" title={g.kurir}>{g.kurir || '-'}</span>
+                    <select
+                      value={g.kurirManual}
+                      onChange={e => setKurirManual(key, e.target.value)}
+                      className="ml-1 rounded border border-slate-200 text-[9px] bg-white focus:border-brand-500 focus:outline-none"
+                      title="Tandai kategori kurir manual (bila tidak terdeteksi otomatis)"
+                    >
+                      <option value="">Auto</option>
+                      <option value="instant">⚡ Instant</option>
+                      <option value="sameday">🚀 Same Day</option>
+                      <option value="prioritas">🔥 Prioritas</option>
+                    </select>
+                  </td>
                   <td className="px-2 py-2.5"><span className="font-semibold text-brand-700">{g.items.length} SKU</span><span className="text-slate-400 ml-1 text-[10px]">🔍 klik</span></td>
                   <td className="px-2 py-2.5" onClick={e=>e.stopPropagation()}><button onClick={()=>confirmOne(key)} className="rounded-lg bg-emerald-500 px-2 py-1 text-xs font-semibold text-white hover:bg-emerald-600 whitespace-nowrap">✅ Selesai</button></td>
                 </tr>

@@ -35,7 +35,7 @@ export function InstantAlert() {
   //  - sudah masuk workflow gudang tapi belum handover.
   const mendesak = useMemo(() => {
     return allRows.filter(r => {
-      if (!isKurirMendesak(r.kurir)) return false;
+      if (!isKurirMendesak(r.kurir, r.kurirKategoriManual)) return false;
       const belumDiproses = isPerluProses(r.statusPesanan) && isPerluDikirim(r.statusProses);
       const sedangDiproses = isDalamProsesGudang(r.statusProses);
       return belumDiproses || sedangDiproses;

@@ -16,6 +16,7 @@ export interface AgregasiRow {
   hargaJual: number;
   kuantity: number;
   kurir: string;
+  kurirKategoriManual?: 'instant' | 'sameday' | 'prioritas' | ''; // override manual dari Picking
   statusPesanan: string;
   dibuat: string;
   sla: string;

@@ -2,7 +2,8 @@
 
 export type KurirKategori = 'instant' | 'sameday' | 'prioritas' | 'reguler';
 
-export function kategoriKurir(kurir: string): KurirKategori {
+export function kategoriKurir(kurir: string, manual?: string): KurirKategori {
+  if (manual === 'instant' || manual === 'sameday' || manual === 'prioritas') return manual;
   const k = (kurir || '').toLowerCase().replace(/[^a-z0-9]/g, '');
   if (!k) return 'reguler';
   if (k.includes('prioritas') || k.includes('priority') || k.includes('priorit')) return 'prioritas';
@@ -12,8 +13,8 @@ export function kategoriKurir(kurir: string): KurirKategori {
 }
 
 /** Apakah kurir tergolong mendesak (instant / sameday / prioritas)? */
-export function isKurirMendesak(kurir: string): boolean {
-  const c = kategoriKurir(kurir);
+export function isKurirMendesak(kurir: string, manual?: string): boolean {
+  const c = kategoriKurir(kurir, manual);
   return c === 'instant' || c === 'sameday' || c === 'prioritas';
 }
 
@@ -67,8 +68,8 @@ export function isStatusAktif(row: { statusProses?: string; statusPesanan?: stri
   return true;
 }
 
-export function kurirBadge(kurir: string): { label: string; icon: string; cls: string } | null {
-  const cat = kategoriKurir(kurir);
+export function kurirBadge(kurir: string, manual?: string): { label: string; icon: string; cls: string } | null {
+  const cat = kategoriKurir(kurir, manual);
   if (cat === 'prioritas') return { label: '🔥 Prioritas', icon: '🔥', cls: 'bg-rose-100 text-rose-700 border-rose-200' };
   if (cat === 'instant') return { label: '⚡ Instant', icon: '⚡', cls: 'bg-red-100 text-red-700 border-red-200' };
   if (cat === 'sameday') return { label: '🚀 Same Day', icon: '🚀', cls: 'bg-orange-100 text-orange-700 border-orange-200' };
