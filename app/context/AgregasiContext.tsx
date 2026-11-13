@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
-import { isStatusAktif } from '@/app/lib/kurir';
+import { isStatusAktif, isPerluProses } from '@/app/lib/kurir';
 
 const STORAGE_KEY = 'mma_agregasi_rows';
 
@@ -154,11 +154,17 @@ export function AgregasiProvider({ children }: { children: React.ReactNode }) {
     setAllRows(prev => {
       const existing = new Map<string, AgregasiRow>();
       for (const r of prev) existing.set(`${r.noPesanan}||${r.noResi}||${r.sku}`, r);
+      const TAHAP = new Set(['dipicking', 'diqc', 'dipacking', 'discanrunner', 'pendingpickup']);
       for (const r of rows) {
-        // Pertahankan statusProses yang sudah ada, default "Perlu Dikirim"
         const key = `${r.noPesanan}||${r.noResi}||${r.sku}`;
         const old = existing.get(key);
-        existing.set(key, { ...r, statusProses: old?.statusProses || r.statusProses || 'Perlu Dikirim' });
+        let statusProses: any = old?.statusProses || r.statusProses || 'Perlu Dikirim';
+        // Kalau status gudang sudah maju (QC/Packing/Runner) TAPI status marketplace
+        // masih "perlu diproses" → itu sisa status lama dari upload sebelumnya, reset.
+        if (TAHAP.has(String(statusProses).toLowerCase()) && isPerluProses(r.statusPesanan)) {
+          statusProses = 'Perlu Dikirim';
+        }
+        existing.set(key, { ...r, statusProses });
       }
       return Array.from(existing.values());
     });
