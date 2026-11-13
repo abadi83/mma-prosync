@@ -3,6 +3,8 @@
 import React, { useState, useEffect } from 'react';
 import { useUser, hasRole } from '@/app/hooks/useUser';
 import { storageRemove } from '@/app/lib/idbStorage';
+import { useAgregasi } from '@/app/context/AgregasiContext';
+import { recordActivity } from '@/app/lib/recordActivity';
 
 type Tab = 'profil' | 'password' | 'toko' | 'akun' | 'data' | 'history';
 
@@ -472,6 +474,13 @@ const DATA_GROUPS = [
     keys: ['mma_agregasi_rows', 'mma_ho_archive', 'mma_po_pickup', 'mma_po_inventory_check', 'mma_fleet_master', 'mma_pengantaran_offline', 'mma_absensi_face', 'mma_face_data'],
   },
   {
+    label: '🔄 Reset Status Workflow Gudang',
+    desc: 'Kembalikan status picking/QC/packing/runner yang "nyangkut" ke "belum diproses" (tidak menghapus data pesanan). Aktivitas ini tercatat di log.',
+    keys: ['__RESET_WORKFLOW__'],
+    dangerous: true,
+    special: 'reset-workflow',
+  },
+  {
     label: '👥 Kepegawaian',
     desc: 'Hapus data pegawai, absensi, KPI, izin/cuti, dan password pegawai.',
     keys: ['mma_pegawai_data', 'mma_izin_records', 'mma_pegawai_passwords'],
@@ -489,6 +498,7 @@ const DATA_GROUPS = [
 ];
 
 function DataTab() {
+  const { resetStatusWorkflow } = useAgregasi();
   const [confirmKey, setConfirmKey] = useState('');
   const [status, setStatus] = useState<{ type: 'ok' | 'err'; msg: string } | null>(null);
   const [resetting, setResetting] = useState(false);
@@ -518,6 +528,15 @@ function DataTab() {
     }
     setResetting(true);
     try {
+      if ((group as any).special === 'reset-workflow') {
+        // Reset workflow gudang — TIDAK menghapus data, hanya status proses.
+        // Identitas petugas dicatat server dari cookie login (recordActivity).
+        const n = resetStatusWorkflow();
+        recordActivity([{ modul: 'operasional', aksi: 'reset-workflow', refLabel: `${n} pesanan`, detail: { sumber: 'Pengaturan > Reset Data' } }]);
+        setStatus({ type: 'ok', msg: `✅ Status workflow ${n} pesanan dikembalikan ke "belum diproses". Aktivitas tercatat di log (Notifikasi).` });
+        setConfirmKey('');
+        return;
+      }
       await deleteKeys(group.keys);
       setStatus({ type: 'ok', msg: `✅ ${group.label} berhasil direset (lokal + server). Refresh halaman untuk melihat perubahan.` });
       setConfirmKey('');
