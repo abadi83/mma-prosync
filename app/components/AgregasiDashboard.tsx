@@ -66,14 +66,24 @@ function fmtRp(n: number): string {
 
 /* ═══════════════════════════════════════════════════════════════════ */
 export default function AgregasiDashboard() {
-  const { allRows, resetStatusWorkflow } = useAgregasi();
+  const { allRows, resetStatusWorkflow, forceResetServer } = useAgregasi();
   const [resetMsg, setResetMsg] = React.useState('');
+  const [resetting, setResetting] = React.useState(false);
 
   const doReset = () => {
     if (!window.confirm('Reset status workflow? Ini mengembalikan pesanan yang status marketplace-nya masih "Perlu Dikirim/Perlu dikirim/ready_to_ship" ke "belum diproses" (hapus status QC/Packing/Runner lama yang menempel).')) return;
     const n = resetStatusWorkflow();
     setResetMsg(`✅ ${n} pesanan dikembalikan ke "belum diproses".`);
     setTimeout(() => setResetMsg(''), 5000);
+  };
+
+  const doForceReset = async () => {
+    if (!window.confirm('⚠️ RESET PAKSA (server): hapus SEMUA data operasional gudang di server & semua perangkat, lalu upload ulang dari Data Entry.\n\nGunakan ini kalau status lama masih "nyangkut" padahal sudah di-reset berkali-kali (karena banyak tab/komputer membuka data lama).\n\nLANJUTKAN?')) return;
+    setResetting(true);
+    await forceResetServer();
+    setResetting(false);
+    setResetMsg('✅ Data operasional gudang di-reset paksa. Semua perangkat akan kosong — silakan upload ulang dari Data Entry.');
+    setTimeout(() => setResetMsg(''), 8000);
   };
 
   const stats = useMemo(() => {
@@ -226,13 +236,23 @@ export default function AgregasiDashboard() {
             {stats.totalOrders} pesanan • {stats.totalItems} item
           </p>
         </div>
-        <button
-          onClick={doReset}
-          className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700 hover:bg-amber-100"
-          title="Kembalikan status QC/Packing/Runner lama ke 'belum diproses' sesuai status marketplace"
-        >
-          🔄 Reset Status Workflow
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={doReset}
+            className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700 hover:bg-amber-100"
+            title="Kembalikan status QC/Packing/Runner lama ke 'belum diproses' sesuai status marketplace"
+          >
+            🔄 Reset Status Workflow
+          </button>
+          <button
+            onClick={doForceReset}
+            disabled={resetting}
+            className="rounded-lg border border-red-300 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-100 disabled:opacity-50"
+            title="Hapus semua data operasional di server & semua perangkat, lalu upload ulang"
+          >
+            {resetting ? '⏳ Reset…' : '⚠️ Reset Paksa (Server)'}
+          </button>
+        </div>
       </div>
       {resetMsg && <p className="mt-2 rounded-lg bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700">{resetMsg}</p>}
 

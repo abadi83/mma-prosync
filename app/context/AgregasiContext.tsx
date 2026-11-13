@@ -46,6 +46,7 @@ interface AgregasiContextType {
   updateStatusPicking: (matches: { noPesanan: string; noResi: string }[]) => { updated: number; notFound: number };
   updateStatusToQC: (keys: string[]) => number;
   resetStatusWorkflow: () => number;
+  forceResetServer: () => Promise<boolean>;
   clearRows: () => void;
 }
 
@@ -56,6 +57,7 @@ const AgregasiContext = createContext<AgregasiContextType>({
   updateStatusPicking: () => ({ updated: 0, notFound: 0 }),
   updateStatusToQC: () => 0,
   resetStatusWorkflow: () => 0,
+  forceResetServer: async () => false,
   clearRows: () => {},
 });
 
@@ -234,6 +236,21 @@ export function AgregasiProvider({ children }: { children: React.ReactNode }) {
     return count;
   }, []);
 
+  /** Reset PAKSA: hapus data agregasi di SERVER + lokal, lalu sebarkan tombstone
+   *  ke semua perangkat/tab. Dipakai saat status lama "nyangkut" karena banyak
+   *  tab/komputer masih memegang salinan lama. */
+  const forceResetServer = useCallback(async (): Promise<boolean> => {
+    try {
+      await fetch(`/api/data?key=${encodeURIComponent(STORAGE_KEY)}`, { method: 'DELETE' });
+    } catch { /* lanjut bersihkan lokal */ }
+    setAllRows([]);
+    if (typeof window !== 'undefined') {
+      try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
+      try { window.dispatchEvent(new CustomEvent('global-data-reset', { detail: { key: STORAGE_KEY } })); } catch { /* ignore */ }
+    }
+    return true;
+  }, []);
+
   const clearRows = useCallback(() => {
     setAllRows([]);
     if (typeof window !== 'undefined') {
@@ -244,7 +261,7 @@ export function AgregasiProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <AgregasiContext.Provider value={{ allRows, setAllRows, addRows, updateStatusPicking, updateStatusToQC, resetStatusWorkflow, clearRows }}>
+    <AgregasiContext.Provider value={{ allRows, setAllRows, addRows, updateStatusPicking, updateStatusToQC, resetStatusWorkflow, forceResetServer, clearRows }}>
       {children}
     </AgregasiContext.Provider>
   );
