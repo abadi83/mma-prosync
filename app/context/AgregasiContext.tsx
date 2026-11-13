@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
-import { isPerluProses } from '@/app/lib/kurir';
+import { isStatusAktif } from '@/app/lib/kurir';
 
 const STORAGE_KEY = 'mma_agregasi_rows';
 
@@ -216,17 +216,18 @@ export function AgregasiProvider({ children }: { children: React.ReactNode }) {
     return count;
   }, []);
 
-  /** Reset status workflow: kembalikan pesanan yang status marketplace-nya masih
-   *  "perlu diproses" (Perlu Dikirim/Perlu dikirim/ready_to_ship) ke belum diproses,
-   *  supaya sisa status QC/Packing lama tidak menempel. */
+  /** Reset status workflow: kembalikan pesanan yang BELUM selesai (bukan dikirim/
+   *  selesai/retur/batal/diterima) ke "belum diproses", supaya sisa status
+   *  QC/Packing/Runner lama tidak menempel. Status marketplace kosong pun ikut direset. */
   const resetStatusWorkflow = useCallback(() => {
     let count = 0;
+    const TAHAP_WORKFLOW = new Set(['dipicking', 'diqc', 'dipacking', 'discanrunner', 'pendingpickup']);
     setAllRows(prev => prev.map(r => {
-      // Hanya reset jika status marketplace masih "belum diproses"
-      if (!isPerluProses(r.statusPesanan)) return r;
-      // Sudah bersih (statusProses kosong/perlu dikirim) → lewati
-      const sp = (r.statusProses || '').toLowerCase();
-      if (!sp || sp === 'perlu dikirim') return r;
+      const sp = (r.statusProses || '').trim().toLowerCase();
+      // Hanya proses baris yang memang sedang di workflow
+      if (!TAHAP_WORKFLOW.has(sp)) return r;
+      // Jangan reset yang sudah selesai/dikirim/batal/retur/diterima
+      if (!isStatusAktif(r)) return r;
       count++;
       return { ...r, statusProses: undefined, handoverId: undefined, handoverAt: undefined, updatedAt: Date.now() };
     }));
