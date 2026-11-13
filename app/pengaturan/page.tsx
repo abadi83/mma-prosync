@@ -487,6 +487,13 @@ const DATA_GROUPS = [
     special: 'clear-cache',
   },
   {
+    label: '⚠️ Reset Paksa Global (Server + Semua Perangkat)',
+    desc: 'Hapus SEMUA data operasional gudang di server + sebarkan ke semua perangkat. Semua komputer/tab ikut kosong. Setelah ini upload ulang dari Data Entry. Aktivitas tercatat.',
+    keys: ['__FORCE_RESET__'],
+    dangerous: true,
+    special: 'force-reset',
+  },
+  {
     label: '👥 Kepegawaian',
     desc: 'Hapus data pegawai, absensi, KPI, izin/cuti, dan password pegawai.',
     keys: ['mma_pegawai_data', 'mma_izin_records', 'mma_pegawai_passwords'],
@@ -504,7 +511,7 @@ const DATA_GROUPS = [
 ];
 
 function DataTab() {
-  const { resetStatusWorkflow, clearLocalCache } = useAgregasi();
+  const { resetStatusWorkflow, clearLocalCache, forceResetServer } = useAgregasi();
   const [confirmKey, setConfirmKey] = useState('');
   const [status, setStatus] = useState<{ type: 'ok' | 'err'; msg: string } | null>(null);
   const [resetting, setResetting] = useState(false);
@@ -549,6 +556,14 @@ function DataTab() {
         setStatus({ type: 'ok', msg: '✅ Cache lokal operasional dibersihkan. Halaman akan dimuat ulang untuk menarik data bersih dari server.' });
         setConfirmKey('');
         setTimeout(() => { if (typeof window !== 'undefined') window.location.reload(); }, 1200);
+        return;
+      }
+      if ((group as any).special === 'force-reset') {
+        await forceResetServer();
+        recordActivity([{ modul: 'operasional', aksi: 'force-reset', refLabel: 'operasional gudang (global)', detail: { sumber: 'Pengaturan > Reset Data' } }]);
+        setStatus({ type: 'ok', msg: '✅ Data operasional dihapus di server + disebarkan ke semua perangkat. Upload ulang dari Data Entry.' });
+        setConfirmKey('');
+        setTimeout(() => { if (typeof window !== 'undefined') window.location.reload(); }, 1500);
         return;
       }
       await deleteKeys(group.keys);
