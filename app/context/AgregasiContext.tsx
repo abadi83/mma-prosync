@@ -47,6 +47,7 @@ interface AgregasiContextType {
   updateStatusToQC: (keys: string[]) => number;
   resetStatusWorkflow: () => number;
   forceResetServer: () => Promise<boolean>;
+  clearLocalCache: () => void;
   clearRows: () => void;
 }
 
@@ -58,6 +59,7 @@ const AgregasiContext = createContext<AgregasiContextType>({
   updateStatusToQC: () => 0,
   resetStatusWorkflow: () => 0,
   forceResetServer: async () => false,
+  clearLocalCache: () => {},
   clearRows: () => {},
 });
 
@@ -236,6 +238,19 @@ export function AgregasiProvider({ children }: { children: React.ReactNode }) {
     return count;
   }, []);
 
+  /** Bersihkan cache lokal (localStorage) agregasi lalu tarik ulang dari server.
+   *  Ini memperbaiki "status QC/Packing lama nyangkut" yang sumbernya localStorage. */
+  const clearLocalCache = useCallback(() => {
+    if (typeof window !== 'undefined') {
+      try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
+    }
+    setAllRows([]);
+    // Paksa GlobalSyncProvider menarik data bersih dari server (hapus snapshot lokal)
+    if (typeof window !== 'undefined') {
+      try { window.dispatchEvent(new Event('shared-data-updated')); } catch { /* ignore */ }
+    }
+  }, []);
+
   /** Reset PAKSA: hapus data agregasi di SERVER + lokal, lalu sebarkan tombstone
    *  ke semua perangkat/tab. Dipakai saat status lama "nyangkut" karena banyak
    *  tab/komputer masih memegang salinan lama. */
@@ -261,7 +276,7 @@ export function AgregasiProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <AgregasiContext.Provider value={{ allRows, setAllRows, addRows, updateStatusPicking, updateStatusToQC, resetStatusWorkflow, forceResetServer, clearRows }}>
+    <AgregasiContext.Provider value={{ allRows, setAllRows, addRows, updateStatusPicking, updateStatusToQC, resetStatusWorkflow, forceResetServer, clearLocalCache, clearRows }}>
       {children}
     </AgregasiContext.Provider>
   );

@@ -481,6 +481,12 @@ const DATA_GROUPS = [
     special: 'reset-workflow',
   },
   {
+    label: '🧹 Bersihkan Cache Lokal Operasional',
+    desc: 'Hapus salinan cache localStorage operasional gudang di perangkat INI lalu tarik ulang data bersih dari server. Pakai ini bila angka QC/Packing lama masih "nyangkut" padahal server sudah bersih.',
+    keys: ['__CLEAR_CACHE__'],
+    special: 'clear-cache',
+  },
+  {
     label: '👥 Kepegawaian',
     desc: 'Hapus data pegawai, absensi, KPI, izin/cuti, dan password pegawai.',
     keys: ['mma_pegawai_data', 'mma_izin_records', 'mma_pegawai_passwords'],
@@ -498,7 +504,7 @@ const DATA_GROUPS = [
 ];
 
 function DataTab() {
-  const { resetStatusWorkflow } = useAgregasi();
+  const { resetStatusWorkflow, clearLocalCache } = useAgregasi();
   const [confirmKey, setConfirmKey] = useState('');
   const [status, setStatus] = useState<{ type: 'ok' | 'err'; msg: string } | null>(null);
   const [resetting, setResetting] = useState(false);
@@ -535,6 +541,14 @@ function DataTab() {
         recordActivity([{ modul: 'operasional', aksi: 'reset-workflow', refLabel: `${n} pesanan`, detail: { sumber: 'Pengaturan > Reset Data' } }]);
         setStatus({ type: 'ok', msg: `✅ Status workflow ${n} pesanan dikembalikan ke "belum diproses". Aktivitas tercatat di log (Notifikasi).` });
         setConfirmKey('');
+        return;
+      }
+      if ((group as any).special === 'clear-cache') {
+        clearLocalCache();
+        recordActivity([{ modul: 'operasional', aksi: 'clear-cache', refLabel: 'operasional gudang', detail: { sumber: 'Pengaturan > Reset Data' } }]);
+        setStatus({ type: 'ok', msg: '✅ Cache lokal operasional dibersihkan. Halaman akan dimuat ulang untuk menarik data bersih dari server.' });
+        setConfirmKey('');
+        setTimeout(() => { if (typeof window !== 'undefined') window.location.reload(); }, 1200);
         return;
       }
       await deleteKeys(group.keys);
