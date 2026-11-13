@@ -66,7 +66,15 @@ function fmtRp(n: number): string {
 
 /* ═══════════════════════════════════════════════════════════════════ */
 export default function AgregasiDashboard() {
-  const { allRows } = useAgregasi();
+  const { allRows, resetStatusWorkflow } = useAgregasi();
+  const [resetMsg, setResetMsg] = React.useState('');
+
+  const doReset = () => {
+    if (!window.confirm('Reset status workflow? Ini mengembalikan pesanan yang status marketplace-nya masih "Perlu Dikirim/Perlu dikirim/ready_to_ship" ke "belum diproses" (hapus status QC/Packing/Runner lama yang menempel).')) return;
+    const n = resetStatusWorkflow();
+    setResetMsg(`✅ ${n} pesanan dikembalikan ke "belum diproses".`);
+    setTimeout(() => setResetMsg(''), 5000);
+  };
 
   const stats = useMemo(() => {
     if (allRows.length === 0) return null;
@@ -210,13 +218,23 @@ export default function AgregasiDashboard() {
   return (
     <section className="flex flex-col gap-5">
       {/* ── Judul Section ── */}
-      <div>
-        <div className="mb-1 h-1 w-16 rounded-full bg-gradient-to-r from-brand-500 to-brand-300" />
-        <h2 className="text-lg font-bold text-slate-800 sm:text-xl">📊 Ringkasan Pesanan</h2>
-        <p className="mt-1 text-sm text-slate-500">
-          {stats.totalOrders} pesanan • {stats.totalItems} item •实时 dari Data Entry & Operasional Gudang
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <div className="mb-1 h-1 w-16 rounded-full bg-gradient-to-r from-brand-500 to-brand-300" />
+          <h2 className="text-lg font-bold text-slate-800 sm:text-xl">📊 Ringkasan Pesanan</h2>
+          <p className="mt-1 text-sm text-slate-500">
+            {stats.totalOrders} pesanan • {stats.totalItems} item
+          </p>
+        </div>
+        <button
+          onClick={doReset}
+          className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700 hover:bg-amber-100"
+          title="Kembalikan status QC/Packing/Runner lama ke 'belum diproses' sesuai status marketplace"
+        >
+          🔄 Reset Status Workflow
+        </button>
       </div>
+      {resetMsg && <p className="mt-2 rounded-lg bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700">{resetMsg}</p>}
 
       {/* ═══════════ STATS CARDS ═══════════ */}
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">

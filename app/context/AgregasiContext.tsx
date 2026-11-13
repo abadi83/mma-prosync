@@ -1,6 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import { isPerluProses } from '@/app/lib/kurir';
 
 const STORAGE_KEY = 'mma_agregasi_rows';
 
@@ -43,6 +44,7 @@ interface AgregasiContextType {
   addRows: (rows: AgregasiRow[]) => void;
   updateStatusPicking: (matches: { noPesanan: string; noResi: string }[]) => { updated: number; notFound: number };
   updateStatusToQC: (keys: string[]) => number;
+  resetStatusWorkflow: () => number;
   clearRows: () => void;
 }
 
@@ -52,6 +54,7 @@ const AgregasiContext = createContext<AgregasiContextType>({
   addRows: () => {},
   updateStatusPicking: () => ({ updated: 0, notFound: 0 }),
   updateStatusToQC: () => 0,
+  resetStatusWorkflow: () => 0,
   clearRows: () => {},
 });
 
@@ -212,6 +215,23 @@ export function AgregasiProvider({ children }: { children: React.ReactNode }) {
     return count;
   }, []);
 
+  /** Reset status workflow: kembalikan pesanan yang status marketplace-nya masih
+   *  "perlu diproses" (Perlu Dikirim/Perlu dikirim/ready_to_ship) ke belum diproses,
+   *  supaya sisa status QC/Packing lama tidak menempel. */
+  const resetStatusWorkflow = useCallback(() => {
+    let count = 0;
+    setAllRows(prev => prev.map(r => {
+      // Hanya reset jika status marketplace masih "belum diproses"
+      if (!isPerluProses(r.statusPesanan)) return r;
+      // Sudah bersih (statusProses kosong/perlu dikirim) → lewati
+      const sp = (r.statusProses || '').toLowerCase();
+      if (!sp || sp === 'perlu dikirim') return r;
+      count++;
+      return { ...r, statusProses: undefined, handoverId: undefined, handoverAt: undefined, updatedAt: Date.now() };
+    }));
+    return count;
+  }, []);
+
   const clearRows = useCallback(() => {
     setAllRows([]);
     if (typeof window !== 'undefined') {
@@ -222,7 +242,7 @@ export function AgregasiProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <AgregasiContext.Provider value={{ allRows, setAllRows, addRows, updateStatusPicking, updateStatusToQC, clearRows }}>
+    <AgregasiContext.Provider value={{ allRows, setAllRows, addRows, updateStatusPicking, updateStatusToQC, resetStatusWorkflow, clearRows }}>
       {children}
     </AgregasiContext.Provider>
   );
