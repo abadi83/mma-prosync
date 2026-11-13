@@ -13,7 +13,7 @@ import { syncSaldoKeOperasional } from '@/app/lib/saldoMarketplace';
 import { storageGetRaw, setJSON } from '@/app/lib/idbStorage';
 import { ProduksiKardusTab } from '@/app/operasional-gudang/components/ProduksiKardusTab';
 import { playBeep } from '@/app/lib/beep';
-import { kurirBadge } from '@/app/lib/kurir';
+import { kurirBadge, isPerluProses } from '@/app/lib/kurir';
 import { InstantAlert } from '@/app/components/InstantAlert';
 
 type Tab = 'agregasi' | 'picking' | 'qc' | 'packing' | 'runner' | 'logistik' | 'belanja' | 'produksi';
@@ -223,7 +223,7 @@ function AgregasiDashboard() {
   const totalOrder=grouped.length;
   const totalItem=allRows.reduce((s,r)=>s+r.kuantity,0);
   const totalPendapatan=grouped.reduce((s,g)=>s+g.total,0);
-  const perluDikirim=grouped.filter(g=>g.statusPesanan==='Perlu Dikirim'||g.statusPesanan==='shipped'||g.statusPesanan==='Dikirim').length;
+  const perluDikirim=grouped.filter(g=>isPerluProses(g.statusPesanan)).length;
   const dipicking=allRows.filter(r=>r.statusProses==='Dipicking').length;
   const diQC=allRows.filter(r=>r.statusProses==='DiQC').length;
   const totalDiproses=allRows.filter(r=>r.statusProses&&r.statusProses!=='Perlu Dikirim').length;
