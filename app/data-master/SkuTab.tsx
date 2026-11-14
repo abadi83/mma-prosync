@@ -4,7 +4,7 @@ import { todayLocal } from '@/app/lib/dateLocal';
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { useSkus, type SkuItem } from '@/app/context/SkuContext';
-import { deteksiParentSku } from '@/app/lib/skuParent';
+import { deteksiParentSku, resolveSkuStok } from '@/app/lib/skuParent';
 import { ModalConfirm } from './modals';
 
 /* ── helper: ekstrak marketplace dari status upload ── */
@@ -220,6 +220,27 @@ export function SkuTab() {
     if (hppFilter === 'tanpa-hj') list = list.filter(i => !i.hargaJual || i.hargaJual <= 0);
     return list;
   }, [skus, search, hppFilter]);
+
+  // 🔗 Relasi SKU induk <-> varian: klasifikasi status tiap SKU untuk badge di tabel.
+  //    - 'induk'  : SKU ini menjadi induk (ada varian yang menginduk ke dia)
+  //    - 'varian' : SKU ini varian yang share stok (menginduk ke induk)
+  //    - 'mandiri': stok sendiri (tidak terlibat relasi)
+  const relasiInduk = useMemo(() => {
+    const map = new Map<string, { status: 'induk' | 'varian' | 'mandiri'; parent: string }>();
+    for (const s of skus) {
+      const isShare = (s.tipeStok || 'mandiri') === 'share';
+      const resolved = isShare ? resolveSkuStok(s.sku, s.parentSku, s.tipeStok) : s.sku;
+      if (isShare && resolved !== s.sku) {
+        // Varian share stok → menginduk
+        map.set(s.sku, { status: 'varian', parent: resolved });
+      } else {
+        // Cek apakah ada varian lain yang menginduk ke SKU ini
+        const hasAnak = skus.some(v => v.sku !== s.sku && (v.tipeStok || 'mandiri') === 'share' && resolveSkuStok(v.sku, v.parentSku, v.tipeStok) === s.sku);
+        map.set(s.sku, { status: hasAnak ? 'induk' : 'mandiri', parent: '' });
+      }
+    }
+    return map;
+  }, [skus]);
 
   // ⚠️ Jumlah SKU yang belum punya HPP (Harga Beli/Baru) — biar user/pegawai tahu harus ngelengkapi apa
   const tanpaHppCount = useMemo(() => skus.filter(s => !s.hargaBaru || s.hargaBaru <= 0).length, [skus]);
@@ -674,7 +695,7 @@ export function SkuTab() {
       {detailItem && (<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 overflow-y-auto py-8"><div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl mx-4">
         <div className="flex items-center justify-between"><p className="text-lg font-bold text-slate-800">📋 Detail SKU</p><button onClick={() => setDetailId(null)} className="text-slate-400 hover:text-slate-600 text-xl">✕</button></div>
         <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-          {[['SKU', detailItem.sku], ['Nama', detailItem.nama], ['Grade', detailItem.grade], ['Kategori', detailItem.kategori], ['Satuan', detailItem.satuan], ['Supplier', detailItem.supplier || '-'], ['Kode Supplier Varian', detailItem.kodeSupplierVarian || '-'], ['Status Edit Gambar', detailItem.statusEditGambar || '-'], ['Harga Modal Lama', detailItem.hargaModalLama ? `Rp ${detailItem.hargaModalLama.toLocaleString('id-ID')}` : '⚠ Belum ada'], ['Harga Baru', `Rp ${detailItem.hargaBaru.toLocaleString('id-ID')}`], ['Harga Jual', `Rp ${detailItem.hargaJual.toLocaleString('id-ID')}`], ['Diskon', detailItem.diskonPersen ? `${detailItem.diskonPersen}%` : '-'], ['Harga Discount', detailItem.hargaDiskon > 0 ? `Rp ${detailItem.hargaDiskon.toLocaleString('id-ID')}` : '-'], ['Stok', String(detailItem.stok)], ['Min Stok', String(detailItem.minStok)], ['Aktif', detailItem.aktif === 1 ? '✅ Ya' : '❌ Tidak'], ['Perubahan Harga Beli', detailItem.perubahanHargaBeli || '-'], ['SKU Induk', detailItem.parentSku || (detailItem.sku.includes('+') ? `auto: ${detailItem.sku.split('+')[0]}` : '-')], ['Tipe Stok', detailItem.tipeStok === 'share' ? '🔗 Share' : 'Mandiri']].map(([label, val]) => (<div key={label} className="flex flex-col"><span className="text-xs text-slate-400">{label}</span><span className="font-medium text-slate-800">{val}</span></div>))}
+          {[['SKU', detailItem.sku], ['Nama', detailItem.nama], ['Grade', detailItem.grade], ['Kategori', detailItem.kategori], ['Satuan', detailItem.satuan], ['Supplier', detailItem.supplier || '-'], ['Kode Supplier Varian', detailItem.kodeSupplierVarian || '-'], ['Status Edit Gambar', detailItem.statusEditGambar || '-'], ['Harga Modal Lama', detailItem.hargaModalLama ? `Rp ${detailItem.hargaModalLama.toLocaleString('id-ID')}` : '⚠ Belum ada'], ['Harga Baru', `Rp ${detailItem.hargaBaru.toLocaleString('id-ID')}`], ['Harga Jual', `Rp ${detailItem.hargaJual.toLocaleString('id-ID')}`], ['Diskon', detailItem.diskonPersen ? `${detailItem.diskonPersen}%` : '-'], ['Harga Discount', detailItem.hargaDiskon > 0 ? `Rp ${detailItem.hargaDiskon.toLocaleString('id-ID')}` : '-'], ['Stok', String(detailItem.stok)], ['Min Stok', String(detailItem.minStok)], ['Aktif', detailItem.aktif === 1 ? '✅ Ya' : '❌ Tidak'], ['Perubahan Harga Beli', detailItem.perubahanHargaBeli || '-'], ['SKU Induk', detailItem.parentSku || (detailItem.sku.includes('+') ? `auto: ${detailItem.sku.split('+')[0]}` : '-')], ['Tipe Stok', detailItem.tipeStok === 'share' ? '🔗 Share' : 'Mandiri'], ['Varian (anak)', (() => { const r = relasiInduk.get(detailItem.sku); if (r?.status === 'varian') return `→ ${r.parent}`; const n = skus.filter(v => v.sku !== detailItem.sku && (v.tipeStok || 'mandiri') === 'share' && resolveSkuStok(v.sku, v.parentSku, v.tipeStok) === detailItem.sku).length; return n > 0 ? `${n} varian menginduk` : '-'; })()]].map(([label, val]) => (<div key={label} className="flex flex-col"><span className="text-xs text-slate-400">{label}</span><span className="font-medium text-slate-800">{val}</span></div>))}
         </div>
         <div className="mt-3"><span className="text-xs text-slate-400">Status Upload Toko</span><div className="mt-1 flex flex-wrap gap-1">{extractMarketplaces(detailItem.statusUploadToko).length > 0 ? extractMarketplaces(detailItem.statusUploadToko).map((mp, i) => <span key={i} className={`rounded-full px-2 py-0.5 text-xs font-semibold ${mp.color}`}>{mp.name}</span>) : <span className="text-sm text-slate-400">-</span>}</div></div>
 
@@ -711,6 +732,7 @@ export function SkuTab() {
             <th className="px-1.5 py-2 font-semibold w-[180px]">Nama</th>
             <th className="px-1.5 py-2 font-semibold w-[44px]">Gr.</th>
             <th className="px-1.5 py-2 font-semibold w-[70px]">Kategori</th>
+            <th className="px-1.5 py-2 font-semibold w-[70px]">Induk</th>
             <th className="px-1.5 py-2 font-semibold w-[80px]">Harga Baru</th>
             <th className="px-1.5 py-2 font-semibold w-[80px]">Harga Jual</th>
             <th className="px-1.5 py-2 font-semibold w-[52px]">Diskon</th>
@@ -721,7 +743,7 @@ export function SkuTab() {
             <th className="px-1.5 py-2 font-semibold w-[56px]">Aksi</th>
           </tr></thead>
           <tbody className="divide-y divide-slate-50 bg-white">
-            {paginated.length === 0 ? <tr><td colSpan={12} className="py-10 text-center text-slate-400">{hppFilter !== 'semua' ? 'Tidak ada SKU yang cocok dengan filter ini. 🎉' : 'Tidak ada SKU. Upload file Excel atau tambah manual.'}</td></tr>
+            {paginated.length === 0 ? <tr><td colSpan={13} className="py-10 text-center text-slate-400">{hppFilter !== 'semua' ? 'Tidak ada SKU yang cocok dengan filter ini. 🎉' : 'Tidak ada SKU. Upload file Excel atau tambah manual.'}</td></tr>
               : paginated.map((item, i) => (<tr
                 key={item.id}
                 className={`${i % 2 === 0 ? 'bg-white' : 'bg-slate-50/30'} ${item.stok < item.minStok ? 'border-l-4 border-l-red-400' : ''} cursor-pointer hover:bg-brand-50/50`}
@@ -734,6 +756,7 @@ export function SkuTab() {
                 <td className="px-1.5 py-1.5 truncate text-[11px] font-medium text-slate-800" title={item.nama}>{item.nama}</td>
                 <td className="px-1.5 py-1.5"><span className={`rounded-full px-1 py-0.5 text-[10px] font-semibold ${item.grade === 'A' ? 'bg-emerald-100 text-emerald-700' : item.grade === 'B' ? 'bg-amber-100 text-amber-700' : item.grade === 'C' ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-600'}`}>{item.grade || '-'}</span></td>
                 <td className="px-1.5 py-1.5 text-[10px] text-slate-600 truncate" title={item.kategori}>{item.kategori || '-'}</td>
+                <td className="px-1.5 py-1.5">{(() => { const r = relasiInduk.get(item.sku); if (!r || r.status === 'mandiri') return <span className="text-slate-300">-</span>; if (r.status === 'varian') return <span className="inline-flex items-center gap-0.5 rounded-full bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700" title={`Menginduk ke SKU ${r.parent}`}>🔗 {r.parent}</span>; return <span className="inline-flex items-center gap-0.5 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700" title="SKU induk — punya varian yang berbagi stok">👑 Induk</span>; })()}</td>
                 <td className="px-1.5 py-1.5 text-[11px] whitespace-nowrap">{item.hargaBaru > 0 ? `Rp ${item.hargaBaru.toLocaleString('id-ID')}` : <span className="rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-600">⚠ 0</span>}</td>
                 <td className="px-1.5 py-1.5 text-[11px] font-semibold text-brand-700 whitespace-nowrap">Rp {item.hargaJual.toLocaleString('id-ID')}</td>
                 <td className="px-1.5 py-1.5 text-[11px] whitespace-nowrap">{item.diskonPersen > 0 ? <span className="rounded-full bg-rose-100 px-1.5 py-0.5 text-[10px] font-bold text-rose-600">−{item.diskonPersen}%</span> : <span className="text-slate-300">-</span>}</td>
