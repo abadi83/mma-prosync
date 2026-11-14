@@ -7,6 +7,7 @@ import { BarangMasukForm, type BarangMasukEntry } from '@/app/stok-barang/compon
 import { BarangKeluarForm, type BarangKeluarEntry } from '@/app/stok-barang/components/BarangKeluarForm';
 import { DenahRakTab } from '@/app/stok-barang/components/DenahRakTab';
 import { useSkus, type SkuItem } from '@/app/context/SkuContext';
+import { resolveSkuStok } from '@/app/lib/skuParent';
 import { recordActivity } from '@/app/lib/recordActivity';
 
 type Tab = 'opname' | 'masuk' | 'keluar' | 'cek-stok' | 'riwayat' | 'po-check' | 'denah';
@@ -78,20 +79,38 @@ const OPNAME_STORAGE = 'mma_opname_session';
 interface OpnameItem {
   id: string; nama: string; kategori: string; stok: number; stokMin: number;
   hargaJual: number; qtyFisik: number | null; selisih: number; keterangan: string;
+  // 🔗 Relasi SKU induk: varian share stok tidak boleh diopname (read-only),
+  //    menampilkan stok induknya. Hanya SKU induk yang bisa dihitung fisik.
+  isVarian: boolean; parentSku: string;
 }
 
 function StokOpname() {
   const { skus, setSkus } = useSkus();
 
   /* Petakan SkuItem dari context ke format opname */
-  const cekStokFromSkus = useMemo(() => skus.map((s: SkuItem) => ({
-    id: s.sku,
-    nama: s.nama,
-    kategori: s.kategori,
-    stok: s.stok,
-    stokMin: s.minStok,
-    hargaJual: s.hargaJual,
-  })), [skus]);
+  const cekStokFromSkus = useMemo(() => {
+    // Map SKU → stok efektif (induk), supaya varian menampilkan stok induknya.
+    const stokInduk = new Map<string, number>();
+    for (const s of skus) {
+      const resolved = resolveSkuStok(s.sku, s.parentSku, s.tipeStok);
+      const target = resolved === s.sku ? s : (skus.find(x => x.sku === resolved) || s);
+      stokInduk.set(s.sku, target.stok);
+    }
+    return skus.map((s: SkuItem) => {
+      const isVarian = (s.tipeStok || 'mandiri') === 'share' && resolveSkuStok(s.sku, s.parentSku, s.tipeStok) !== s.sku;
+      const parentSku = isVarian ? resolveSkuStok(s.sku, s.parentSku, s.tipeStok) : '';
+      return {
+        id: s.sku,
+        nama: s.nama,
+        kategori: s.kategori,
+        stok: stokInduk.get(s.sku) ?? s.stok,
+        stokMin: s.minStok,
+        hargaJual: s.hargaJual,
+        isVarian,
+        parentSku,
+      };
+    });
+  }, [skus]);
 
   /* Load opname session dari localStorage (biar gak hilang pas refresh) */
   const [items,setItems]=useState<OpnameItem[]>(() => {
@@ -222,6 +241,8 @@ function StokOpname() {
   }, []);
 
   const handleFisik=(id:string,val:string)=>{
+    const item=items.find(p=>p.id===id);
+    if (item?.isVarian) return; // varian read-only, tidak bisa diinput fisik
     setItems(prev=>prev.map(p=>{
       if(p.id!==id)return p;
       const fisik=val===''?null:+val;
@@ -231,17 +252,24 @@ function StokOpname() {
 
   const handleSimpan=(id:string)=>{
     const item=items.find(p=>p.id===id);if(!item||item.qtyFisik===null)return;
+    // Varian share stok tidak boleh diopname (read-only) — hanya induk yang dihitung fisik.
+    if (item.isVarian) return;
     setSaved(prev=>[...prev,id]);
 
-    // Update stok di Master Data (SkuContext) sesuai hasil opname fisik
-    setSkus(prev => prev.map(s => s.sku === id ? { ...s, stok: item.qtyFisik! } : s));
-    recordActivity([{ modul: 'stok', aksi: 'opname', refLabel: `${item.id} ${item.nama}`, detail: { sistem: item.stok, fisik: item.qtyFisik, selisih: (item.qtyFisik ?? item.stok) - item.stok } }]);
+    // Resolve ke SKU induk (jaga-jaga) lalu update stok di Master Data sesuai hasil opname fisik
+    const targetSku = resolveSkuStok(item.id, undefined, 'mandiri'); // induk/mandiri → dirinya sendiri
+    setSkus(prev => prev.map(s => s.sku === targetSku ? { ...s, stok: item.qtyFisik! } : s));
+    recordActivity([{ modul: 'stok', aksi: 'opname', refLabel: `${item.id} ${item.nama}`, detail: { sistem: item.stok, fisik: item.qtyFisik, selisih: (item.qtyFisik ?? item.stok) - item.stok, targetSku } }]);
   };
 
   /* ── Temukan SKU & buka panel koreksi ── */
   const onSkuScanned=(sku:string)=>{
     const found=items.find(p=>p.id===sku||p.nama.toLowerCase().includes(sku.toLowerCase()));
     if(found){
+      if (found.isVarian) {
+        setScanError(`"${found.id}" adalah varian — stok mengikuti SKU induk ${found.parentSku}. Opname dilakukan pada SKU induk.`);
+        return;
+      }
       const current=found.qtyFisik??0;
       setKoreksi({sku:found.id, nama:found.nama, qty:current});
       setQtyKoreksi(String(current||''));
@@ -258,6 +286,11 @@ function StokOpname() {
 
   /* ── Pilih dari dropdown manual ── */
   const onManualSelect = (item: typeof items[0]) => {
+    if (item.isVarian) {
+      setScanError(`"${item.id}" adalah varian — stok mengikuti SKU induk ${item.parentSku}. Opname dilakukan pada SKU induk.`);
+      setManualSearch(''); setShowDropdown(false);
+      return;
+    }
     const current = item.qtyFisik ?? 0;
     setKoreksi({ sku: item.id, nama: item.nama, qty: current });
     setQtyKoreksi(String(current || ''));
@@ -279,6 +312,11 @@ function StokOpname() {
     let found = items.find(i => i.id.toLowerCase() === manualSearch.trim().toLowerCase());
     if (!found) found = items.find(i => i.nama.toLowerCase().includes(manualSearch.trim().toLowerCase()));
     if (found) {
+      if (found.isVarian) {
+        setScanError(`"${found.id}" adalah varian — stok mengikuti SKU induk ${found.parentSku}. Opname dilakukan pada SKU induk.`);
+        setManualSearch(''); setManualQty(''); setShowDropdown(false);
+        return;
+      }
       setItems(prev => prev.map(p => p.id === found!.id ? { ...p, qtyFisik: qty, selisih: qty - p.stok } : p));
     }
     setManualSearch('');
@@ -515,12 +553,16 @@ function StokOpname() {
               const isCounted = item.qtyFisik !== null;
               const isSaved = saved.includes(item.id);
               const selisihVal = isCounted ? item.selisih : 0;
+              const isReadOnly = item.isVarian;
               return (
-                <tr key={item.id} className={`transition hover:bg-slate-50 ${isSaved ? 'bg-emerald-50/60' : isCounted ? 'bg-amber-50/40' : ''}`}>
+                <tr key={item.id} className={`transition hover:bg-slate-50 ${isReadOnly ? 'opacity-80' : ''} ${isSaved ? 'bg-emerald-50/60' : isCounted ? 'bg-amber-50/40' : ''}`}>
                   {/* No */}
                   <td className="px-3 py-3 text-center text-xs text-slate-400">{(safePage - 1) * PAGE_SIZE + idx + 1}</td>
                   {/* SKU */}
-                  <td className="px-3 py-3 font-mono text-xs font-semibold text-brand-700">{item.id}</td>
+                  <td className="px-3 py-3 font-mono text-xs font-semibold text-brand-700">
+                    {item.id}
+                    {isReadOnly && <span className="ml-1 inline-flex items-center gap-0.5 rounded-full bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700" title={`Varian — stok mengikuti SKU induk ${item.parentSku}`}>🔗 varian</span>}
+                  </td>
                   {/* Nama Produk */}
                   <td className="px-3 py-3 font-medium text-slate-800" title={item.nama}>
                     <div className="flex items-center gap-2">
@@ -544,25 +586,34 @@ function StokOpname() {
                     {item.kategori ? <span className="rounded-full bg-slate-100 px-2 py-0.5">{item.kategori}</span> : <span className="text-slate-300">-</span>}
                   </td>
                   {/* Stok Sistem */}
-                  <td className="px-3 py-3 text-center font-semibold text-slate-700">{item.stok}</td>
+                  <td className="px-3 py-3 text-center font-semibold text-slate-700">
+                    {item.stok}
+                    {isReadOnly && <div className="text-[10px] font-normal text-indigo-500">dari induk</div>}
+                  </td>
                   {/* Stok Fisik */}
                   <td className="px-3 py-3 text-center">
-                    <input
-                      ref={el => { if (el) inputRefs.current.set(item.id, el); }}
-                      type="number"
-                      value={item.qtyFisik ?? ''}
-                      onChange={e => handleFisik(item.id, e.target.value)}
-                      placeholder="-"
-                      className="w-[68px] rounded-lg border border-slate-200 px-2 py-1.5 text-center text-sm font-bold text-slate-800 placeholder:text-slate-300 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-100"
-                    />
+                    {isReadOnly ? (
+                      <span className="inline-flex items-center justify-center w-[68px] rounded-lg bg-slate-100 px-2 py-1.5 text-center text-sm font-bold text-slate-400" title={`Stok mengikuti SKU induk ${item.parentSku}`}>{item.stok}</span>
+                    ) : (
+                      <input
+                        ref={el => { if (el) inputRefs.current.set(item.id, el); }}
+                        type="number"
+                        value={item.qtyFisik ?? ''}
+                        onChange={e => handleFisik(item.id, e.target.value)}
+                        placeholder="-"
+                        className="w-[68px] rounded-lg border border-slate-200 px-2 py-1.5 text-center text-sm font-bold text-slate-800 placeholder:text-slate-300 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-100"
+                      />
+                    )}
                   </td>
                   {/* Selisih */}
-                  <td className={`px-3 py-3 text-center font-bold text-sm ${!isCounted ? 'text-slate-300' : selisihVal === 0 ? 'text-emerald-600' : selisihVal > 0 ? 'text-blue-600' : 'text-red-600'}`}>
-                    {isCounted ? (selisihVal > 0 ? '+' : '') + selisihVal : '-'}
+                  <td className={`px-3 py-3 text-center font-bold text-sm ${isReadOnly ? 'text-slate-300' : !isCounted ? 'text-slate-300' : selisihVal === 0 ? 'text-emerald-600' : selisihVal > 0 ? 'text-blue-600' : 'text-red-600'}`}>
+                    {isReadOnly ? '🔒' : (isCounted ? (selisihVal > 0 ? '+' : '') + selisihVal : '-')}
                   </td>
                   {/* Status + Aksi */}
                   <td className="px-3 py-3 text-center">
-                    {isSaved ? (
+                    {isReadOnly ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2.5 py-0.5 text-xs font-semibold text-indigo-500" title={`Stok otomatis dari SKU induk ${item.parentSku}`}>🔒 Ikut induk</span>
+                    ) : isSaved ? (
                       <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">✅ Simpan</span>
                     ) : isCounted ? (
                       <button onClick={() => handleSimpan(item.id)} className="rounded-lg bg-brand-500 px-3 py-1 text-xs font-semibold text-white hover:bg-brand-700 transition">Simpan</button>
