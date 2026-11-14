@@ -2203,6 +2203,17 @@ function LogistikTab() {
 }
 
 function LogistikHandover({ allRows }: { allRows: AgregasiRow[] }) {
+  // Daftar pegawai (dari Kepegawaian/PostgreSQL) untuk dropdown petugas logistik
+  const [pegawaiList, setPegawaiList] = useState<{ id: string; nama: string; jabatan?: string }[]>([]);
+  useEffect(() => {
+    let active = true;
+    fetch('/api/pegawai').then(r => r.ok ? r.json() : []).then(d => {
+      if (!active) return;
+      const arr = Array.isArray(d) ? d : (Array.isArray(d?.data) ? d.data : []);
+      setPegawaiList(arr.filter((p: any) => p && p.nama).map((p: any) => ({ id: String(p.id ?? ''), nama: String(p.nama), jabatan: p.jabatan ? String(p.jabatan) : undefined })));
+    }).catch(() => {});
+    return () => { active = false; };
+  }, []);
   const hoItems = allRows.filter(r => r.statusProses === 'Dikirim' && r.handoverId);
   const grouped = new Map<string, { hoId: string; handoverAt: string; kurir: string; items: AgregasiRow[] }>();
   for (const r of hoItems) {
@@ -2438,7 +2449,7 @@ function LogistikHandover({ allRows }: { allRows: AgregasiRow[] }) {
                     })()}
                   </div>
                 </details>
-                <div className="mt-3"><span className="text-xs font-semibold text-slate-600">Petugas Logistik</span><input value={petugas} onChange={e => setPetugas(e.target.value)} placeholder="Nama petugas logistik" className="mt-1 w-full rounded-xl border px-3 py-2 text-sm focus:border-brand-500 focus:outline-none" /></div>
+                <div className="mt-3"><span className="text-xs font-semibold text-slate-600">Petugas Logistik</span><input value={petugas} onChange={e => setPetugas(e.target.value)} list="petugas-logistik-options" placeholder="Pilih atau ketik nama petugas logistik" className="mt-1 w-full rounded-xl border px-3 py-2 text-sm focus:border-brand-500 focus:outline-none" /><datalist id="petugas-logistik-options">{pegawaiList.map(p => <option key={p.id || p.nama} value={p.nama} label={p.jabatan || undefined} />)}</datalist>{pegawaiList.length === 0 && <p className="mt-1 text-[10px] text-slate-400">Belum ada pegawai terdaftar — ketik manual.</p>}</div>
                 <div className="mt-3"><span className="text-xs font-semibold text-slate-600">✍️ Tanda Tangan (Pihak Drop Off)</span><canvas ref={signatureRef} width={350} height={120} className="mt-1 w-full rounded-xl border-2 border-dashed border-slate-300 bg-white touch-none" onMouseDown={startDraw} onMouseMove={draw} onMouseUp={stopDraw} onMouseLeave={stopDraw} onTouchStart={startDraw} onTouchMove={draw} onTouchEnd={stopDraw} /><button onClick={clearSignature} className="mt-1 text-xs text-red-400 hover:text-red-600">Hapus Tanda Tangan</button></div>
                 <div className="mt-3"><span className="text-xs font-semibold text-slate-600">📸 Foto Bukti</span>
                   {!photoData ? (
