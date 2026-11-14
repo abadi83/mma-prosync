@@ -4,6 +4,7 @@ import { todayLocal } from '@/app/lib/dateLocal';
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { useSkus, type SkuItem } from '@/app/context/SkuContext';
+import { deteksiParentSku } from '@/app/lib/skuParent';
 import { ModalConfirm } from './modals';
 
 /* ── helper: ekstrak marketplace dari status upload ── */
@@ -103,7 +104,7 @@ export function SkuTab() {
   useEffect(() => {
     fetch('/api/marketplace-toko').then(r => r.ok ? r.json() : []).then(d => setTokoList(Array.isArray(d) ? d : [])).catch(() => {});
   }, []);
-  const [f, setF] = useState({ sku: '', nama: '', grade: '', kodeSupplierVarian: '', statusEditGambar: '', statusUploadToko: '', supplier: '', kategori: '', satuan: 'pcs', hargaModalLama: '', hargaBaru: '', hargaJual: '', diskonPersen: '', hargaDiskon: '', minStok: '', aktif: 1, videoKonten: false, gambarToko: '', paketBesar: false });
+  const [f, setF] = useState({ sku: '', nama: '', grade: '', kodeSupplierVarian: '', statusEditGambar: '', statusUploadToko: '', supplier: '', kategori: '', satuan: 'pcs', hargaModalLama: '', hargaBaru: '', hargaJual: '', diskonPersen: '', hargaDiskon: '', minStok: '', aktif: 1, videoKonten: false, gambarToko: '', paketBesar: false, parentSku: '', tipeStok: 'mandiri' });
   const [ferr, setFerr] = useState('');
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -265,10 +266,10 @@ export function SkuTab() {
 
   const goPage = (p: number) => setPage(Math.max(1, Math.min(totalPages, p)));
 
-  const blank = () => ({ sku: '', nama: '', grade: '', kodeSupplierVarian: '', statusEditGambar: '', statusUploadToko: '', supplier: '', kategori: '', satuan: 'pcs', hargaModalLama: '', hargaBaru: '', hargaJual: '', diskonPersen: '', hargaDiskon: '', minStok: '', aktif: 1, videoKonten: false, gambarToko: '', paketBesar: false });
+  const blank = () => ({ sku: '', nama: '', grade: '', kodeSupplierVarian: '', statusEditGambar: '', statusUploadToko: '', supplier: '', kategori: '', satuan: 'pcs', hargaModalLama: '', hargaBaru: '', hargaJual: '', diskonPersen: '', hargaDiskon: '', minStok: '', aktif: 1, videoKonten: false, gambarToko: '', paketBesar: false, parentSku: '', tipeStok: 'mandiri' });
   const openAdd = () => { setF(blank()); setFerr(''); setShowForm(true); setEditId(null); hargaBaruManual.current = false; hargaDiskonManual.current = false; setFoto(''); setFotoDirty(false); };
   const openEdit = async (i: SkuItem) => {
-    setF({ sku: i.sku, nama: i.nama, grade: i.grade, kodeSupplierVarian: i.kodeSupplierVarian, statusEditGambar: i.statusEditGambar, statusUploadToko: i.statusUploadToko, supplier: i.supplier, kategori: i.kategori, satuan: i.satuan, hargaModalLama: i.hargaModalLama ? String(i.hargaModalLama) : '', hargaBaru: String(i.hargaBaru), hargaJual: String(i.hargaJual), diskonPersen: i.diskonPersen ? String(i.diskonPersen) : '', hargaDiskon: i.hargaDiskon ? String(i.hargaDiskon) : '', minStok: String(i.minStok), aktif: i.aktif, videoKonten: !!i.videoKonten, gambarToko: i.gambarToko || '', paketBesar: !!i.paketBesar });
+    setF({ sku: i.sku, nama: i.nama, grade: i.grade, kodeSupplierVarian: i.kodeSupplierVarian, statusEditGambar: i.statusEditGambar, statusUploadToko: i.statusUploadToko, supplier: i.supplier, kategori: i.kategori, satuan: i.satuan, hargaModalLama: i.hargaModalLama ? String(i.hargaModalLama) : '', hargaBaru: String(i.hargaBaru), hargaJual: String(i.hargaJual), diskonPersen: i.diskonPersen ? String(i.diskonPersen) : '', hargaDiskon: i.hargaDiskon ? String(i.hargaDiskon) : '', minStok: String(i.minStok), aktif: i.aktif, videoKonten: !!i.videoKonten, gambarToko: i.gambarToko || '', paketBesar: !!i.paketBesar, parentSku: i.parentSku || '', tipeStok: i.tipeStok === 'share' ? 'share' : 'mandiri' });
     setFerr(''); setEditId(i.id); setShowForm(true); hargaDiskonManual.current = false;
     // Muat foto existing
     setFoto(''); setFotoDirty(false); setGambarLoading(true);
@@ -329,6 +330,8 @@ export function SkuTab() {
       stok: oldItem?.stok ?? 0, minStok: +f.minStok || 0, aktif: f.aktif, perubahanHargaBeli: pct,
       videoKonten: !!f.videoKonten, gambarToko: f.gambarToko || '',
       paketBesar: !!f.paketBesar,
+      parentSku: (f.parentSku || '').trim(),
+      tipeStok: f.tipeStok === 'share' ? 'share' : 'mandiri',
     };
 
     try {
@@ -434,6 +437,8 @@ export function SkuTab() {
         videoKonten: false,
         gambarToko: '',
         paketBesar: false,
+        parentSku: deteksiParentSku(sku) || '',
+        tipeStok: 'mandiri',
       };
     };
 
@@ -623,6 +628,16 @@ export function SkuTab() {
           <label className="flex flex-col gap-1"><span className="text-xs font-semibold text-slate-600">Status Edit Gambar</span><input value={f.statusEditGambar} onChange={e => setF({ ...f, statusEditGambar: e.target.value })} className="rounded-xl border px-2 py-1.5 text-sm focus:border-brand-500 focus:outline-none" /></label>
           <label className="flex flex-col gap-1 col-span-2"><span className="text-xs font-semibold text-slate-600">Status Upload Toko</span><input value={f.statusUploadToko} onChange={e => setF({ ...f, statusUploadToko: e.target.value })} placeholder="Shopee — Nama Toko | Lazada — Nama Toko" className="rounded-xl border px-2 py-1.5 text-sm focus:border-brand-500 focus:outline-none" /></label>
 
+          {/* ── SKU Induk (share stok) ── */}
+          <div className="col-span-2 rounded-xl border-2 border-dashed border-indigo-200 bg-indigo-50/50 p-3 space-y-2">
+            <p className="text-xs font-bold text-indigo-700">🔗 SKU Induk (berbagi stok)</p>
+            <div className="grid grid-cols-2 gap-2">
+              <label className="flex flex-col gap-1"><span className="text-[11px] font-semibold text-slate-500">SKU Induk</span><input value={f.parentSku} onChange={e => setF({ ...f, parentSku: e.target.value })} placeholder="Kosong = auto deteksi tanda +" className="rounded-lg border border-indigo-200 bg-white px-2 py-1 text-xs focus:border-brand-500 focus:outline-none" /></label>
+              <label className="flex flex-col gap-1"><span className="text-[11px] font-semibold text-slate-500">Tipe Stok</span><select value={f.tipeStok} onChange={e => setF({ ...f, tipeStok: e.target.value })} className="rounded-lg border border-indigo-200 bg-white px-2 py-1 text-xs focus:border-brand-500 focus:outline-none"><option value="share">Share (ikut induk)</option><option value="mandiri">Mandiri (stok sendiri)</option></select></label>
+            </div>
+            <p className="text-[10px] text-indigo-500 leading-relaxed">Varian berbagi stok: penjualan/mutasi varian mengurangi stok <strong>SKU induk</strong>. Kalau SKU Induk dikosongkan tapi nama SKU mengandung <code>+</code>, induk otomatis = bagian sebelum <code>+</code> pertama.</p>
+          </div>
+
           {/* ── Konten: video + update gambar per toko marketplace (terekam di aktivitas) ── */}
           <div className="col-span-2 rounded-xl border border-slate-200 bg-slate-50/60 p-3 space-y-3">
             <label className="flex items-center gap-2 cursor-pointer">
@@ -659,7 +674,7 @@ export function SkuTab() {
       {detailItem && (<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 overflow-y-auto py-8"><div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl mx-4">
         <div className="flex items-center justify-between"><p className="text-lg font-bold text-slate-800">📋 Detail SKU</p><button onClick={() => setDetailId(null)} className="text-slate-400 hover:text-slate-600 text-xl">✕</button></div>
         <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-          {[['SKU', detailItem.sku], ['Nama', detailItem.nama], ['Grade', detailItem.grade], ['Kategori', detailItem.kategori], ['Satuan', detailItem.satuan], ['Supplier', detailItem.supplier || '-'], ['Kode Supplier Varian', detailItem.kodeSupplierVarian || '-'], ['Status Edit Gambar', detailItem.statusEditGambar || '-'], ['Harga Modal Lama', detailItem.hargaModalLama ? `Rp ${detailItem.hargaModalLama.toLocaleString('id-ID')}` : '⚠ Belum ada'], ['Harga Baru', `Rp ${detailItem.hargaBaru.toLocaleString('id-ID')}`], ['Harga Jual', `Rp ${detailItem.hargaJual.toLocaleString('id-ID')}`], ['Diskon', detailItem.diskonPersen ? `${detailItem.diskonPersen}%` : '-'], ['Harga Discount', detailItem.hargaDiskon > 0 ? `Rp ${detailItem.hargaDiskon.toLocaleString('id-ID')}` : '-'], ['Stok', String(detailItem.stok)], ['Min Stok', String(detailItem.minStok)], ['Aktif', detailItem.aktif === 1 ? '✅ Ya' : '❌ Tidak'], ['Perubahan Harga Beli', detailItem.perubahanHargaBeli || '-']].map(([label, val]) => (<div key={label} className="flex flex-col"><span className="text-xs text-slate-400">{label}</span><span className="font-medium text-slate-800">{val}</span></div>))}
+          {[['SKU', detailItem.sku], ['Nama', detailItem.nama], ['Grade', detailItem.grade], ['Kategori', detailItem.kategori], ['Satuan', detailItem.satuan], ['Supplier', detailItem.supplier || '-'], ['Kode Supplier Varian', detailItem.kodeSupplierVarian || '-'], ['Status Edit Gambar', detailItem.statusEditGambar || '-'], ['Harga Modal Lama', detailItem.hargaModalLama ? `Rp ${detailItem.hargaModalLama.toLocaleString('id-ID')}` : '⚠ Belum ada'], ['Harga Baru', `Rp ${detailItem.hargaBaru.toLocaleString('id-ID')}`], ['Harga Jual', `Rp ${detailItem.hargaJual.toLocaleString('id-ID')}`], ['Diskon', detailItem.diskonPersen ? `${detailItem.diskonPersen}%` : '-'], ['Harga Discount', detailItem.hargaDiskon > 0 ? `Rp ${detailItem.hargaDiskon.toLocaleString('id-ID')}` : '-'], ['Stok', String(detailItem.stok)], ['Min Stok', String(detailItem.minStok)], ['Aktif', detailItem.aktif === 1 ? '✅ Ya' : '❌ Tidak'], ['Perubahan Harga Beli', detailItem.perubahanHargaBeli || '-'], ['SKU Induk', detailItem.parentSku || (detailItem.sku.includes('+') ? `auto: ${detailItem.sku.split('+')[0]}` : '-')], ['Tipe Stok', detailItem.tipeStok === 'share' ? '🔗 Share' : 'Mandiri']].map(([label, val]) => (<div key={label} className="flex flex-col"><span className="text-xs text-slate-400">{label}</span><span className="font-medium text-slate-800">{val}</span></div>))}
         </div>
         <div className="mt-3"><span className="text-xs text-slate-400">Status Upload Toko</span><div className="mt-1 flex flex-wrap gap-1">{extractMarketplaces(detailItem.statusUploadToko).length > 0 ? extractMarketplaces(detailItem.statusUploadToko).map((mp, i) => <span key={i} className={`rounded-full px-2 py-0.5 text-xs font-semibold ${mp.color}`}>{mp.name}</span>) : <span className="text-sm text-slate-400">-</span>}</div></div>
 

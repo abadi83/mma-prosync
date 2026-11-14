@@ -1,6 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
+import { resolveSkuStok } from '@/app/lib/skuParent';
 
 export interface SkuItem {
   id: string; sku: string; nama: string; grade: string; kodeSupplierVarian: string;
@@ -10,6 +11,7 @@ export interface SkuItem {
   stok: number; minStok: number; aktif: number; perubahanHargaBeli: string;
   videoKonten: boolean; gambarToko: string;
   paketBesar: boolean;
+  parentSku: string; tipeStok: 'share' | 'mandiri';
 }
 
 const SYNC_INTERVAL = 60000; // 60 detik (sebelumnya 30s — hemat bandwidth 4700 SKU)
@@ -85,10 +87,13 @@ export function SkuProvider({ children }: { children: React.ReactNode }) {
   const updateStok = useCallback(async (skuCode: string, delta: number) => {
     const item = skus.find(s => s.sku === skuCode);
     if (!item) return;
-    const updated = { ...item, stok: Math.max(0, item.stok + delta) };
-    setSkus(prev => prev.map(s => s.sku === skuCode ? updated : s));
+    // Resolve ke SKU induk bila varian share stok
+    const targetSku = resolveSkuStok(item.sku, item.parentSku, item.tipeStok);
+    const target = targetSku === item.sku ? item : (skus.find(s => s.sku === targetSku) || item);
+    const updated = { ...target, stok: Math.max(0, target.stok + delta) };
+    setSkus(prev => prev.map(s => s.sku === target.sku ? updated : s));
     try {
-      await fetch(API, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updated) });
+      await fetch(API, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: target.id, stok: updated.stok }) });
       await load();
     } catch {}
   }, [skus, load]);
