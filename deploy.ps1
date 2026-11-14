@@ -53,8 +53,8 @@ $remoteCmd += "; set -a; . ./.env.local; set +a; node scripts/sync-changelog-fro
 
 # Catat changelog tambahan manual bila diminta (opsional)
 if ($Changelog) {
-  $esc = $Changelog.Replace('"', '\"')
-  $remoteCmd += "; UPDATE_JUDUL=\"$esc\" node scripts/log-app-update.js update"
+  $esc = $Changelog.Replace('`', '``').Replace('"', '`"').Replace('$', '`$')
+  $remoteCmd += "; UPDATE_JUDUL=`"$esc`" node scripts/log-app-update.js update"
 }
 
 ssh $VPS_HOST $remoteCmd
