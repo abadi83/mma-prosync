@@ -45,7 +45,7 @@ interface AgregasiContextType {
   addRows: (rows: AgregasiRow[]) => void;
   updateStatusPicking: (matches: { noPesanan: string; noResi: string }[]) => { updated: number; notFound: number };
   updateStatusToQC: (keys: string[]) => number;
-  resetStatusWorkflow: () => number;
+  resetStatusWorkflow: () => Promise<number>;
   forceResetServer: () => Promise<boolean>;
   clearLocalCache: () => void;
   clearRows: () => void;
@@ -57,7 +57,7 @@ const AgregasiContext = createContext<AgregasiContextType>({
   addRows: () => {},
   updateStatusPicking: () => ({ updated: 0, notFound: 0 }),
   updateStatusToQC: () => 0,
-  resetStatusWorkflow: () => 0,
+  resetStatusWorkflow: async () => 0,
   forceResetServer: async () => false,
   clearLocalCache: () => {},
   clearRows: () => {},
@@ -82,6 +82,29 @@ function saveToStorage(rows: AgregasiRow[]) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(rows));
   } catch { /* storage full atau tidak tersedia */ }
+}
+
+/* Status workflow yang dianggap "sedang berjalan" (bisa direset). */
+const TAHAP_WORKFLOW = new Set(['dipicking', 'diqc', 'dipacking', 'discanrunner', 'pendingpickup']);
+
+/* Terapkan reset marker global: baris dengan updatedAt lebih tua dari resetAt
+   dan statusnya workflow aktif → paksa kembali ke "belum diproses".
+   Ini memastikan reset dari komputer lain menyebar ke perangkat ini. */
+function applyResetMarker(rows: AgregasiRow[], resetAt: number): AgregasiRow[] {
+  if (!resetAt) return rows;
+  let changed = false;
+  const out = rows.map(r => {
+    const sp = String(r.statusProses || '').trim().toLowerCase();
+    if (!TAHAP_WORKFLOW.has(sp)) return r;
+    const ts = Number(r.updatedAt);
+    // updatedAt kosong/tidak valid, atau lebih tua dari reset → reset status.
+    if (!Number.isFinite(ts) || ts < resetAt) {
+      changed = true;
+      return { ...r, statusProses: undefined, handoverId: undefined, handoverAt: undefined };
+    }
+    return r;
+  });
+  return changed ? out : rows;
 }
 
 /* Merge dua sumber baris agregasi: versi dengan status workflow lebih maju /
@@ -115,6 +138,25 @@ export function AgregasiProvider({ children }: { children: React.ReactNode }) {
   const [allRows, setAllRows] = useState<AgregasiRow[]>([]);
   const [isHydrated, setIsHydrated] = useState(false);
   const hasAddedRef = React.useRef(false);
+  const resetAtRef = React.useRef(0);
+
+  // Ambil reset marker global dari server — sumber kebenaran untuk reset workflow
+  // yang dilakukan dari perangkat lain. Baris dengan updatedAt < resetAt dipaksa reset.
+  const refreshResetMarker = useCallback(async () => {
+    try {
+      const res = await fetch('/api/agregasi/reset-workflow', { cache: 'no-store' });
+      const json = await res.json().catch(() => ({}));
+      const at = Number(json?.resetAt) || 0;
+      if (at > resetAtRef.current) {
+        resetAtRef.current = at;
+        // Terapkan marker ke baris yang sedang aktif (workflow) tapi lebih tua dari marker.
+        setAllRows(prev => {
+          const next = applyResetMarker(prev, at);
+          return next === prev ? prev : next;
+        });
+      }
+    } catch { /* server belum terjangkau — lanjut */ }
+  }, []);
 
   // Hydrate dari localStorage setelah mount (merge, jangan overwrite)
   useEffect(() => {
@@ -127,7 +169,8 @@ export function AgregasiProvider({ children }: { children: React.ReactNode }) {
       });
     }
     setIsHydrated(true);
-  }, []);
+    void refreshResetMarker();
+  }, [refreshResetMarker]);
 
   // Simpan ke localStorage setiap kali allRows berubah
   useEffect(() => {
@@ -139,8 +182,11 @@ export function AgregasiProvider({ children }: { children: React.ReactNode }) {
     const onSync = () => {
       const stored = loadFromStorage();
       if (stored.length > 0) {
-        setAllRows(prev => mergeRows(prev, stored));
+        const marked = applyResetMarker(stored, resetAtRef.current);
+        setAllRows(prev => mergeRows(prev, marked));
       }
+      // Refresh reset marker juga (siapa tahu ada reset baru dari perangkat lain).
+      void refreshResetMarker();
     };
     window.addEventListener('storage', onSync);
     window.addEventListener('shared-data-updated', onSync);
@@ -148,7 +194,7 @@ export function AgregasiProvider({ children }: { children: React.ReactNode }) {
       window.removeEventListener('storage', onSync);
       window.removeEventListener('shared-data-updated', onSync);
     };
-  }, []);
+  }, [refreshResetMarker]);
 
   const addRows = useCallback((rows: AgregasiRow[]) => {
     setAllRows(prev => {
@@ -228,19 +274,39 @@ export function AgregasiProvider({ children }: { children: React.ReactNode }) {
 
   /** Reset status workflow: kembalikan pesanan yang BELUM selesai (bukan dikirim/
    *  selesai/retur/batal/diterima) ke "belum diproses", supaya sisa status
-   *  QC/Packing/Runner lama tidak menempel. Status marketplace kosong pun ikut direset. */
-  const resetStatusWorkflow = useCallback(() => {
+   *  QC/Packing/Runner lama tidak menempel. Status marketplace kosong pun ikut direset.
+   *  Reset sekarang SERVER-AUTHORITATIVE: server menulis timestamp-nya sendiri,
+   *  lalu disebarkan ke semua perangkat — tidak lagi bergantung clock klien. */
+  const resetStatusWorkflow = useCallback(async () => {
     let count = 0;
-    const TAHAP_WORKFLOW = new Set(['dipicking', 'diqc', 'dipacking', 'discanrunner', 'pendingpickup']);
+
+    // 1. Reset di server (sumber kebenaran) — timestamp server menang saat merge.
+    let serverResetAt = 0;
+    try {
+      const res = await fetch('/api/agregasi/reset-workflow', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      const json = await res.json().catch(() => ({}));
+      count = Number(json?.count) || 0;
+      serverResetAt = Number(json?.resetAt) || 0;
+    } catch { /* lanjut ke reset lokal */ }
+
+    // Perbarui reset marker lokal supaya baris lama dari perangkat lain ikut ter-reset.
+    if (serverResetAt > resetAtRef.current) {
+      resetAtRef.current = serverResetAt;
+    }
+
+    // 2. Reset lokal juga (agar UI langsung ter-update tanpa nunggu polling).
+    const now = Date.now();
     setAllRows(prev => prev.map(r => {
       const sp = (r.statusProses || '').trim().toLowerCase();
-      // Hanya proses baris yang memang sedang di workflow
       if (!TAHAP_WORKFLOW.has(sp)) return r;
-      // Jangan reset yang sudah selesai/dikirim/batal/retur/diterima
       if (!isStatusAktif(r)) return r;
-      count++;
-      return { ...r, statusProses: undefined, handoverId: undefined, handoverAt: undefined, updatedAt: Date.now() };
+      return { ...r, statusProses: undefined, handoverId: undefined, handoverAt: undefined, updatedAt: now };
     }));
+
+    // 3. Beri tahu perangkat/tab lain untuk menarik ulang dari server.
+    if (typeof window !== 'undefined') {
+      try { window.dispatchEvent(new Event('shared-data-updated')); } catch { /* ignore */ }
+    }
     return count;
   }, []);
 

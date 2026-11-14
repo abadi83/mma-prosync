@@ -544,9 +544,9 @@ function DataTab() {
       if ((group as any).special === 'reset-workflow') {
         // Reset workflow gudang — TIDAK menghapus data, hanya status proses.
         // Identitas petugas dicatat server dari cookie login (recordActivity).
-        const n = resetStatusWorkflow();
+        const n = await resetStatusWorkflow();
         recordActivity([{ modul: 'operasional', aksi: 'reset-workflow', refLabel: `${n} pesanan`, detail: { sumber: 'Pengaturan > Reset Data' } }]);
-        setStatus({ type: 'ok', msg: `✅ Status workflow ${n} pesanan dikembalikan ke "belum diproses". Aktivitas tercatat di log (Notifikasi).` });
+        setStatus({ type: 'ok', msg: `✅ Status workflow ${n} pesanan dikembalikan ke "belum diproses" di SEMUA perangkat. Aktivitas tercatat di log (Notifikasi).` });
         setConfirmKey('');
         return;
       }
