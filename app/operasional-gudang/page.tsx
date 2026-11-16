@@ -726,6 +726,7 @@ function PackingList() {
 /* ── Runner Scan: scan paket → tentukan Pickup/Dropoff → Hand Over per Kurir ── */
 function RunnerScan() {
   const { allRows, setAllRows } = useAgregasi();
+  const { updateStok } = useSkus();
   const scanItems = allRows.filter(r => r.statusProses === 'DiScanRunner');
 
   // Sub-tab: Scan Drop Off, Pickup, Retur/Klaim, atau Riwayat
@@ -910,6 +911,43 @@ function RunnerScan() {
     }
     return map;
   }, [grouped]);
+
+  /* ── Potong stok saat handover (pickup/drop-off → Dikirim) ──
+     Setiap SKU di pesanan mengurangi stok (resolve ke induk bila varian share),
+     lalu dicatat ke Barang Keluar (mutasi) sebagai "Penjualan (Handover)".
+     Guard: hanya dipanggil saat transisi DiScanRunner → Dikirim (anti dobel). */
+  const potongStokHandover = useCallback((g: { noPesanan: string; noResi: string; marketplace: string; items: AgregasiRow[] }, hoId: string) => {
+    const tanggal = todayLocal();
+    // Agregasi per SKU (bisa ada baris SKU sama dalam satu pesanan)
+    const bySku = new Map<string, { sku: string; nama: string; qty: number }>();
+    for (const r of g.items) {
+      const sku = (r.sku || '').trim();
+      if (!sku) continue;
+      const qty = Number(r.kuantity) || 0;
+      if (qty <= 0) continue;
+      const k = sku.toLowerCase();
+      const ex = bySku.get(k);
+      if (ex) ex.qty += qty;
+      else bySku.set(k, { sku, nama: r.namaProduk || sku, qty });
+    }
+    for (const item of bySku.values()) {
+      // Kurangi stok (resolve ke induk bila share stok)
+      void updateStok(item.sku, -item.qty);
+      // Catat barang keluar (mutasi) sebagai penjualan
+      try {
+        void fetch('/api/barang-keluar', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            produk: item.nama,
+            jumlah: item.qty,
+            keperluan: `Penjualan (Handover ${hoId})`,
+            tanggal,
+          }),
+        });
+      } catch { /* stok lokal sudah dipotong; log mutasi boleh gagal tanpa blokir alur */ }
+    }
+  }, [updateStok]);
 
   // Process scan — tag dengan deliveryMode saat ini
   const processScan = (scanValue: string) => {
@@ -1600,6 +1638,8 @@ function RunnerScan() {
               }));
               recordOpLog([{ noPesanan: g.noPesanan, noResi: g.noResi, marketplace: g.marketplace, kurir, jenis: 'proses', aksi: 'Pickup Dikirim', statusProses: 'Dikirim', keterangan: hoId }]);
               recordActivity([{ modul: 'operasional', aksi: 'pickup', refLabel: g.noPesanan, detail: { kurir, hoId } }]);
+              // Potong stok otomatis (barang benar-benar keluar ke kurir)
+              potongStokHandover(g, hoId);
             };
 
             const failOne = (key: string) => {
@@ -1629,6 +1669,11 @@ function RunnerScan() {
               }));
               recordOpLog(activeKeys.map(k => { const g = grouped.get(k); return g ? { noPesanan: g.noPesanan, noResi: g.noResi, marketplace: g.marketplace, kurir, jenis: 'proses' as const, aksi: 'Pickup Dikirim', statusProses: 'Dikirim', keterangan: hoId } : null; }).filter((e): e is NonNullable<typeof e> => !!e));
               recordActivity([{ modul: 'operasional', aksi: 'pickup', refLabel: `${activeKeys.length} paket • ${kurir}`, detail: { hoId } }]);
+              // Potong stok otomatis untuk semua paket yang dikonfirmasi
+              for (const k of activeKeys) {
+                const g = grouped.get(k);
+                if (g) potongStokHandover(g, hoId);
+              }
             };
 
             const failAll = () => {
