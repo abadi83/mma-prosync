@@ -36,7 +36,10 @@ function rupiah(n: number | null | undefined): string {
 async function fetchDetail(id: string): Promise<{ item: RndItem; riwayat: RndProgressItem[] } | null> {
   try {
     const res = await fetch(`/api/rnd?id=${encodeURIComponent(id)}`);
-    if (res.ok) return await res.json();
+    if (res.ok) {
+      const data = await res.json();
+      if (data?.id) return { item: data, riwayat: Array.isArray(data.riwayat) ? data.riwayat : [] };
+    }
   } catch {}
   return null;
 }
