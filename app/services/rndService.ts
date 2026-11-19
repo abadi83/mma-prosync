@@ -218,7 +218,7 @@ export async function createRnd(tokoId: string | undefined, data: RndInput, acto
       (data.supplier || '').trim() || null,
       (data.linkWeb || '').trim() || null,
       (data.fotoContoh || '').trim() || null,
-      Math.max(0, Number(data.hargaModalTarget) || 0),
+      Math.max(0, Math.round(Number(data.hargaModalTarget) || 0)),
       (data.catatan || '').trim() || null,
       pegawaiId,
       actor.nama || 'Pemberi',
@@ -271,8 +271,8 @@ export async function updateRnd(
   if (patch.supplier !== undefined) add('supplier', String(patch.supplier).trim() || null);
   if (patch.linkWeb !== undefined) add('link_web', String(patch.linkWeb).trim() || null);
   if (patch.fotoContoh !== undefined) add('foto_contoh', String(patch.fotoContoh).trim() || null);
-  if (patch.hargaModalTarget !== undefined) add('harga_modal_target', Math.max(0, Number(patch.hargaModalTarget) || 0));
-  if (patch.hargaModalFinal !== undefined) add('harga_modal_final', patch.hargaModalFinal === null ? null : Math.max(0, Number(patch.hargaModalFinal) || 0));
+  if (patch.hargaModalTarget !== undefined) add('harga_modal_target', Math.max(0, Math.round(Number(patch.hargaModalTarget) || 0)));
+  if (patch.hargaModalFinal !== undefined) add('harga_modal_final', patch.hargaModalFinal === null ? null : Math.max(0, Math.round(Number(patch.hargaModalFinal) || 0)));
   if (patch.catatan !== undefined) add('catatan', String(patch.catatan).trim() || null);
   if (patch.hasilResearch !== undefined) add('hasil_research', String(patch.hasilResearch).trim() || null);
   if (patch.prioritas !== undefined) add('prioritas', patch.prioritas);

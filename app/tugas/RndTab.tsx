@@ -90,7 +90,7 @@ export default function RndTab() {
     const q = search.toLowerCase().trim();
     return items.filter(t => {
       if (fStatus && t.status !== fStatus) return false;
-      if (q && !(`${t.namaBarang} ${t.kategori} ${t.supplier} ${t.petugas.map(p => p.nama).join(' ')}`.toLowerCase().includes(q))) return false;
+      if (q && !(`${t.namaBarang} ${t.kategori} ${t.supplier} ${(t.petugas || []).map(p => p.nama).join(' ')}`.toLowerCase().includes(q))) return false;
       return true;
     });
   }, [items, search, fStatus]);
@@ -156,7 +156,7 @@ export default function RndTab() {
                     )}
                   </p>
                   <p className="mt-0.5 text-xs text-slate-500">
-                    Petugas: {t.petugas.length ? t.petugas.map(p => p.nama).join(', ') : '—'} • diberikan {t.pemberiNama || '—'}
+                    Petugas: {(t.petugas || []).length ? t.petugas.map(p => p.nama).join(', ') : '—'} • diberikan {t.pemberiNama || '—'}
                     {t.tenggat && <> • tenggat {fmtDate(t.tenggat)}</>}
                   </p>
                   {t.linkWeb && <a href={t.linkWeb} target="_blank" rel="noopener noreferrer" className="mt-1 inline-block max-w-full truncate text-xs font-semibold text-brand-600 hover:underline">🔗 {t.linkWeb}</a>}
@@ -250,7 +250,7 @@ function FormRnd({ pegawai, edit, pemberiNama, onClose, onSaved }: {
           supplier: f.supplier,
           linkWeb: f.linkWeb,
           fotoContoh: f.fotoContoh,
-          hargaModalTarget: f.hargaModalTarget ? Number(f.hargaModalTarget) : 0,
+          hargaModalTarget: f.hargaModalTarget ? Math.round(Number(f.hargaModalTarget)) : 0,
           catatan: f.catatan,
           tenggat: f.tenggat,
           prioritas: f.prioritas,
@@ -291,7 +291,7 @@ function FormRnd({ pegawai, edit, pemberiNama, onClose, onSaved }: {
           <div className="grid grid-cols-2 gap-2">
             <div>
               <label className="text-xs font-semibold text-slate-500">Harga Modal Target</label>
-              <input type="number" value={f.hargaModalTarget} onChange={e => setF({ ...f, hargaModalTarget: e.target.value })} placeholder="0" className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none" />
+              <input type="number" step="1" min="0" value={f.hargaModalTarget} onChange={e => setF({ ...f, hargaModalTarget: e.target.value })} placeholder="0" className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none" />
             </div>
             <div>
               <label className="text-xs font-semibold text-slate-500">Prioritas</label>
@@ -378,7 +378,7 @@ function DetailRnd({ item, riwayat, pegawai, canKelola, onClose, onSaved }: {
         body: JSON.stringify({
           id: item.id,
           hasilResearch: hasil,
-          hargaModalFinal: hargaFinal === '' ? null : Number(hargaFinal),
+          hargaModalFinal: hargaFinal === '' ? null : Math.round(Number(hargaFinal)),
           catatan: catatan,
           status,
         }),
@@ -412,7 +412,7 @@ function DetailRnd({ item, riwayat, pegawai, canKelola, onClose, onSaved }: {
           </div>
         </div>
 
-        <p className="mt-2 text-xs text-slate-500">Petugas: {item.petugas.length ? item.petugas.map(p => p.nama).join(', ') : '—'} • diberikan {item.pemberiNama || '—'}</p>
+        <p className="mt-2 text-xs text-slate-500">Petugas: {(item.petugas || []).length ? item.petugas.map(p => p.nama).join(', ') : '—'} • diberikan {item.pemberiNama || '—'}</p>
         {item.linkWeb && <a href={item.linkWeb} target="_blank" rel="noopener noreferrer" className="mt-1 inline-block max-w-full truncate text-xs font-semibold text-brand-600 hover:underline">🔗 {item.linkWeb}</a>}
         {item.fotoContoh && (
           <a href={item.fotoContoh} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block">
@@ -442,7 +442,7 @@ function DetailRnd({ item, riwayat, pegawai, canKelola, onClose, onSaved }: {
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className="text-xs font-semibold text-slate-500">Harga Modal Final</label>
-                <input type="number" value={hargaFinal} onChange={e => setHargaFinal(e.target.value)} placeholder="0" className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none" />
+                <input type="number" step="1" min="0" value={hargaFinal} onChange={e => setHargaFinal(e.target.value)} placeholder="0" className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none" />
               </div>
               <div>
                 <label className="text-xs font-semibold text-slate-500">Status</label>
