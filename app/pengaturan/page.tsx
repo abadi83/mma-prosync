@@ -453,11 +453,12 @@ function HargaKanalTab() {
 
   const handleSave = async () => {
     setErr('');
+    const toNum = (v: string) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : 0; };
     const body = {
-      pajakPersen: Math.max(0, Math.round(Number(pajak) || 0)),
-      operasionalPersen: Math.max(0, Math.round(Number(operasional) || 0)),
-      marginWebPersen: Math.max(0, Math.round(Number(marginWeb) || 0)),
-      marginResellerPersen: Math.max(0, Math.round(Number(marginReseller) || 0)),
+      pajakPersen: toNum(pajak),
+      operasionalPersen: toNum(operasional),
+      marginWebPersen: toNum(marginWeb),
+      marginResellerPersen: toNum(marginReseller),
     };
     if (body.operasionalPersen >= 100) { setErr('Potongan operasional tidak boleh ≥ 100%.'); return; }
     try {
@@ -485,19 +486,19 @@ function HargaKanalTab() {
         <div className="mt-5 space-y-3 max-w-md">
           <label className="flex flex-col gap-1">
             <span className="text-xs font-semibold text-slate-600">Pajak / PPN (%)</span>
-            <input type="number" step="1" min="0" value={pajak} onChange={e => setPajak(e.target.value)} placeholder="cth: 11" className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm focus:border-brand-500 focus:outline-none" />
+            <input type="number" step="0.1" min="0" value={pajak} onChange={e => setPajak(e.target.value)} placeholder="cth: 11" className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm focus:border-brand-500 focus:outline-none" />
           </label>
           <label className="flex flex-col gap-1">
             <span className="text-xs font-semibold text-slate-600">Potongan Operasional / Fee (%)</span>
-            <input type="number" step="1" min="0" value={operasional} onChange={e => setOperasional(e.target.value)} placeholder="cth: 5" className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm focus:border-brand-500 focus:outline-none" />
+            <input type="number" step="0.1" min="0" value={operasional} onChange={e => setOperasional(e.target.value)} placeholder="cth: 15" className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm focus:border-brand-500 focus:outline-none" />
           </label>
           <label className="flex flex-col gap-1">
             <span className="text-xs font-semibold text-slate-600">Margin Web / Online (%)</span>
-            <input type="number" step="1" min="0" value={marginWeb} onChange={e => setMarginWeb(e.target.value)} placeholder="cth: 20" className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm focus:border-brand-500 focus:outline-none" />
+            <input type="number" step="0.1" min="0" value={marginWeb} onChange={e => setMarginWeb(e.target.value)} placeholder="cth: 25" className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm focus:border-brand-500 focus:outline-none" />
           </label>
           <label className="flex flex-col gap-1">
             <span className="text-xs font-semibold text-slate-600">Margin Reseller / Offline (%)</span>
-            <input type="number" step="1" min="0" value={marginReseller} onChange={e => setMarginReseller(e.target.value)} placeholder="cth: 15" className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm focus:border-brand-500 focus:outline-none" />
+            <input type="number" step="0.1" min="0" value={marginReseller} onChange={e => setMarginReseller(e.target.value)} placeholder="cth: 25" className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm focus:border-brand-500 focus:outline-none" />
           </label>
           {err && <p className="text-xs font-semibold text-red-600">{err}</p>}
           <button onClick={handleSave} className={`rounded-xl px-6 py-2.5 text-sm font-bold text-white transition ${saved ? 'bg-emerald-500' : 'bg-brand-500 hover:bg-brand-700'}`}>
