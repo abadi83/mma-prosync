@@ -33,10 +33,10 @@ export async function updateInfoToko(data: {
   if (data.nama !== undefined) { sets.push(`nama_toko = $${i++}`); vals.push(data.nama); }
   if (data.alamat !== undefined) { sets.push(`alamat_toko = $${i++}`); vals.push(data.alamat); }
   if (data.logo !== undefined) { sets.push(`logo_url = $${i++}`); vals.push(data.logo); }
-  if (data.pajakPersen !== undefined) { sets.push(`pajak_persen = $${i++}`); vals.push(data.pajakPersen); }
-  if (data.operasionalPersen !== undefined) { sets.push(`operasional_persen = $${i++}`); vals.push(data.operasionalPersen); }
-  if (data.marginWebPersen !== undefined) { sets.push(`margin_web_persen = $${i++}`); vals.push(data.marginWebPersen); }
-  if (data.marginResellerPersen !== undefined) { sets.push(`margin_reseller_persen = $${i++}`); vals.push(data.marginResellerPersen); }
+  if (data.pajakPersen !== undefined) { sets.push(`pajak_persen = $${i++}`); vals.push(Math.round(Number(data.pajakPersen) || 0)); }
+  if (data.operasionalPersen !== undefined) { sets.push(`operasional_persen = $${i++}`); vals.push(Math.round(Number(data.operasionalPersen) || 0)); }
+  if (data.marginWebPersen !== undefined) { sets.push(`margin_web_persen = $${i++}`); vals.push(Math.round(Number(data.marginWebPersen) || 0)); }
+  if (data.marginResellerPersen !== undefined) { sets.push(`margin_reseller_persen = $${i++}`); vals.push(Math.round(Number(data.marginResellerPersen) || 0)); }
   if (sets.length === 0) return getInfoToko(tokoId);
   vals.push(tokoId || DEFAULT_TOKO);
   const { rows } = await query(
