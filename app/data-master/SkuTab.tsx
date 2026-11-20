@@ -5,6 +5,7 @@ import React, { useState, useRef, useMemo, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { useSkus, type SkuItem } from '@/app/context/SkuContext';
 import { deteksiParentSku, resolveSkuStok } from '@/app/lib/skuParent';
+import { hitungHargaWeb, hitungHargaReseller, type HargaKanalSettings } from '@/app/lib/hargaKanal';
 import { ModalConfirm } from './modals';
 
 /* ── helper: ekstrak marketplace dari status upload ── */
@@ -103,6 +104,12 @@ export function SkuTab() {
   const [tokoList, setTokoList] = useState<{ id: string; nama: string; marketplace: string }[]>([]);
   useEffect(() => {
     fetch('/api/marketplace-toko').then(r => r.ok ? r.json() : []).then(d => setTokoList(Array.isArray(d) ? d : [])).catch(() => {});
+  }, []);
+  const [kanalSettings, setKanalSettings] = useState<HargaKanalSettings>({ pajakPersen: 0, operasionalPersen: 0, marginWebPersen: 0, marginResellerPersen: 0 });
+  useEffect(() => {
+    fetch('/api/info-toko').then(r => r.ok ? r.json() : null).then(d => {
+      if (d) setKanalSettings({ pajakPersen: Number(d.pajakPersen) || 0, operasionalPersen: Number(d.operasionalPersen) || 0, marginWebPersen: Number(d.marginWebPersen) || 0, marginResellerPersen: Number(d.marginResellerPersen) || 0 });
+    }).catch(() => {});
   }, []);
   const [f, setF] = useState({ sku: '', nama: '', grade: '', kodeSupplierVarian: '', statusEditGambar: '', statusUploadToko: '', supplier: '', kategori: '', satuan: 'pcs', hargaModalLama: '', hargaBaru: '', hargaJual: '', diskonPersen: '', hargaDiskon: '', minStok: '', aktif: 1, videoKonten: false, gambarToko: '', paketBesar: false, parentSku: '', tipeStok: 'mandiri' });
   const [ferr, setFerr] = useState('');
@@ -726,7 +733,7 @@ export function SkuTab() {
 
       {/* ── Tabel utama ── */}
       <div className="mt-4 overflow-x-auto rounded-xl border border-slate-100">
-        <table className="w-full table-fixed text-left text-xs" style={{ minWidth: '980px' }}>
+        <table className="w-full table-fixed text-left text-xs" style={{ minWidth: '1140px' }}>
           <thead><tr className="bg-brand-50 text-[11px] uppercase text-brand-500">
             <th className="px-1.5 py-2 font-semibold w-[80px]">SKU</th>
             <th className="px-1.5 py-2 font-semibold w-[180px]">Nama</th>
@@ -735,6 +742,8 @@ export function SkuTab() {
             <th className="px-1.5 py-2 font-semibold w-[70px]">Induk</th>
             <th className="px-1.5 py-2 font-semibold w-[80px]">Harga Baru</th>
             <th className="px-1.5 py-2 font-semibold w-[80px]">Harga Jual</th>
+            <th className="px-1.5 py-2 font-semibold w-[80px]">Harga Web</th>
+            <th className="px-1.5 py-2 font-semibold w-[80px]">Harga Reseller</th>
             <th className="px-1.5 py-2 font-semibold w-[52px]">Diskon</th>
             <th className="px-1.5 py-2 font-semibold w-[88px]">Hrg Diskon</th>
             <th className="px-1.5 py-2 font-semibold w-[50px]">Stok</th>
@@ -743,7 +752,7 @@ export function SkuTab() {
             <th className="px-1.5 py-2 font-semibold w-[56px]">Aksi</th>
           </tr></thead>
           <tbody className="divide-y divide-slate-50 bg-white">
-            {paginated.length === 0 ? <tr><td colSpan={13} className="py-10 text-center text-slate-400">{hppFilter !== 'semua' ? 'Tidak ada SKU yang cocok dengan filter ini. 🎉' : 'Tidak ada SKU. Upload file Excel atau tambah manual.'}</td></tr>
+            {paginated.length === 0 ? <tr><td colSpan={15} className="py-10 text-center text-slate-400">{hppFilter !== 'semua' ? 'Tidak ada SKU yang cocok dengan filter ini. 🎉' : 'Tidak ada SKU. Upload file Excel atau tambah manual.'}</td></tr>
               : paginated.map((item, i) => (<tr
                 key={item.id}
                 className={`${i % 2 === 0 ? 'bg-white' : 'bg-slate-50/30'} ${item.stok < item.minStok ? 'border-l-4 border-l-red-400' : ''} cursor-pointer hover:bg-brand-50/50`}
@@ -759,6 +768,8 @@ export function SkuTab() {
                 <td className="px-1.5 py-1.5">{(() => { const r = relasiInduk.get(item.sku); if (!r || r.status === 'mandiri') return <span className="text-slate-300">-</span>; if (r.status === 'varian') return <span className="inline-flex items-center gap-0.5 rounded-full bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700" title={`Menginduk ke SKU ${r.parent}`}>🔗 {r.parent}</span>; return <span className="inline-flex items-center gap-0.5 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700" title="SKU induk — punya varian yang berbagi stok">👑 Induk</span>; })()}</td>
                 <td className="px-1.5 py-1.5 text-[11px] whitespace-nowrap">{item.hargaBaru > 0 ? `Rp ${item.hargaBaru.toLocaleString('id-ID')}` : <span className="rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-600">⚠ 0</span>}</td>
                 <td className="px-1.5 py-1.5 text-[11px] font-semibold text-brand-700 whitespace-nowrap">Rp {item.hargaJual.toLocaleString('id-ID')}</td>
+                <td className="px-1.5 py-1.5 text-[11px] font-semibold text-sky-700 whitespace-nowrap">{(() => { const w = hitungHargaWeb(item.hargaBaru, kanalSettings); return w > 0 ? `Rp ${w.toLocaleString('id-ID')}` : <span className="text-slate-300">-</span>; })()}</td>
+                <td className="px-1.5 py-1.5 text-[11px] font-semibold text-emerald-700 whitespace-nowrap">{(() => { const r = hitungHargaReseller(item.hargaBaru, kanalSettings); return r > 0 ? `Rp ${r.toLocaleString('id-ID')}` : <span className="text-slate-300">-</span>; })()}</td>
                 <td className="px-1.5 py-1.5 text-[11px] whitespace-nowrap">{item.diskonPersen > 0 ? <span className="rounded-full bg-rose-100 px-1.5 py-0.5 text-[10px] font-bold text-rose-600">−{item.diskonPersen}%</span> : <span className="text-slate-300">-</span>}</td>
                 <td className="px-1.5 py-1.5 text-[11px] font-semibold text-rose-600 whitespace-nowrap">{item.hargaDiskon > 0 ? `Rp ${item.hargaDiskon.toLocaleString('id-ID')}` : <span className="text-slate-300">-</span>}</td>
                 <td className="px-1.5 py-1.5"><span className={`text-[11px] font-semibold ${item.stok < item.minStok ? 'text-red-500' : item.stok === 0 ? 'text-slate-400' : 'text-slate-700'}`}>{item.stok}{item.stok < item.minStok && ' ⚠'}</span></td>

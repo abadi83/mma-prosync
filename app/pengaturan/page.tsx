@@ -6,13 +6,14 @@ import { storageRemove } from '@/app/lib/idbStorage';
 import { useAgregasi } from '@/app/context/AgregasiContext';
 import { recordActivity } from '@/app/lib/recordActivity';
 
-type Tab = 'profil' | 'password' | 'toko' | 'akun' | 'data' | 'history';
+type Tab = 'profil' | 'password' | 'toko' | 'harga' | 'akun' | 'data' | 'history';
 
 const TABS = [
   { key: 'profil' as const, label: 'Profil', icon: '👤' },
   { key: 'akun' as const, label: 'Akun & Role', icon: '🔑' },
   { key: 'password' as const, label: 'Ubah Password', icon: '🔒' },
   { key: 'toko' as const, label: 'Info Toko', icon: '🏪' },
+  { key: 'harga' as const, label: 'Harga Web & Reseller', icon: '💰' },
   { key: 'data' as const, label: 'Reset Data', icon: '🗑️' },
   { key: 'history' as const, label: 'History Aplikasi', icon: '📜' },
 ];
@@ -62,6 +63,7 @@ export default function PengaturanPage() {
         {tab === 'akun' && <AkunTab />}
         {tab === 'password' && <PasswordTab />}
         {tab === 'toko' && <TokoTab />}
+        {tab === 'harga' && <HargaKanalTab />}
         {tab === 'data' && <DataTab />}
         {tab === 'history' && <HistoryAppTab isAdmin={isAdmin} />}
       </section>
@@ -425,6 +427,84 @@ function TokoTab() {
           {saved ? '✅ Tersimpan!' : '💾 Simpan'}
         </button>
       </div>
+    </div>
+  );
+}
+
+function HargaKanalTab() {
+  const [pajak, setPajak] = useState('');
+  const [operasional, setOperasional] = useState('');
+  const [marginWeb, setMarginWeb] = useState('');
+  const [marginReseller, setMarginReseller] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [saved, setSaved] = useState(false);
+  const [err, setErr] = useState('');
+
+  useEffect(() => {
+    fetch('/api/info-toko').then(r => r.ok ? r.json() : null).then(d => {
+      if (d) {
+        setPajak(String(d.pajakPersen ?? 0));
+        setOperasional(String(d.operasionalPersen ?? 0));
+        setMarginWeb(String(d.marginWebPersen ?? 0));
+        setMarginReseller(String(d.marginResellerPersen ?? 0));
+      }
+    }).catch(() => {}).finally(() => setLoading(false));
+  }, []);
+
+  const handleSave = async () => {
+    setErr('');
+    const body = {
+      pajakPersen: Math.max(0, Number(pajak) || 0),
+      operasionalPersen: Math.max(0, Number(operasional) || 0),
+      marginWebPersen: Math.max(0, Number(marginWeb) || 0),
+      marginResellerPersen: Math.max(0, Number(marginReseller) || 0),
+    };
+    if (body.operasionalPersen >= 100) { setErr('Potongan operasional tidak boleh ≥ 100%.'); return; }
+    try {
+      const res = await fetch('/api/info-toko', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      if (res.ok) { setSaved(true); setTimeout(() => setSaved(false), 2500); }
+      else setErr('Gagal menyimpan pengaturan.');
+    } catch { setErr('Gagal terhubung ke server.'); }
+  };
+
+  return (
+    <div>
+      <div className="mb-1 h-1 w-16 rounded-full bg-gradient-to-r from-brand-500 to-brand-300" />
+      <h2 className="text-lg font-bold text-slate-800 sm:text-xl">💰 Harga Web &amp; Reseller</h2>
+      <p className="mt-1 text-sm text-slate-500">
+        Harga Web (Online) &amp; Reseller (Offline) di Master SKU dihitung otomatis dari <strong>HPP terbaru</strong> + komponen di bawah ini.
+      </p>
+
+      <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50/60 p-3 text-xs text-amber-700">
+        Rumus: <strong>HPP × (1 + Pajak%) × (1 + Margin%) ÷ (1 − Operasional%)</strong>, lalu dibulatkan.
+      </div>
+
+      {loading ? (
+        <p className="mt-4 text-sm text-slate-400">Memuat pengaturan…</p>
+      ) : (
+        <div className="mt-5 space-y-3 max-w-md">
+          <label className="flex flex-col gap-1">
+            <span className="text-xs font-semibold text-slate-600">Pajak / PPN (%)</span>
+            <input type="number" step="0.1" min="0" value={pajak} onChange={e => setPajak(e.target.value)} placeholder="cth: 11" className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm focus:border-brand-500 focus:outline-none" />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-xs font-semibold text-slate-600">Potongan Operasional / Fee (%)</span>
+            <input type="number" step="0.1" min="0" value={operasional} onChange={e => setOperasional(e.target.value)} placeholder="cth: 5" className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm focus:border-brand-500 focus:outline-none" />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-xs font-semibold text-slate-600">Margin Web / Online (%)</span>
+            <input type="number" step="0.1" min="0" value={marginWeb} onChange={e => setMarginWeb(e.target.value)} placeholder="cth: 20" className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm focus:border-brand-500 focus:outline-none" />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-xs font-semibold text-slate-600">Margin Reseller / Offline (%)</span>
+            <input type="number" step="0.1" min="0" value={marginReseller} onChange={e => setMarginReseller(e.target.value)} placeholder="cth: 15" className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm focus:border-brand-500 focus:outline-none" />
+          </label>
+          {err && <p className="text-xs font-semibold text-red-600">{err}</p>}
+          <button onClick={handleSave} className={`rounded-xl px-6 py-2.5 text-sm font-bold text-white transition ${saved ? 'bg-emerald-500' : 'bg-brand-500 hover:bg-brand-700'}`}>
+            {saved ? '✅ Tersimpan!' : '💾 Simpan'}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
