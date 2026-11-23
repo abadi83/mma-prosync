@@ -8,6 +8,7 @@ import { BeritaSection } from '@/app/components/BeritaSection';
 import { BeritaInternalSection } from '@/app/components/BeritaInternalSection';
 import { CollapsibleCard } from '@/app/components/CollapsibleCard';
 import AgregasiDashboard from '@/app/components/AgregasiDashboard';
+import SkuTokoDashboard from '@/app/components/SkuTokoDashboard';
 import { useDashboardRefresh } from '@/app/hooks/useDashboardRefresh';
 import { useUser } from '@/app/hooks/useUser';
 import { canAccessPath } from '@/app/lib/accessControl';
@@ -83,6 +84,16 @@ export default function HomePage() {
 
       {/* ── Agregasi Pesanan dari Data Entry & Operasional Gudang ── */}
       <AgregasiDashboard />
+
+      {/* ── Grafik SKU per Toko & SKU yang diperbarui (read-only) ── */}
+      <CollapsibleCard
+        storageKey="mma_ui_collapse_sku_toko"
+        title="Analitik SKU & Toko"
+        icon="📊"
+        summary={`${data.stockSummary.totalItems} SKU terpantau`}
+      >
+        <SkuTokoDashboard />
+      </CollapsibleCard>
 
       <ShortcutModule data={visibleShortcuts} />
     </main>
