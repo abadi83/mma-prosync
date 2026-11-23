@@ -79,6 +79,7 @@ const MP_POTONGAN: Record<string, number> = {
   Bukalapak: 5,
   Blibli: 7,
   'TikTok Shop': 6,
+  Website: 0,
   Lainnya: 5,
 };
 

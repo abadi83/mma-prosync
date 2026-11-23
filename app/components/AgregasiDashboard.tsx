@@ -11,6 +11,7 @@ const MP_COLORS: Record<string, string> = {
   'TikTok Shop': 'from-slate-600 to-slate-700',
   Lazada: 'from-blue-400 to-blue-600',
   Tokopedia: 'from-emerald-400 to-emerald-600',
+  Website: 'from-violet-400 to-violet-600',
 };
 
 const MP_BAR_COLORS: Record<string, string> = {
@@ -18,6 +19,7 @@ const MP_BAR_COLORS: Record<string, string> = {
   'TikTok Shop': 'bg-slate-600',
   Lazada: 'bg-blue-500',
   Tokopedia: 'bg-emerald-500',
+  Website: 'bg-violet-500',
 };
 
 const MP_DOT_COLORS: Record<string, string> = {
@@ -25,6 +27,7 @@ const MP_DOT_COLORS: Record<string, string> = {
   'TikTok Shop': 'bg-slate-500',
   Lazada: 'bg-blue-500',
   Tokopedia: 'bg-emerald-500',
+  Website: 'bg-violet-500',
 };
 
 const STATUS_COLORS: Record<string, string> = {

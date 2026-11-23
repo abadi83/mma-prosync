@@ -5,7 +5,7 @@ import { useApiList } from '@/app/hooks/useApiList';
 import { TokoItem } from '@/app/services/marketplaceTokoService';
 import { ModalForm, ModalConfirm } from './modals';
 
-const MARKETPLACES = ['Shopee', 'Tokopedia', 'Lazada', 'TikTok Shop'];
+const MARKETPLACES = ['Shopee', 'Tokopedia', 'Lazada', 'TikTok Shop', 'Website'];
 
 export function TokoTab() {
   const { items: list, create, update, remove } = useApiList<TokoItem>({ endpoint: '/api/marketplace-toko' });
