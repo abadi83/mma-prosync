@@ -7,6 +7,7 @@ import { useSkus, type SkuItem } from '@/app/context/SkuContext';
 import { deteksiParentSku, resolveSkuStok } from '@/app/lib/skuParent';
 import { hitungHargaWeb, hitungHargaReseller, type HargaKanalSettings } from '@/app/lib/hargaKanal';
 import { ModalConfirm } from './modals';
+import SkuTableScroll from './SkuTableScroll';
 
 /* ── helper: ekstrak marketplace dari status upload ── */
 function extractMarketplaces(status: string): { name: string; color: string }[] {
@@ -734,7 +735,7 @@ export function SkuTab() {
       </div></div>)}
 
       {/* ── Tabel utama ── */}
-      <div className="mt-4 overflow-x-auto rounded-xl border border-slate-100">
+      <SkuTableScroll>
         <table className="w-full table-fixed text-left text-xs" style={{ minWidth: '1140px' }}>
           <thead><tr className="bg-brand-50 text-[11px] uppercase text-brand-500">
             <th className="px-1.5 py-2 font-semibold w-[80px]">SKU</th>
@@ -781,7 +782,7 @@ export function SkuTab() {
               </tr>))}
           </tbody>
         </table>
-      </div>
+      </SkuTableScroll>
 
       {/* ── Pagination ── */}
       {filtered.length > PAGE_SIZE && (
