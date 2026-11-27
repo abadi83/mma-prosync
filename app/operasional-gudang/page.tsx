@@ -6,6 +6,7 @@ import * as XLSX from 'xlsx';
 import { useAgregasi, type AgregasiRow } from '@/app/context/AgregasiContext';
 import { useSkus } from '@/app/context/SkuContext';
 import { computeBelanjaOrders, skuInventoryStatus } from '@/app/lib/belanja';
+import { parsePickingInput } from '@/app/lib/pickingInput';
 import { useSuppliers } from '@/app/hooks/useSuppliers';
 import { recordOpLog } from '@/app/lib/recordOpLog';
 import { recordActivity } from '@/app/lib/recordActivity';
@@ -1781,11 +1782,9 @@ function PickingList({ onGoBelanja }: { onGoBelanja?: () => void }) {
   const [detailKey, setDetailKey] = useState<string|null>(null); // popup detail
 
   // Manual input scanner
-  const [manualNoPesanan, setManualNoPesanan] = useState('');
-  const [manualNoResi, setManualNoResi] = useState('');
+  const [manualCode, setManualCode] = useState('');
   const [manualMsg, setManualMsg] = useState('');
-  const manualRef = useRef<HTMLInputElement>(null);
-  const resiRef = useRef<HTMLInputElement>(null);
+  const manualRef = useRef<HTMLTextAreaElement>(null);
 
   // Kamera scan (pakai html5-qrcode, sama seperti Runner Scan)
   const [scanMode, setScanMode] = useState<'manual' | 'camera'>('manual');
@@ -1811,9 +1810,6 @@ function PickingList({ onGoBelanja }: { onGoBelanja?: () => void }) {
       return;
     }
 
-    // Masukkan ke field No. Resi lalu submit (scan resi/pesanan berupa teks tunggal).
-    setManualNoResi(val);
-    setManualNoPesanan('');
     const matches = val.split(/[\n,;]+/).map(l => l.trim()).filter(Boolean).map(r => ({ noPesanan: '', noResi: r }));
     const result = updateStatusPicking(matches);
 
@@ -1824,7 +1820,7 @@ function PickingList({ onGoBelanja }: { onGoBelanja?: () => void }) {
       playBeep('gagal');
       setManualMsg(`❌ "${val}" tidak ditemukan di daftar pesanan.`);
     }
-    setManualNoResi('');
+    setManualCode('');
     setTimeout(() => setManualMsg(''), 4000);
   };
 
@@ -1901,34 +1897,8 @@ function PickingList({ onGoBelanja }: { onGoBelanja?: () => void }) {
 
   /* ── Manual input: scanner atau ketik, minimal salah satu ── */
   const handleManualSubmit = () => {
-    const pesanan = manualNoPesanan.trim();
-    const resi = manualNoResi.trim();
-    if (!pesanan && !resi) { setManualMsg('Isi minimal No. Pesanan atau No. Resi.'); return; }
-    // Jika hanya resi yang diisi, pakai resi tanpa noPesanan
-    if (!pesanan && resi) {
-      const lines = resi.split(/[\n,;]+/).map(l=>l.trim()).filter(Boolean);
-      const matches = lines.map(r => ({ noPesanan: '', noResi: r }));
-      const result = updateStatusPicking(matches);
-      if (result.updated > 0) {
-        playBeep('sukses');
-        setManualMsg(`✅ ${result.updated} pesanan diupdate.${result.notFound>0?' '+result.notFound+' tidak ditemukan.':''}`);
-      } else {
-        playBeep('gagal');
-        setManualMsg(`❌ "${resi}" tidak ditemukan / sudah diproses.`);
-      }
-      setManualNoPesanan(''); setManualNoResi('');
-      setTimeout(() => setManualMsg(''), 4000);
-      manualRef.current?.focus();
-      return;
-    }
-    // Bisa input multi-line (paste dari Excel/scanner bulk)
-    const lines = pesanan.split(/[\n,;]+/).map(l=>l.trim()).filter(Boolean);
-    const matches: { noPesanan: string; noResi: string }[] = [];
-    for (const line of lines) {
-      // Format: "NO_PESANAN NO_RESI" atau "NO_PESANAN" saja
-      const parts = line.split(/\s+/);
-      matches.push({ noPesanan: parts[0], noResi: parts[1] || resi || '' });
-    }
+    const matches = parsePickingInput(manualCode, allRows);
+    if (!matches.length) { setManualMsg('Isi No. Pesanan atau No. Resi.'); manualRef.current?.focus(); return; }
     const result = updateStatusPicking(matches);
     if (result.updated > 0) {
       playBeep('sukses');
@@ -1937,22 +1907,15 @@ function PickingList({ onGoBelanja }: { onGoBelanja?: () => void }) {
       playBeep('gagal');
       setManualMsg(`❌ Pesanan/resi tidak ditemukan / sudah diproses.`);
     }
-    setManualNoPesanan(''); setManualNoResi('');
+    setManualCode('');
     setTimeout(() => setManualMsg(''), 4000);
     manualRef.current?.focus();
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
-      if (manualNoPesanan.trim() || manualNoResi.trim()) handleManualSubmit();
-    }
-  };
-
-  const handleResiKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      if (manualNoPesanan.trim() || manualNoResi.trim()) handleManualSubmit();
+      if (manualCode.trim()) handleManualSubmit();
     }
   };
 
@@ -1989,33 +1952,15 @@ function PickingList({ onGoBelanja }: { onGoBelanja?: () => void }) {
 
       {/* ── Manual Input Scanner ── */}
       <div className="mt-3 rounded-xl border-2 border-dashed border-brand-200 bg-brand-50/30 p-4">
-        <p className="text-xs font-semibold text-brand-600 mb-3">🔫 Scan / Input Manual — isi No. Pesanan <span className="text-slate-400">atau</span> No. Resi (minimal salah satu)</p>
+        <p className="text-xs font-semibold text-brand-600 mb-3">Scan / Input Manual</p>
         <div className="flex flex-wrap items-end gap-2">
           <div className="flex-1 min-w-[180px]">
-            <label className="text-[10px] font-semibold text-slate-500">No. Pesanan</label>
-            <input
-              ref={manualRef}
-              type="text"
-              value={manualNoPesanan}
-              onChange={e => setManualNoPesanan(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Scan / ketik No. Pesanan"
-              className="w-full rounded-lg border border-brand-200 bg-white px-3 py-2 text-sm font-mono focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-200"
+            <label htmlFor="picking-code" className="text-[10px] font-semibold text-slate-500">No. Pesanan atau No. Resi</label>
+            <textarea id="picking-code" aria-describedby="picking-code-help" rows={1}
+              ref={manualRef} value={manualCode} onChange={e => setManualCode(e.target.value)}
+              onKeyDown={handleKeyDown} placeholder="Scan / ketik No. Pesanan atau No. Resi"
+              className="block w-full rounded-lg border border-brand-200 bg-white px-3 py-2 text-sm font-mono focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-200"
               autoFocus
-            />
-            <p className="text-[10px] text-slate-400 mt-0.5">Multi: pisahkan koma, titik koma, atau enter</p>
-          </div>
-          <span className="text-xs text-slate-400 pb-2">atau</span>
-          <div className="w-40">
-            <label className="text-[10px] font-semibold text-slate-500">No. Resi</label>
-            <input
-              ref={resiRef}
-              type="text"
-              value={manualNoResi}
-              onChange={e => setManualNoResi(e.target.value)}
-              onKeyDown={handleResiKeyDown}
-              placeholder="Scan / ketik No. Resi"
-              className="w-full rounded-lg border border-brand-200 bg-white px-3 py-2 text-sm font-mono focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-200"
             />
           </div>
           <button
@@ -2031,6 +1976,7 @@ function PickingList({ onGoBelanja }: { onGoBelanja?: () => void }) {
             {scanMode === 'camera' ? '✕ Stop Kamera' : '📷 Scan Kamera'}
           </button>
         </div>
+        <p id="picking-code-help" className="mt-1 text-[10px] text-slate-500">Enter untuk proses. Pisahkan banyak kode dengan koma, titik koma, atau Shift+Enter.</p>
         {manualMsg && (
           <p className={`mt-2 text-xs font-semibold ${manualMsg.startsWith('✅')?'text-emerald-600':'text-red-500'}`}>{manualMsg}</p>
         )}
