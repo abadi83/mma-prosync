@@ -1,7 +1,7 @@
 'use client';
 import { todayLocal } from '@/app/lib/dateLocal';
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useAkuntansi } from '@/app/context/AkuntansiContext';
 import BuktiBayarUpload from '@/app/components/BuktiBayarUpload';
 import type { BuktiBayar, OcrResult } from '@/app/types';
@@ -11,6 +11,7 @@ import { recordActivity } from '@/app/lib/recordActivity';
 import { readTombstones, applyTombstones, addTombstones, type Tombstone } from '@/app/lib/tombstones';
 import { useSyncedStorage } from '@/app/hooks/useSyncedStorage';
 import { storageGetRaw, setJSON } from '@/app/lib/idbStorage';
+import { paymentRemaining, paymentAmountError } from '@/app/lib/paymentGuard';
 import HapusDataTab from './HapusDataTab';
 
 /* ================================================================ */
@@ -835,11 +836,15 @@ function PembayaranTab() {
   const [bayarBiaya, setBayarBiaya] = useState(false);
   const [formOpexBiaya, setFormOpexBiaya] = useState({ jumlah: '', metode: 'transfer', nomorRef: '', catatan: '', tanggalBayar: today, dibayarOleh: '' });
 
+  const submitted = useRef(false);
+
   const handleBayarOpexBiaya = (jenis: 'OPEX' | 'BIAYA') => {
-    const jml = +formOpexBiaya.jumlah || 0;
-    if (jml <= 0) { setFerr('Jumlah > 0.'); return; }
+    if (submitted.current) return;
+    const jml = Number(formOpexBiaya.jumlah);
     const max = jenis === 'OPEX' ? sisaOpex : sisaBiaya;
-    if (jml > max) { setFerr(`Maks Rp ${max.toLocaleString('id-ID')}.`); return; }
+    const error = paymentAmountError(jml, max);
+    if (error) { setFerr(error); return; }
+    submitted.current = true;
 
     const record: PaymentRecord = {
       id: `pay-${Date.now()}`,
@@ -863,6 +868,7 @@ function PembayaranTab() {
   };
 
   const openBayar = (g: PoGroup) => {
+    submitted.current = false;
     setBayarPoGroup(g);
     setFormBayar({ jumlah: String(g.sisa), metode:'transfer', nomorRef:'', catatan:'', tanggalBayar:today, dibayarOleh:'' });
     setFerr('');
@@ -882,10 +888,15 @@ function PembayaranTab() {
   };
 
   const handleBayar = () => {
-    if (!bayarPoGroup) return;
-    const jml = +formBayar.jumlah || 0;
-    if (jml <= 0) { setFerr('Jumlah > 0.'); return; }
-    if (jml > bayarPoGroup.sisa) { setFerr(`Maks Rp ${bayarPoGroup.sisa.toLocaleString('id-ID')}.`); return; }
+    if (!bayarPoGroup || submitted.current) return;
+    const current = poGroups.find(g => g.noPO === bayarPoGroup.noPO);
+    const recorded = paymentsAktif.filter(p => p.noPO === bayarPoGroup.noPO)
+      .reduce((sum, p) => sum + p.jumlahDibayar, 0);
+    const remaining = current ? paymentRemaining(current.total, current.dibayar, recorded) : 0;
+    const jml = Number(formBayar.jumlah);
+    const error = paymentAmountError(jml, remaining);
+    if (error) { setFerr(error); return; }
+    submitted.current = true;
 
     const isCash = bayarPoGroup.metodeBayar === 'cash';
     // Distribusi pembayaran ke baris SKU secara EXACT (largest remainder atas sisa
@@ -938,7 +949,7 @@ function PembayaranTab() {
 
     const record: PaymentRecord = {
       id:`pay-${Date.now()}`, poId:bayarPoGroup.noPO, noPO:bayarPoGroup.noPO, supplierNama: supplierLabel,
-      jumlahDibayar:jml, sisaSebelum:bayarPoGroup.sisa, sisaSesudah:bayarPoGroup.sisa-jml,
+      jumlahDibayar:jml, sisaSebelum:remaining, sisaSesudah:remaining-jml,
       metode:formBayar.metode, nomorRef:formBayar.nomorRef.trim()||'-', catatan:formBayar.catatan.trim(),
       tanggalBayar:formBayar.tanggalBayar||today, dibayarOleh:formBayar.dibayarOleh.trim()||'-',
     };
@@ -1086,7 +1097,7 @@ function PembayaranTab() {
             </div>
             {sisaOpex > 0 && (
               <button
-                onClick={() => { setBayarOpex(true); setBayarBiaya(false); setFormOpexBiaya({ jumlah: String(sisaOpex), metode: 'transfer', nomorRef: '', catatan: '', tanggalBayar: today, dibayarOleh: '' }); setFerr(''); }}
+                onClick={() => { submitted.current = false; setBayarOpex(true); setBayarBiaya(false); setFormOpexBiaya({ jumlah: String(sisaOpex), metode: 'transfer', nomorRef: '', catatan: '', tanggalBayar: today, dibayarOleh: '' }); setFerr(''); }}
                 className="rounded-lg bg-blue-500 px-4 py-1.5 text-xs font-bold text-white hover:bg-blue-600"
               >
                 💳 Bayar (Sisa Rp {sisaOpex.toLocaleString('id-ID')})
@@ -1107,7 +1118,7 @@ function PembayaranTab() {
             </div>
             {sisaBiaya > 0 && (
               <button
-                onClick={() => { setBayarBiaya(true); setBayarOpex(false); setFormOpexBiaya({ jumlah: String(sisaBiaya), metode: 'transfer', nomorRef: '', catatan: '', tanggalBayar: today, dibayarOleh: '' }); setFerr(''); }}
+                onClick={() => { submitted.current = false; setBayarBiaya(true); setBayarOpex(false); setFormOpexBiaya({ jumlah: String(sisaBiaya), metode: 'transfer', nomorRef: '', catatan: '', tanggalBayar: today, dibayarOleh: '' }); setFerr(''); }}
                 className="rounded-lg bg-amber-500 px-4 py-1.5 text-xs font-bold text-white hover:bg-amber-600"
               >
                 💳 Bayar (Sisa Rp {sisaBiaya.toLocaleString('id-ID')})
