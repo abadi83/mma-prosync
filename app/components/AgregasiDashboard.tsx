@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
+import { filterPesananByPeriode, type PeriodePesanan } from '@/app/lib/periodePesanan';
 import { useAgregasi } from '@/app/context/AgregasiContext';
 import { isPerluDikirim, isPerluProses, isDalamProsesGudang } from '@/app/lib/kurir';
 import Link from 'next/link';
@@ -70,9 +71,11 @@ function fmtRp(n: number): string {
 /* ═══════════════════════════════════════════════════════════════════ */
 export default function AgregasiDashboard() {
   const { allRows } = useAgregasi();
+  const [periode, setPeriode] = useState<PeriodePesanan>('semua');
 
   const stats = useMemo(() => {
     if (allRows.length === 0) return null;
+    const rows = filterPesananByPeriode(allRows, periode);
 
     // Group by noPesanan||noResi (satu "order" bisa multi SKU)
     const orderMap = new Map<string, {
@@ -86,7 +89,7 @@ export default function AgregasiDashboard() {
       itemCount: number;
     }>();
 
-    for (const r of allRows) {
+    for (const r of rows) {
       const key = `${r.noPesanan}||${r.noResi}`;
       const exist = orderMap.get(key);
       const itemTotal = (r.hargaJual * r.kuantity) || r.hargaJual;
@@ -112,7 +115,7 @@ export default function AgregasiDashboard() {
     // Totals
     const totalOrders = orders.length;
     const totalRevenue = orders.reduce((s, o) => s + o.total, 0);
-    const totalItems = allRows.reduce((s, r) => s + r.kuantity, 0);
+    const totalItems = rows.reduce((s, r) => s + r.kuantity, 0);
 
     // Picking progress — full workflow sync dengan operasional
     const picked = orders.filter(o =>
@@ -194,7 +197,7 @@ export default function AgregasiDashboard() {
       orders, mpMap, maxRevenue, statusMap,
       gudangCounts, maxGudang, totalDiproses,
     };
-  }, [allRows]);
+  }, [allRows, periode]);
 
   if (!stats) {
     return (
@@ -221,7 +224,25 @@ export default function AgregasiDashboard() {
             {stats.totalOrders} pesanan • {stats.totalItems} item
           </p>
         </div>
+        <label className="flex flex-col gap-1 text-xs font-medium text-slate-600">
+          Tanggal pesanan dibuat (WIB)
+          <select
+            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
+            value={periode}
+            onChange={e => setPeriode(e.target.value as PeriodePesanan)}
+          >
+            <option value="semua">Semua Data</option>
+            <option value="hari-ini">Hari Ini</option>
+            <option value="7-hari">7 Hari Terakhir</option>
+          </select>
+        </label>
       </div>
+      {periode !== 'semua' && (
+        <p role="status" className="text-xs text-slate-500">
+          {stats.totalOrders === 0 && 'Tidak ada pesanan pada periode ini. '}
+          Pesanan tanpa tanggal yang terbaca tetap tersedia di Semua Data.
+        </p>
+      )}
 
       {/* ═══════════ STATS CARDS ═══════════ */}
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
